@@ -8,13 +8,17 @@
 // The table is web/shared/permissions.ts, copied whole to api/permissions.json by web/test/rust-permissions.test.ts,
 // which `GET /api/permissions` answers with (routes/permissions.rs, ORR-1086); the rails read its rows. Reads
 // go through: a board's reads are each route's (`needsBoard`), as they are on Nuxt, save that a read or write of a project
-// in a workspace the asker isn't a member of is answered 404 (`workspace_check`, ORR-1106).
+// in a workspace the asker isn't a member of is answered 404 (`workspace_check`, ORR-1106), and a write to a board marked
+// as moved 409 (`moved_check`, ORR-1225).
 use crate::access::people::Who;
+use crate::access::presence::Presence;
 use crate::access::seen::Seen;
+use crate::access::session_records::{as_recorded, named_ids};
 use crate::board::issue_writes::IssueWrites;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
 use crate::request::{actor_of, who_of};
+use crate::work::session_work::SessionWork;
 use crate::write::Actor;
 use crate::Shared;
 use axum::extract::{Request, State};
@@ -238,9 +242,9 @@ async fn board_check(conn: &mut AnyConnection, who: Option<&Who>, actor: &Actor,
     ))
 }
 
-/// An untrusted session's write to a project other than the one it was started for (ORR-1069), refused: the router says
-/// which it was (`Orrery-Untrusted-Project`) once it knows the session, as middleware/untrusted.ts holds it there. It's
-/// held here too for the tools at `/mcp` (ORR-1102), whose routes the router's middleware never sees.
+/// An untrusted session's write to a project other than the one it was started for (ORR-1069), refused: its record
+/// says which (`as_recorded`, ORR-1171), as middleware/untrusted.ts holds it there. It's held here too for the tools at
+/// `/mcp` (ORR-1102), whose routes the router's middleware never sees.
 fn own_project(own: Option<&str>, path: &str) -> Result<()> {
     let Some(own) = own else { return Ok(()) };
     let Some(named) = path.strip_prefix("/api/projects/").and_then(|rest| rest.split_once('/')).map(|(project, _)| project) else { return Ok(()) };
@@ -279,12 +283,66 @@ async fn workspace_check(conn: &mut AnyConnection, who: Option<&Who>, actor: &Ac
     }
 }
 
+/// A write to a board marked as moved to another orrery (ORR-1225), refused with where it went, so a session still
+/// pointed here doesn't write to the old copy unnoticed. Marking it and lifting the mark (`…/moved`) go through, and so
+/// does deleting the board, which stays the owner's call.
+async fn moved_check(conn: &mut AnyConnection, method: &Method, path: &str) -> Result<()> {
+    let Some(project) = project_named(path) else { return Ok(()) };
+    let base = path.trim_end_matches('/').splitn(5, '/').collect::<Vec<_>>();
+    let marking = base.len() == 5 && base[4] == "moved";
+    let deleting = base.len() == 4 && method == Method::DELETE;
+    if marking || deleting {
+        return Ok(());
+    }
+    let row = sqlx::query(&sql("SELECT moved_to FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?;
+    match row.and_then(|r| r.get::<Option<String>, _>("moved_to")) {
+        Some(to) => Err(ApiError::moved(&project, &to)),
+        None => Ok(()),
+    }
+}
+
 /// The workspace a session's calls say it works in (`Orrery-Workspace`, ORR-1109): only a session's, as the router says
 /// it (`Orrery-Actor-Session`) or `/mcp` hears it (`Orrery-Session`). A page names one too, from its address, but isn't
 /// held to it.
 fn session_workspace(headers: &axum::http::HeaderMap, actor: &Actor) -> Option<String> {
     let session = actor.session.is_some() || crate::request::header(headers, "orrery-session").is_some_and(|s| !s.is_empty());
     session.then(|| crate::request::header(headers, "orrery-workspace")).flatten().map(|w| w.trim().to_string()).filter(|w| !w.is_empty())
+}
+
+/// The project and issue of a write a session's claim holds (ORR-1172): a comment's edit, or a schedule asked for on an
+/// issue, as `claimOnComment` in the router held them. None for any other.
+fn claimed_on(method: &Method, path: &str) -> Option<(String, String)> {
+    let parts: Vec<&str> = path.trim_start_matches("/api/").trim_end_matches('/').split('/').collect();
+    let held = match (method, parts.as_slice()) {
+        (&Method::PATCH, ["projects", _, "issues", _, "comments", ..]) => parts.len() <= 6,
+        (&Method::POST, ["projects", _, "issues", _, "schedule-requests"]) => true,
+        _ => false,
+    };
+    let decoded = |part: &str| percent_decode_str(part).decode_utf8_lossy().into_owned();
+    held.then(|| (decoded(parts[1]), decoded(parts[3])))
+}
+
+/// A session's claim (ORR-1172): its write on an issue another session has started, while that session is still there
+/// to hear (`Presence`), is refused as the router's `claimFor` refused it. The owner isn't held, and nor is a request
+/// naming no session. One whose issue isn't there is left to its route to say so.
+async fn claim_check(conn: &mut AnyConnection, headers: &axum::http::HeaderMap, actor: &Actor, method: &Method, path: &str) -> Result<()> {
+    let ids = named_ids(headers);
+    let Some((project, issue)) = claimed_on(method, path).filter(|_| !actor.owner && !ids.is_empty()) else {
+        return Ok(());
+    };
+    let Ok(chain) = SessionWork::new(&mut *conn).workers(&project, &issue).await else {
+        return Ok(());
+    };
+    let Some(first) = chain.first() else { return Ok(()) };
+    let started = first["started"].as_bool().unwrap_or(false);
+    let Some(worker) = first["worker"].as_str().filter(|w| started && !ids.iter().any(|id| id == w)) else {
+        return Ok(());
+    };
+    if !Presence::new(conn).present(&project, worker).await? {
+        return Ok(());
+    }
+    let id = first["issue"].as_str().unwrap_or(&issue);
+    Err(ApiError::conflict(format!("{id} is already being worked on by another session ({worker}); pick another issue")))
 }
 
 /// Holds each request to its project's workspace, and each write to its rails, before its route runs; a route this API
@@ -295,27 +353,34 @@ pub(crate) async fn rails(State(app): Shared, request: Request, next: Next) -> R
         return next.run(request).await;
     }
     let path = request.uri().path().to_string();
-    let (actor, who) = (actor_of(request.headers()), who_of(request.headers()));
-    let own = crate::request::header(request.headers(), "orrery-untrusted-project").filter(|p| !p.is_empty());
+    let who = who_of(request.headers());
     let server = crate::request::came_of(request.headers()).server;
-    let held_to = session_workspace(request.headers(), &actor);
     let read = [Method::GET, Method::HEAD, Method::OPTIONS].contains(&method);
+    let headers = request.headers();
     let held = async {
         let mut conn = app.pool.acquire().await?;
+        // The session's record holds it as tight as the router says, or tighter (ORR-1171).
+        let (actor, own) = as_recorded(&mut conn, headers, &actor_of(headers)).await?;
+        let held_to = session_workspace(headers, &actor);
         if !server && method != Method::OPTIONS {
             workspace_check(&mut conn, who.as_ref(), &actor, own.as_deref(), held_to.as_deref(), &path).await?;
         }
         if read {
             return Ok(());
         }
+        // A request's write, or one the Nuxt server makes for it (`asked`); not the server's own work.
+        if !server || actor.asked {
+            moved_check(&mut conn, &method, &path).await?;
+        }
         match (actor.chat, actor.untrusted) {
-            (true, _) => guard(&mut conn, Kind::Chat, method.as_str(), &path).await,
+            (true, _) => guard(&mut conn, Kind::Chat, method.as_str(), &path).await?,
             (_, true) => {
                 guard(&mut conn, Kind::Untrusted, method.as_str(), &path).await?;
-                own_project(own.as_deref(), &path)
+                own_project(own.as_deref(), &path)?
             }
-            _ => board_check(&mut conn, who.as_ref(), &actor, method.as_str(), &path).await,
+            _ => board_check(&mut conn, who.as_ref(), &actor, method.as_str(), &path).await?,
         }
+        claim_check(&mut conn, headers, &actor, &method, &path).await
     };
     match held.await {
         Ok(()) => next.run(request).await,

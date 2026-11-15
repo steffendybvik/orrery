@@ -15,6 +15,7 @@ use crate::db::sql;
 use crate::error::{ApiError, Result};
 use crate::migrate::uid_of;
 use crate::text::{key_for, slugify, RESERVED_KEYS};
+use crate::work::event_log::EventLog;
 use crate::work::settings::hex;
 use crate::write::{js, stamp, Actor, Effects};
 use regex::Regex;
@@ -24,7 +25,7 @@ use sqlx::{AnyConnection, Row};
 use std::sync::LazyLock;
 
 const PROJECT_COLUMNS: &str = "id, name, key, uid, description, icon, icon_color, focus_prompt, milestone_prompt, instructions, muted, repo, \
-    release_mode, releases_from, created_by, CAST(owned AS BIGINT) AS owned, created_at, updated_at";
+    release_mode, releases_from, created_by, CAST(owned AS BIGINT) AS owned, created_at, updated_at, workspace, moved_to, picks_held";
 
 /// `PROJECT_FIELDS`, in its order, as `checkInput` lists them.
 const FIELDS: [&str; 13] = [
@@ -266,9 +267,14 @@ impl<'c> Projects<'c> {
         Projects { conn, effects: Effects::default(), outbox: None, workspace: "default".into() }
     }
 
-    /// Whether orrery may start sessions, and within what: the orrery's setting, as every project shares it (`orreryStarts`).
-    async fn starts(&mut self) -> Result<Option<Value>> {
-        let row = sqlx::query(&sql("SELECT value FROM settings WHERE key = ?")).bind("starts").fetch_optional(&mut *self.conn).await?;
+    /// Whether orrery may start sessions, and within what: the workspace's setting, as every project in it shares it
+    /// (`orreryStarts`). It's kept per workspace in `workspace_settings` since ORR-1107 (ORR-1208).
+    async fn starts(&mut self, workspace: &str) -> Result<Option<Value>> {
+        let row = sqlx::query(&sql("SELECT value FROM workspace_settings WHERE workspace = ? AND key = ?"))
+            .bind(workspace)
+            .bind("starts")
+            .fetch_optional(&mut *self.conn)
+            .await?;
         Ok(row.map(|r| parsed(r.get("value"), Value::Null)).filter(|v| !v.is_null()))
     }
 
@@ -281,7 +287,7 @@ impl<'c> Projects<'c> {
             project.insert(column.into(), json!(row.get::<Option<String>, _>(column).unwrap_or_default()));
         }
         // What the store leaves undefined, and so out of its reply, is left out here too.
-        for column in ["description", "icon", "icon_color", "focus_prompt", "milestone_prompt", "repo", "releases_from"] {
+        for column in ["description", "icon", "icon_color", "focus_prompt", "milestone_prompt", "repo", "releases_from", "moved_to", "picks_held"] {
             if let Some(value) = row.get::<Option<String>, _>(column) {
                 project.insert(column.into(), json!(value));
             }
@@ -326,10 +332,15 @@ impl<'c> Projects<'c> {
 
     pub async fn list(&mut self, boards: bool) -> Result<Value> {
         let rows = sqlx::query(&sql(&format!("SELECT {PROJECT_COLUMNS} FROM projects ORDER BY lower(name), name"))).fetch_all(&mut *self.conn).await?;
-        let starts = self.starts().await?;
+        let mut starts = std::collections::HashMap::<String, Option<Value>>::new();
         let mut out = Vec::new();
         for row in &rows {
-            out.push(self.project_of(row, &starts, !boards).await?);
+            let workspace: String = row.get("workspace");
+            if !starts.contains_key(&workspace) {
+                let read = self.starts(&workspace).await?;
+                starts.insert(workspace.clone(), read);
+            }
+            out.push(self.project_of(row, &starts[&workspace], !boards).await?);
         }
         Ok(Value::Array(out))
     }
@@ -341,7 +352,7 @@ impl<'c> Projects<'c> {
             .fetch_optional(&mut *self.conn)
             .await?
             .ok_or_else(|| ApiError::not_found(format!("No project \"{id}\"")))?;
-        let starts = self.starts().await?;
+        let starts = self.starts(&row.get::<String, _>("workspace")).await?;
         self.project_of(&row, &starts, false).await
     }
 
@@ -536,6 +547,69 @@ impl<'c> Projects<'c> {
         }
         .await;
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+    }
+
+    /// Marks the board as moved to the orrery at `to`, or, with none, lifts the mark (ORR-1225). The owner's alone, from
+    /// their own page: no session, the chat or an untrusted one marks it. While it's marked, the rails refuse each write a
+    /// request makes to the board, saying where it went (`moved_check` in access/rails.rs).
+    pub async fn mark_moved(&mut self, id: &str, to: Option<&str>, actor: &Actor) -> Result<()> {
+        if !actor.owner || actor.session.is_some() || actor.chat || actor.untrusted {
+            return Err(ApiError::forbidden("Only the owner marks a board as moved, from its Settings"));
+        }
+        let to = to.map(|to| to.trim().trim_end_matches('/'));
+        if to.is_some_and(|to| !REPO.is_match(to)) {
+            return Err(ApiError::bad_request("to: the address of the orrery the board went to, e.g. https://orrery.example.com"));
+        }
+        let here: Option<String> = sqlx::query_scalar(&sql("SELECT id FROM projects WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
+        if here.is_none() {
+            return Err(ApiError::not_found(format!("No project \"{id}\"")));
+        }
+        changes::begin(self.conn).await?;
+        let done: Result<()> = async {
+            sqlx::query(&sql("UPDATE projects SET moved_to = ?, updated_at = ? WHERE id = ?")).bind(to).bind(stamp()).bind(id).execute(&mut *self.conn).await?;
+            self.effects.changed = vec![id.into()];
+            Ok(())
+        }
+        .await;
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+    }
+
+    /// Lets sessions pick from a board uploaded from a file (ORR-1224), which starts held out of their pick lists, Todo
+    /// hand-outs and `next` (web/server/utils/pick.ts reads `picks_held`). The owner's alone, from their own page, as the
+    /// titles it hands sessions are theirs to have checked. A board that isn't held is left as it is. Logged.
+    pub async fn let_pick(&mut self, id: &str, actor: &Actor) -> Result<()> {
+        if !actor.owner || actor.session.is_some() || actor.chat || actor.untrusted {
+            return Err(ApiError::forbidden("Only the owner lets sessions pick from an uploaded board, from its Settings"));
+        }
+        let held: Option<Option<String>> =
+            sqlx::query_scalar(&sql("SELECT picks_held FROM projects WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
+        let Some(held) = held else {
+            return Err(ApiError::not_found(format!("No project \"{id}\"")));
+        };
+        if held.is_none() {
+            return Ok(());
+        }
+        changes::begin(self.conn).await?;
+        let done: Result<()> = async {
+            sqlx::query(&sql("UPDATE projects SET picks_held = NULL, updated_at = ? WHERE id = ?")).bind(stamp()).bind(id).execute(&mut *self.conn).await?;
+            self.effects.changed = vec![id.into()];
+            Ok(())
+        }
+        .await;
+        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        let mut log = EventLog::new(&mut *self.conn);
+        log.outbox = self.outbox.as_ref().map(|_| Outbox::new(Actor::default()));
+        let line = json!({
+            "level": "info", "kind": "project.picks_let", "project": id,
+            "message": format!("{} let sessions pick from {id}, uploaded from a file", actor.name),
+            "details": {"held_since": held},
+        });
+        // The line is what it notes, not the change: one that can't be written leaves the board let.
+        if log.write(&line).await.is_ok() {
+            let logged = log.effects();
+            self.effects.logged.extend(logged.logged);
+        }
+        Ok(())
     }
 
     /// What the owner made in the project, the project included (`ownedIn`).

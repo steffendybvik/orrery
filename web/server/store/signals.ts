@@ -160,11 +160,12 @@ export abstract class SignalStore extends IssueStore {
             return !whose || person === whose || !member && !person ? session : null
         }
         const target = nullable(input.session) ?? theirs(await this.listeningWorker(project, issue)) ?? theirs((await this.heldAbove(project, issue))?.holder) ?? null
-        const signal = await this.writeSignal(project, {issue, kind: 'focus', note: nullable(input.note), target, person: whose ?? null, instructions,
-            model: await this.modelNeeded(project, issue), created_by: actor.name, owned: actor.owner})
+        const model = await this.modelNeeded(project, issue)
         // A started issue another session is still on stays its: the one asked gets the claim's 409 if it starts it.
-        if (signal.target && signal.target !== EVERY && !await this.takenFrom(project, issue, signal.target)) await this.workedBy(project, issue, signal.target)
-        return signal
+        // Tied before the signal goes out, as an issue's page asks who's on it when it hears the signal (ORR-1208).
+        if (target && target !== EVERY && !await this.takenFrom(project, issue, target)) await this.workedBy(project, issue, target)
+        return await this.writeSignal(project, {issue, kind: 'focus', note: nullable(input.note), target, person: whose ?? null, instructions,
+            model, created_by: actor.name, owned: actor.owner})
     }
 
     /** The model a signal about the issue needs (ORR-868): its own, else what its kind starts a session on. No session on a lighter

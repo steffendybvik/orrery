@@ -8,11 +8,13 @@ export default defineNuxtPlugin(async () => {
     const onLogin = location.pathname === '/login'
     if (status.value && !loggedOut.value) await usePeople().load()
     // Where a browser sent to log in was going, such as a machine's Connect page (ORR-1192): back there once it's in.
-    const back = sessionStorage.getItem(AFTER_LOGIN)
-    if (status.value && !loggedOut.value && back && !onLogin && location.pathname + location.search !== back) {
-        sessionStorage.removeItem(AFTER_LOGIN)
-        location.replace(back)
-        await new Promise(() => {})
+    if (status.value && !loggedOut.value && !onLogin) {
+        const {clear, go} = afterLogin(sessionStorage.getItem(AFTER_LOGIN), location.pathname + location.search)
+        if (clear) sessionStorage.removeItem(AFTER_LOGIN)
+        if (go) {
+            location.replace(go)
+            await new Promise(() => {})
+        }
     }
     if (!status.value || loggedOut.value === onLogin) return
     if (!onLogin && location.pathname !== '/') sessionStorage.setItem(AFTER_LOGIN, location.pathname + location.search)

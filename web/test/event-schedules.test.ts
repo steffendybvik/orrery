@@ -2,7 +2,7 @@ import {beforeEach, describe, expect, it, vi} from 'vitest'
 import type {OrreryEvent} from '#shared/happenings'
 import {matchesType} from '#shared/happenings'
 import type {Signal} from '#shared/roadmap'
-import {EventLog} from '../server/utils/event-log'
+import {standInLog} from './log-stand-in'
 import {Schedules, scheduleRunning} from '../server/utils/schedules'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
@@ -67,7 +67,7 @@ describe('event types', () => {
 
     it('come out of the event log: each new one, and every one it doesn\'t keep, never with its message', async () => {
         await store.updateSettings({advanced: false}, me)
-        const log = new EventLog(store.db)
+        const log = standInLog(store)
         const said: OrreryEvent[] = []
         log.happened = event => said.push(event)
         await log.record({level: 'error', kind: 'server.error', message: 'Bearer secret broke it'})
@@ -81,7 +81,7 @@ describe('event types', () => {
 
     it('come out of the event log with Advanced on: what orrery did each time, a line each', async () => {
         await store.updateSettings({advanced: true}, me)
-        const log = new EventLog(store.db)
+        const log = standInLog(store)
         const said: OrreryEvent[] = []
         log.happened = event => said.push(event)
         await log.record({level: 'info', kind: 'session.stopped', project: 'greenhouse', message: 'A session stopped'})
@@ -159,7 +159,7 @@ describe('a schedule on an event', () => {
             'Look at it\n\nOn issue.labels: GRE-2, by claude.',
             'Tidy up\n\nOn issue.status: GRE-1 (canceled → done), by the owner.',
         ])
-        const log = new EventLog(store.db)
+        const log = standInLog(store)
         log.happened = event => heard.push({event})
         await schedules.create('greenhouse', {title: 'Errors', kind: 'message', notes: 'Look into it', on: '*.error', on_filter: {level: 'error'}}, me)
         await log.record({level: 'error', kind: 'page.error', message: 'It broke'})
@@ -200,7 +200,7 @@ describe('a schedule on an event', () => {
     })
 
     it("hears another schedule's run fail, but not the outcome of a run an outcome set off", async () => {
-        const log = new EventLog(store.db)
+        const log = standInLog(store)
         log.happened = event => heard.push({event, cause: scheduleRunning.getStore()})
         // As the server notes each run (useScheduler); a session schedule fails here, with no launcher to start one.
         schedules = new Schedules(store, {onRan: (schedule, run) => void log.record({

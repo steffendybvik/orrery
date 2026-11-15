@@ -26,7 +26,7 @@ import {untrustedProject} from './sessions'
 import {carriedInto} from './carried-over'
 import {forgetRoster} from './roster'
 import type {Input} from './input'
-import {revLabel} from './events'
+import {projectEvents, revLabel} from './events'
 import {scheduleRunning} from './schedules'
 import type {Doc, IssueScope, Project, Release, Settings} from '#shared/roadmap'
 import type {IssueDetail, Store} from './store'
@@ -50,9 +50,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // wakes sessions (ORR-929).
     {domain: 'issues, reading', paths: /^projects\/[^/]+\/issues(\/[^/]+)?$/, methods: ['GET']},
     // An issue's comments: reading, making, editing and deleting one (ORR-927). The API's reply says what a new or
-    // edited one leaves this server to pass on to the sessions and the owner's bell (`handedOn`). An edit checks the
-    // session's claim on the issue here first, as only this server knows the sessions (`claimFor`, ORR-627).
-    {domain: 'comments', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/, first: {PATCH: claimOnComment}},
+    // edited one leaves this server to pass on to the sessions and the owner's bell (`handedOn`). The API's rails check an
+    // edit against the session's claim on the issue (ORR-627), from who's there that this server tells it (ORR-1172).
+    {domain: 'comments', paths: /^projects\/[^/]+\/issues\/[^/]+\/comments(\/[^/]+)?$/},
     // Deleting an issue, with its sub-issues and comments, or many at once (`{ids}`, ORR-927): the API tells each back,
     // and the dependents it frees, as `Orrery-Told`, and puts them in the outbox (ORR-929).
     {domain: 'an issue, deleted', paths: /^projects\/[^/]+\/issues(\/[^/]+)?$/, methods: ['DELETE']},
@@ -137,9 +137,9 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Pausing or activating all of a project's (ORR-1082): it works out each next run, and starts no session.
     {domain: 'schedules, paused or activated', paths: /^projects\/[^/]+\/schedules\/enabled$/, methods: ['POST']},
     // A working session asking the owner for a schedule on its issue (ORR-1100): a comment with the request beside it,
-    // checked as Schedules would check it, saving nothing. Its claim on the issue is checked here first (`claimFor`), and
-    // the event log's line comes back as `Orrery-Asked`.
-    {domain: 'a schedule, asked for', paths: /^projects\/[^/]+\/issues\/[^/]+\/schedule-requests$/, methods: ['POST'], first: {POST: claimOnComment}},
+    // checked as Schedules would check it, saving nothing. Its claim on the issue is the API's rails' to check (ORR-1172),
+    // and the event log's line comes back as `Orrery-Asked`.
+    {domain: 'a schedule, asked for', paths: /^projects\/[^/]+\/issues\/[^/]+\/schedule-requests$/, methods: ['POST']},
     // The owner's Allow or Deny of it (ORR-1100): the schedule made or changed as theirs, and their answer a comment
     // handed on quietly. The event log's line comes back as `Orrery-Answered`.
     {domain: 'a schedule, answered', paths: /^projects\/[^/]+\/issues\/[^/]+\/schedule-requests\/[^/]+$/, methods: ['POST']},
@@ -161,6 +161,12 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     // Deleting a project (ORR-1006), with everything in it: its schedules too, told back as `Orrery-Schedules` for the
     // runner here to drop, and its signals, which are only rows.
     {domain: 'a project, deleted', paths: /^projects\/[^/]+$/, methods: ['DELETE']},
+    // Marking a board as moved to another orrery, and lifting it (ORR-1225): the owner's, from its Settings. While it's
+    // marked, the API's rails refuse each write a request makes to the board with a 409 saying where it went.
+    {domain: 'a project, marked as moved', paths: /^projects\/[^/]+\/moved$/, methods: ['PUT', 'DELETE']},
+    // Letting sessions pick from a board uploaded from a file (ORR-1224), which starts held out of pick lists: the
+    // owner's, from its Settings, and logged. Picking here reads the hold from the project's row (`heldFromPicks`).
+    {domain: 'a project, let sessions pick from', paths: /^projects\/[^/]+\/picks-held$/, methods: ['DELETE']},
     // A board as one file (ORR-1006): read in one transaction, named for the project and the day (`Content-Disposition`).
     // Whether the asker is on the board is checked here first (`needsBoard`), as a write's board is in middleware/board.ts.
     {domain: 'a project, exported', paths: /^projects\/[^/]+\/export$/, methods: ['GET'], first: {GET: onTheBoard}},
@@ -327,12 +333,6 @@ async function onTheBoard(event: H3Event, rest: string) {
     if (project) await needsBoard(event, decodeURIComponent(project))
 }
 
-/** A comment's edit, refused while another session is working on its issue (ORR-627), as its route here does. */
-async function claimOnComment(event: H3Event, rest: string) {
-    const [, project, issue] = /^projects\/([^/]+)\/issues\/([^/]+)\//.exec(rest) ?? []
-    if (project && issue) await claimFor(event, decodeURIComponent(project), decodeURIComponent(issue))
-}
-
 /** The headers a reply that isn't JSON keeps on its way through: what it is, how long the browser keeps it, and that
  * it's never run as a page. */
 const PASSED_HEADERS = ['content-type', 'cache-control', 'x-content-type-options', 'content-security-policy'] as const
@@ -415,9 +415,9 @@ export function actorHeaders(actor: Actor): Record<string, string> {
 
 /** What only this server knows of who's asking, for the API's rewrite of a new issue (ORR-1059): the status the owner
  * picked for the chat's issues (`Orrery-Chat-Issues`) and which chat it is (`Orrery-Launch`), or the session a write is noted as worked by, by the id it goes
- * by after a `/clear` (`Orrery-Worked-By`, percent-encoded). An untrusted session's is never the chat's; it says the
- * project the session was started for (`Orrery-Untrusted-Project`), once this server knows it, for the API's rails to
- * hold its writes to (ORR-1069), as middleware/untrusted.ts does here. */
+ * by after a `/clear` (`Orrery-Worked-By`, percent-encoded). An untrusted session's is never the chat's. The project an
+ * untrusted session was started for isn't said here: the API's rails read it from the session's record
+ * (`recordSession`, ORR-1171). */
 export function askerHeaders(event: H3Event, actor: Actor): Record<string, string> {
     if (actor.chat && !actor.untrusted) {
         // And which chat it is (`Orrery-Launch`, its launch's id), for the asks `/mcp` keeps in it (ORR-1100).
@@ -425,8 +425,30 @@ export function askerHeaders(event: H3Event, actor: Actor): Record<string, strin
         return {'Orrery-Chat-Issues': chatIssuesFor(launch), ...launch ? {'Orrery-Launch': encodeURIComponent(launch)} : {}}
     }
     const session = getHeader(event, 'orrery-session')?.trim()
-    const own = actor.untrusted ? untrustedProject(session) : undefined
-    return {...session ? {'Orrery-Worked-By': encodeURIComponent(currentId(session))} : {}, ...own ? {'Orrery-Untrusted-Project': encodeURIComponent(own)} : {}}
+    return session ? {'Orrery-Worked-By': encodeURIComponent(currentId(session))} : {}
+}
+
+/** What's been recorded of each session (`id kind project`), so each is written once. */
+const recorded = new Set<string>()
+
+/** Keeps what the session a request names is in the API, once, before its request goes on (ORR-1171): an untrusted
+ * schedule's, held to the project it was started for, or the owner's chat. The API's rails then hold it by its record,
+ * whatever a later request says, and a restart here doesn't loosen it. A record the API keeps tighter already (409)
+ * holds as it is; one that can't be written fails the request, as the rails couldn't hold it. */
+export async function recordSession(event: H3Event, actor: Actor) {
+    const session = getHeader(event, 'orrery-session')?.trim()
+    if (!session || !(actor.untrusted || actor.chat)) return
+    const kind = actor.untrusted ? 'untrusted' : 'chat'
+    const project = actor.untrusted ? untrustedProject(session) ?? null : null
+    const key = `${session}\n${kind}\n${project ?? ''}`
+    if (recorded.has(key)) return
+    try {
+        await writeToApi('PUT', `/api/session-records/${encodeURIComponent(session)}`, {kind, project}, ORRERY, {always: true})
+    } catch (error) {
+        if ((error as {statusCode?: number}).statusCode !== 409) throw error
+    }
+    if (recorded.size >= 10_000) recorded.clear()
+    recorded.add(key)
 }
 
 /** What the auth middleware's credential said (`Who`), and the credential itself, hashed as the logins and keys tables
@@ -605,6 +627,13 @@ export async function apiAnswers(url: string, within = 2000): Promise<boolean> {
 /** Why the API last couldn't answer, said once, not on every request, until it answers again. */
 let unreachable = ''
 
+/** The API answered: once it had stopped, `api-answered` goes out, for the event log to say what it held (ORR-1135). */
+function answered() {
+    if (!unreachable) return
+    unreachable = ''
+    projectEvents.emit('api-answered')
+}
+
 /** The API can't answer `event` (`why`): a 503 that says why, logged once to the server's log and the event log while
  * it lasts. */
 function cantReach(event: H3Event | string, why: string, reason: Reason = 'unreachable'): never {
@@ -693,6 +722,7 @@ const MCP_ANSWERED = ['content-type', 'mcp-session-id', 'allow'] as const
  * route's reply: a comment carried to its session and the bell, an urgent push, the event log's lines. */
 async function forwardMcp(event: H3Event, api: {url: string, token: string}): Promise<unknown> {
     const actor = await actorOf(event)
+    await recordSession(event, actor)
     const body = event.method === 'POST' ? await readRawBody(event, false) : undefined
     const headers: Record<string, string> = headersFor(event, api, actor)
     for (const name of MCP_ASKED) {
@@ -706,7 +736,7 @@ async function forwardMcp(event: H3Event, api: {url: string, token: string}): Pr
         return cantReach(event, `at ${api.url} can't be reached (${(error as Error).message})`)
     }
     if (response.status === 421) return cantReach(event, `at ${api.url} is on another database than this server`, 'other-database')
-    unreachable = ''
+    answered()
     setResponseHeader(event, SERVED_BY, 'rust')
     const text = await response.text()
     if (response.ok) await relayed(response, actor, event.method)
@@ -742,6 +772,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     if (first) await first(event, asked)
     const shaped = found?.line.reply?.[event.method.toUpperCase()]?.(event)
     const actor = await actorOf(event)
+    await recordSession(event, actor)
     const body = WRITES.has(event.method) ? await readRawBody(event, false) : undefined
     const headers = headersFor(event, api, actor)
     let response: Response
@@ -752,7 +783,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     }
     // On another database than this server's: the owner moved it, and the API hasn't been started again on the new one.
     if (response.status === 421) return cantReach(event, `at ${api.url} is on another database than this server`, 'other-database')
-    unreachable = ''
+    answered()
     setResponseHeader(event, SERVED_BY, 'rust')
     const passed = await passedThrough(response)
     if (passed) {
@@ -836,39 +867,54 @@ export async function readFromApi<T>(path: string, {config = configHere()} = {})
     return read?.reply as T | undefined
 }
 
-/** The project's id, read from the API (a 404 when it isn't there), or the store with none set up (ORR-1139). Only the
+/** A read only the API answers, its fallback to the store gone (ORR-1163): `readFromApi`, but with no API set up it fails
+ * as one that isn't running does, rather than leaving it to a store this server no longer reads. */
+export async function readFromApiOnly<T>(path: string, {config = configHere()} = {}): Promise<T> {
+    const read = await writeToApi('GET', path, undefined, ORRERY, {always: true, config})
+    if (!read) return cantReach(`GET ${path}`, NOT_RUNNING, 'not-running')
+    return read.reply as T
+}
+
+/** A write this server makes itself, its fallback to the store gone (ORR-1135): `writeToApi` (as `orrery` unless
+ * `actor` says), but with no API set up it fails as one that isn't running does. The reply. */
+export async function writeToApiOnly(method: string, path: string, body: unknown, actor: Actor = ORRERY, {noteKeys = true} = {}): Promise<unknown> {
+    const sent = await writeToApi(method, path, body, actor, {always: true, noteKeys})
+    if (!sent) return cantReach(`${method} ${path}`, NOT_RUNNING, 'not-running')
+    return sent.reply
+}
+
+/** The project's id, read from the API (a 404 when it isn't there; ORR-1139, ORR-1135). Only the
  * project's own fields: none of its issues' notes or closed ones. */
 export async function projectIdOf(project: string): Promise<string> {
-    const read = await readFromApi<{id: string}>(`/api/projects/${encodeURIComponent(project)}?notes=0&closed=0`)
-    return read?.id ?? await useStore().projectId(project)
+    return (await readFromApiOnly<{id: string}>(`/api/projects/${encodeURIComponent(project)}?notes=0&closed=0`)).id
 }
 
-/** This orrery's settings, read from the API, or from `store` with none set up (ORR-1133). */
-export async function settingsNow(store: Pick<Store, 'settings'> = useStore()): Promise<Settings> {
-    return (await readFromApi<Settings>('/api/settings')) ?? await store.settings()
+/** This orrery's settings, read from the API (ORR-1133), the one place they're kept (ORR-1135). */
+export async function settingsNow(): Promise<Settings> {
+    return await readFromApiOnly<Settings>('/api/settings')
 }
 
-/** A project's doc, with its body, read from the API (a 404 when it isn't there), or the store with none set up (ORR-1133). */
+/** A project's doc, with its body, read from the API (a 404 when it isn't there; ORR-1133, ORR-1135). */
 export async function docNow(project: string, id: string): Promise<Doc> {
-    return (await readFromApi<Doc>(`/api/projects/${encodeURIComponent(project)}/docs/${encodeURIComponent(id)}`)) ?? await useStore().doc(project, id)
+    return await readFromApiOnly<Doc>(`/api/projects/${encodeURIComponent(project)}/docs/${encodeURIComponent(id)}`)
 }
 
-/** One issue, read from the API (a 404 when it isn't there), or the store with none set up (ORR-1142). */
+/** One issue, read from the API (a 404 when it isn't there; ORR-1142, ORR-1135). */
 export async function issueNow(project: string, id: string): Promise<IssueDetail> {
-    return (await readFromApi<IssueDetail>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(id)}`)) ?? await useStore().issue(project, id)
+    return await readFromApiOnly<IssueDetail>(`/api/projects/${encodeURIComponent(project)}/issues/${encodeURIComponent(id)}`)
 }
 
-/** One milestone with its issues, read from the API (a 404 when it isn't there), or the store with none set up (ORR-1142). */
+/** One milestone with its issues, read from the API (a 404 when it isn't there; ORR-1142, ORR-1135). */
 export async function milestoneNow(project: string, id: string): Promise<Awaited<ReturnType<Store['milestone']>>> {
-    return (await readFromApi<Awaited<ReturnType<Store['milestone']>>>(`/api/projects/${encodeURIComponent(project)}/milestones/${encodeURIComponent(id)}`)) ?? await useStore().milestone(project, id)
+    return await readFromApiOnly<Awaited<ReturnType<Store['milestone']>>>(`/api/projects/${encodeURIComponent(project)}/milestones/${encodeURIComponent(id)}`)
 }
 
-/** A project's releases, read from the API, or the store with none set up (ORR-1142). */
+/** A project's releases, read from the API (ORR-1142, ORR-1135). */
 export async function releasesNow(project: string): Promise<Release[]> {
-    return (await readFromApi<Release[]>(`/api/projects/${encodeURIComponent(project)}/releases`)) ?? await useStore().listReleases(project)
+    return await readFromApiOnly<Release[]>(`/api/projects/${encodeURIComponent(project)}/releases`)
 }
 
-/** This orrery's id (`settings.id`), read from the API, or the store with none set up (ORR-1139). */
+/** This orrery's id (`settings.id`), read from the API (ORR-1139, ORR-1135). */
 export async function orreryId(): Promise<string> {
     return (await settingsNow()).id
 }
@@ -899,7 +945,7 @@ export async function writeToApi(method: string, path: string, body: unknown, ac
         return cantReach(asked, `at ${api.url} can't be reached (${(error as Error).message})`)
     }
     if (response.status === 421) return cantReach(asked, `at ${api.url} is on another database than this server`, 'other-database')
-    unreachable = ''
+    answered()
     const text = await response.text()
     const json = text ? JSON.parse(text) as Record<string, unknown> : null
     if (response.status >= 400) throw refusal(response.status, json)

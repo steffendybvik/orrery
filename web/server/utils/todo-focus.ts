@@ -15,7 +15,7 @@
 import type {OrreryEvent} from '#shared/happenings'
 import {CLOSED, isBlocked, linkRef} from '#shared/roadmap'
 import type {IssueRecord} from '../store/schema'
-import {handedTo} from './pick'
+import {handedTo, heldFromPicks} from './pick'
 
 /** How long after the owner's move the issues are handed out, so a burst is one hand-out. */
 export const TODO_AFTER = 1500
@@ -139,7 +139,7 @@ async function handUnblocked(project: string, issues: Map<string, {from?: string
         // Freed by a dropped link only if it waited on something: one never blocked has nothing to announce.
         if (!blocker && !issues.get(id)?.links) continue
         await store.systemEvent(on, id, 'issue.unblocked')
-        const to = handable(issue, new Set(board.map(i => i.parent))) ? await handedTo(on, issue) : null
+        const to = handable(issue, new Set(board.map(i => i.parent))) && !await heldFromPicks(on) ? await handedTo(on, issue) : null
         if (!to || await store.focusOnItsWay(on, id)) continue
         const theirs = (s: {person?: string}) => !to.person || s.person === to.person
         // A follow-up under an issue another session is on goes to that session (ORR-613), busy or not: it's its to start.
@@ -170,6 +170,8 @@ async function handUnblocked(project: string, issues: Map<string, {from?: string
  * how many went. */
 async function handTodo(project: string, issues: Map<string, TodoMove>): Promise<number> {
     const store = useStore()
+    // An uploaded board's titles aren't handed to anyone till the owner lets sessions pick from it (ORR-1224).
+    if (await heldFromPicks(project)) return 0
     const kinds = new Map((await store.statuses()).map(s => [s.id, s.kind]))
     const idle = await idleSessions(project)
 

@@ -2,7 +2,7 @@ import {createServer} from 'node:http'
 import type {Server} from 'node:http'
 import type {AddressInfo} from 'node:net'
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest'
-import {apiForgotten, apiStarted, apiStarting, readFromApi, writeToApi} from '../server/utils/api-router'
+import {apiForgotten, apiStarted, apiStarting, readFromApi, readFromApiOnly, writeToApi} from '../server/utils/api-router'
 import {scheduleRunning} from '../server/utils/schedules'
 
 // The local app's own board writes, such as the chat's Allow (ORR-1044): with the Rust API in front they go to it as the
@@ -132,5 +132,13 @@ describe('a read of the local app\'s own (ORR-1139)', () => {
         apiStarted({url, token: 't'.repeat(24)})
         answer = {status: 404, body: {statusMessage: 'Not Found', message: 'No project "q"'}}
         await expect(readFromApi('/api/projects/q', {config: {}})).rejects.toMatchObject({statusCode: 404, message: 'No project "q"'})
+    })
+
+    it('with its fallback gone, fails with no API rather than reading the store, and reads the API when there is one (ORR-1163)', async () => {
+        await expect(readFromApiOnly('/api/projects', {config: {}})).rejects.toMatchObject({statusCode: 503, message: expect.stringContaining("isn't running")})
+        expect(heard).toEqual([])
+        apiStarted({url, token: 't'.repeat(24)})
+        answer = {status: 200, body: [{id: 'p', name: 'P'}]}
+        expect(await readFromApiOnly('/api/projects', {config: {}})).toEqual([{id: 'p', name: 'P'}])
     })
 })

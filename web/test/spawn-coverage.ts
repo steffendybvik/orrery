@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url'
 
 const FLUSH = fileURLToPath(new URL('./flush-coverage.mjs', import.meta.url))
 
-export const collecting = !!process.env.ORRERY_SPAWN_COVERAGE
+const collecting = !!process.env.ORRERY_SPAWN_COVERAGE
 
 export const spawnCoverage = (): Record<string, string> => collecting
     ? {NODE_V8_COVERAGE: process.env.ORRERY_SPAWN_COVERAGE!, NODE_OPTIONS: `--import=${FLUSH}`}

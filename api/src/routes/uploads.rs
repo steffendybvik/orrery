@@ -1,13 +1,14 @@
 // Uploaded images: keeping one and reading it back, the handlers and the routes they answer (ORR-1048, ORR-1058).
+use crate::access::seen::Seen;
 use crate::board::uploads::{self, BODY_LIMIT, UPLOAD_LIMIT};
 use crate::error::{ApiError, Result};
 use crate::reply::reply;
-use crate::request::{actor_of, body_of};
+use crate::request::{actor_of, body_of, header as header_of};
 use crate::write::Effects;
 use crate::{App, Shared};
 use axum::body::to_bytes;
 use axum::extract::{Path, Request, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::Response;
 use axum::routing::{get, post};
 use axum::Router;
@@ -30,15 +31,21 @@ async fn create_upload(State(app): Shared, request: Request) -> Result<Response>
         return Err(too_large());
     }
     let actor = actor_of(request.headers());
-    let body = to_bytes(request.into_body(), BODY_LIMIT).await.map_err(|_| too_large())?;
     let mut conn = app.pool.acquire().await?;
-    let value = uploads::create_upload(&mut conn, &body_of(&body), &actor).await?;
+    // Kept in the workspace the request acts in (ORR-1226).
+    let seen = Seen::of(&mut conn, request.headers()).await?;
+    let named = header_of(request.headers(), "orrery-workspace").map(|w| w.trim().to_string()).filter(|w| !w.is_empty());
+    let workspace = uploads::workspace_for(&mut conn, &seen, named.as_deref()).await?;
+    let body = to_bytes(request.into_body(), BODY_LIMIT).await.map_err(|_| too_large())?;
+    let value = uploads::create_upload(&mut conn, &body_of(&body), &actor, &workspace).await?;
     Ok(reply(StatusCode::CREATED, Some(value), Effects::default()))
 }
 
-async fn get_upload(State(app): Shared, Path(upload): Path<String>) -> Result<Response> {
+/// An image, to those in its workspace alone (ORR-1226); the Nuxt server's own reads see every one.
+async fn get_upload(State(app): Shared, Path(upload): Path<String>, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    uploads::upload(&mut conn, &upload).await
+    let seen = Seen::of(&mut conn, &headers).await?;
+    uploads::upload(&mut conn, &upload, &seen).await
 }
 
 #[cfg(test)]

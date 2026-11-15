@@ -518,6 +518,23 @@ describe('a session orrery started', () => {
         expect(answered).toEqual(['greenhouse/abc'])
     })
 
+    it('has what the owner types into it typed by its launcher, its own person alone, and logged without the text (ORR-1152)', () => {
+        vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
+        expect(() => launches.typeIntoLaunch('greenhouse', 'abc', {text: 'hi'})).toThrow('No session started for launch abc')
+        session = {name: 'greenhouse · Gna', person: 'skoll', started: {launch: 'abc', tmux: 'orrery-greenhouse-abc'}}
+        expect(() => launches.typeIntoLaunch('greenhouse', 'abc', {text: 'hi'}, 'hati')).toThrow("greenhouse · Gna is skoll's, so only they can type into it")
+        for (const body of [{}, {keys: ['F1']}, {text: 'rm -rf /\n'}, {text: 7}, {keys: 'Enter'}]) {
+            expect(() => launches.typeIntoLaunch('greenhouse', 'abc', body, 'skoll'), JSON.stringify(body)).toThrow(expect.objectContaining({statusCode: 400}))
+        }
+        expect(() => launches.typeIntoLaunch('greenhouse', 'abc', {text: 'hi'})).toThrow('attach by hand with tmux attach -t orrery-greenhouse-abc')
+        launches.addLauncher('greenhouse')
+        expect(launches.typeIntoLaunch('greenhouse', 'abc', {text: 'add salt', keys: ['Enter']}, 'skoll')).toEqual({text: 'add salt', keys: ['Enter']})
+        launches.typeIntoLaunch('greenhouse', 'abc', {keys: ['Escape']})
+        expect(sent).toEqual([{type: 'keys', project: 'greenhouse', id: 'abc', text: 'add salt', keys: ['Enter']}, {type: 'keys', project: 'greenhouse', id: 'abc', keys: ['Escape']}])
+        expect(noted.map(n => n.message)).toEqual(['The owner typed into greenhouse · Gna: Enter', 'The owner typed into greenhouse · Gna: Escape'])
+        expect(JSON.stringify(noted)).not.toContain('add salt')
+    })
+
     it('has its screen sent by its launcher while the owner views it, and asked for again once stale', () => {
         expect(() => launches.viewLaunch('greenhouse', 'abc')).toThrow('No session started for launch abc')
         session = {started: {launch: 'abc', tmux: 'orrery-greenhouse-abc'}}
@@ -536,6 +553,17 @@ describe('a session orrery started', () => {
         expect(launches.keepScreen('greenhouse', 'abc', '> done', 7000 + launches.VIEW_FOR)).toEqual({watching: false})
         launches.launchGone('abc')
         expect(launches.viewLaunch('greenhouse', 'abc', 20_000)).toEqual({screen: null})
+    })
+
+    it("shows a session's screen to its own person only, the server's owner included (ORR-964)", () => {
+        session = {name: 'greenhouse · Gna', person: 'hati', started: {launch: 'abc', tmux: 'orrery-greenhouse-abc'}}
+        launches.addLauncher('greenhouse')
+        expect(() => launches.viewLaunch('greenhouse', 'abc', 1000, 'steffen')).toThrow("greenhouse · Gna is hati's, so only they can see its screen")
+        // Refused before it's asked for: the launcher isn't told to send it.
+        expect(sent).toEqual([])
+        expect(launches.viewLaunch('greenhouse', 'abc', 1000, 'hati')).toEqual({screen: null})
+        // With login off there's no checked person, and only the one person to see it.
+        expect(launches.viewLaunch('greenhouse', 'abc', 2000)).toEqual({screen: null})
     })
 
     it('keeps no screen for a launch it has no session for', () => {

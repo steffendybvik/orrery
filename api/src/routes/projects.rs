@@ -16,7 +16,7 @@ use axum::body::{to_bytes, Bytes};
 use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -30,6 +30,8 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route(&format!("{P}/release-peers"), get(release_peers))
         .route(&format!("{P}/row"), get(project_row))
         .route(&format!("{P}/import"), post(import_project))
+        .route(&format!("{P}/moved"), put(mark_moved).delete(unmark_moved))
+        .route(&format!("{P}/picks-held"), delete(let_pick))
         .route("/api/boards", post(upload_board))
 }
 
@@ -120,6 +122,44 @@ async fn patch_project(State(app): Shared, Path(project): Path<String>, headers:
     let mut projects = Projects::new(&mut conn);
     projects.outbox = Some(Outbox::new(actor_of(&headers)));
     projects.update(&project, &body_of(&body), &actor_of(&headers)).await?;
+    let effects = std::mem::take(&mut projects.effects);
+    let value = projects.project(&project).await?;
+    Ok(reply(StatusCode::OK, Some(value), effects))
+}
+
+/// `PUT /api/projects/{project}/moved` {to} → the project, marked as moved to the orrery at `to` (ORR-1225). While it's
+/// marked, every write a request makes to the board is a 409 saying where it went (the rails); reads still work. The
+/// owner's alone, from their page.
+async fn mark_moved(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let body = body_of(&body);
+    let Some(to) = body.get("to").and_then(Value::as_str) else {
+        return Err(ApiError::bad_request("to: the address of the orrery the board went to, e.g. https://orrery.example.com"));
+    };
+    moved(&app, &project, &headers, Some(to)).await
+}
+
+/// `DELETE /api/projects/{project}/moved` → the project, its mark as moved lifted (ORR-1225).
+async fn unmark_moved(State(app): Shared, Path(project): Path<String>, headers: HeaderMap) -> Result<Response> {
+    moved(&app, &project, &headers, None).await
+}
+
+async fn moved(app: &App, project: &str, headers: &HeaderMap, to: Option<&str>) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut projects = Projects::new(&mut conn);
+    projects.outbox = Some(Outbox::new(actor_of(headers)));
+    projects.mark_moved(project, to, &actor_of(headers)).await?;
+    let effects = std::mem::take(&mut projects.effects);
+    let value = projects.project(project).await?;
+    Ok(reply(StatusCode::OK, Some(value), effects))
+}
+
+/// `DELETE /api/projects/{project}/picks-held` → the project, its sessions let pick from it (ORR-1224): a board uploaded
+/// from a file starts held out of pick lists, Todo hand-outs and `next`. The owner's alone, from their page; logged.
+async fn let_pick(State(app): Shared, Path(project): Path<String>, headers: HeaderMap) -> Result<Response> {
+    let mut conn = app.pool.acquire().await?;
+    let mut projects = Projects::new(&mut conn);
+    projects.outbox = Some(Outbox::new(actor_of(&headers)));
+    projects.let_pick(&project, &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut projects.effects);
     let value = projects.project(&project).await?;
     Ok(reply(StatusCode::OK, Some(value), effects))

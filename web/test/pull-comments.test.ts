@@ -5,7 +5,7 @@ import type {PullChange} from '../server/utils/pull-poll'
 import {ACT_WITHIN, askIfUnattended, commentOnPull, criticalFiles, pullComment} from '../server/utils/pull-comments'
 import {Pulls} from '../server/utils/pulls'
 import {Store} from '../server/utils/store'
-import {testDb} from './db'
+import {apiTestDb, withApi} from './api'
 
 // What orrery says on an issue when its pull request conflicts, falls behind, merges or closes (ORR-507), fails its checks
 // or is asked for changes (ORR-508): a comment of its own that reaches the session on the issue, an event for the
@@ -18,9 +18,11 @@ let events: OrreryEvent[]
 beforeEach(async () => {
     signals = []
     events = []
-    store = new Store(testDb(), () => {}, signal => signals.push(signal))
+    store = new Store(apiTestDb(), () => {}, signal => signals.push(signal))
     store.happened = event => void events.push(event)
     await store.createProject({name: 'shop', key: 'SHO', repo: 'https://github.com/you/shop'}, me)
+    // The Rust API in front, which this orrery's settings are read from (ORR-1135).
+    await withApi(store)
     await store.createIssue('shop', {title: 'Pay with cards', status: 'in-progress'}, me)
     // Its session, there to hear: with none, the news reaches nobody (ORR-1178).
     await store.workedBy('shop', 'SHO-1', 'pay-session')
@@ -428,18 +430,20 @@ describe("a pull request's news on its issue", () => {
     })
 
     it("tells nothing more after asking until the owner answers, then three more before it asks again (ORR-529)", async () => {
+        // On the real clock: orrery's comments are timed by the Rust API, which a faked Date here can't move (ORR-1135),
+        // so each step waits a moment for the next to come after it.
+        const later = () => new Promise(resolve => setTimeout(resolve, 5))
         const fail = async (failures: number) => {
-            vi.advanceTimersByTime(1000)
+            await later()
             await commentOnPull(store, change('checks_failed', {}, {failures}))
         }
-        vi.useFakeTimers({toFake: ['Date']})
-        try {
+        {
             for (const failures of [1, 2, 3, 4, 5, 6]) await fail(failures)
             // Asked at 4, and 5 and 6 are events only: the owner hasn't answered.
             expect(signals).toHaveLength(3)
             expect((await store.listComments('shop', 'SHO-1')).map(c => c.asks ?? null)).toEqual([null, null, null, 'feedback'])
             expect(events.filter(e => e.type === 'pr.checks_failed')).toHaveLength(6)
-            vi.advanceTimersByTime(1000)
+            await later()
             await store.createComment('shop', 'SHO-1', {body: 'Try the other driver.'}, me)
             signals = []
             for (const failures of [7, 8, 9, 10]) await fail(failures)
@@ -447,8 +451,6 @@ describe("a pull request's news on its issue", () => {
             const comments = await store.listComments('shop', 'SHO-1')
             expect(comments.slice(5).map(c => c.asks ?? null)).toEqual([null, null, null, 'feedback'])
             expect(comments.at(-1)!.body).toContain('failed 10 times')
-        } finally {
-            vi.useRealTimers()
         }
     })
 

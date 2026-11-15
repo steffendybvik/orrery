@@ -15,6 +15,7 @@ import type {Actor} from './store'
 import {EVERY, heavyEnough} from './pool'
 import {scheduleRunning} from './schedules'
 import {startsNone} from './starts-none'
+import {terminalInput} from '#channel/terminal-keys.mjs'
 
 /** What a launcher is asked to start: `after` is the signal before the one it's for, for its channel to
  * catch up from; `minutes` how long it has, none until stopped; `tmux` names the tmux session it runs in;
@@ -60,6 +61,7 @@ export type LaunchEvent =
     | {type: 'view', project: string, id: string}
     | {type: 'allow', project: string, id: string}
     | {type: 'deny', project: string, id: string}
+    | {type: 'keys', project: string, id: string, text?: string, keys?: string[]}
 
 /** The schedule whose run started each launch, while it runs: what its session does as it stops is that run's doing,
  * so a session schedule on `session.stopped` can't start itself again without end (ORR-422). */
@@ -771,6 +773,27 @@ export function denyLaunch(project: string, id: string): Session {
     return session
 }
 
+/** The owner typing into a session orrery started, from under its live screen (ORR-1152): its launcher types the
+ * text, then presses each key (`TERMINAL_KEYS`), into its tmux pane. Its own person's only, as its screen is (ORR-964).
+ * Says what was sent; a 400 for what isn't text and listed keys, 409 with no launcher running for the project. */
+export function typeIntoLaunch(project: string, id: string, body: unknown, typist?: string): {text: string, keys: string[]} {
+    const session = sessionOfLaunch(project, id)
+    if (!session?.started) throw notFound(`No session started for launch ${id} in ${project}`)
+    if (typist && session.person && session.person !== typist) throw forbidden(`${session.name ?? `Launch ${id}`} is ${session.person}'s, so only they can type into it`)
+    let input: {text: string, keys: string[]}
+    try {
+        input = terminalInput(body)
+    } catch (error) {
+        throw badRequest((error as Error).message)
+    }
+    if (!launchersOf(project)) throw conflict(`No launcher is running for ${project} to type into it; attach by hand with tmux attach -t ${session.started.tmux}`)
+    emit({type: 'keys', project, id, ...input.text ? {text: input.text} : {}, ...input.keys.length ? {keys: input.keys} : {}})
+    // What's typed isn't kept: it can be anything. That someone typed, and which keys, is.
+    asLaunch(id, () => useEventLog().note({level: 'info', kind: 'session.typed', project, message: `The owner typed into ${session.name ?? id}${input.keys.length ? `: ${input.keys.join(', ')}` : ''}`,
+        details: {launch: id, characters: input.text.length, keys: input.keys}}))
+    return input
+}
+
 /** The screens of the sessions orrery started that the owner is viewing, as their launchers last captured them, with
  * when; when the owner last asked for each; and when its launcher was last asked to send it. */
 const screens = new Map<string, {text: string, at: number}>()
@@ -784,10 +807,13 @@ const FRESH_FOR = 3000
 const SCREEN_MAX = 64 * 1024
 
 /** The owner viewing a session orrery started, about once a second while it's open: its screen as its launcher
- * last sent it (none until the first comes in). Asks the launcher to send it, again when it's gone stale. */
-export function viewLaunch(project: string, id: string, now = Date.now()): {screen: string | null, at?: string} {
+ * last sent it (none until the first comes in). Asks the launcher to send it, again when it's gone stale. A session's
+ * screen is its own person's only (ORR-964): `viewer`, the person asking, sees another person's session run and can stop
+ * it, but not read its terminal, the server's owner included. */
+export function viewLaunch(project: string, id: string, now = Date.now(), viewer?: string): {screen: string | null, at?: string} {
     const session = sessionOfLaunch(project, id)
     if (!session?.started) throw notFound(`No session started for launch ${id} in ${project}`)
+    if (viewer && session.person && session.person !== viewer) throw forbidden(`${session.name ?? `Launch ${id}`} is ${session.person}'s, so only they can see its screen`)
     if (!launchersOf(project)) throw conflict(`No launcher is running for ${project} to show its screen; attach by hand with tmux attach -t ${session.started.tmux}`)
     viewed.set(id, now)
     const shot = screens.get(id)

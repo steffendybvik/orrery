@@ -260,6 +260,15 @@ export const PERMISSIONS: Permission[] = [
         member: {level: 'limited', note: 'Their own, never their agents', check: 'ownSession'},
     },
     {
+        id: 'sessions.type', area: 'Sessions', action: "Type into a session's terminal, from under its live screen",
+        why: 'It drives a session as if at its keyboard: a person does that, not another session.',
+        routes: ['POST /api/projects/:project/launches/:launch/keys'],
+        session: {level: 'owner'},
+        chat: refused,
+        untrusted: refused,
+        member: {level: 'limited', note: 'Their own, never their agents', check: 'ownSession'},
+    },
+    {
         id: 'chats.reply', area: 'Sessions', action: 'Answer in a chat, and ask the owner there',
         why: 'A chat is between the owner and its own session.',
         routes: ['POST /api/chats/:chat/replies', 'POST /api/chats/:chat/requests', 'POST /api/chats/:chat/setting-requests', 'POST /api/chats/:chat/schedule-requests', 'POST /api/chats/:chat/release-requests', 'POST /api/chats/:chat/doc-requests', 'POST /api/chats/:chat/issue-requests', 'POST /api/chats/:chat/move-requests'],

@@ -168,7 +168,7 @@ export function boardForApi({file, tables, statusesInFile, id, key, name}: Check
 }
 
 /** Brings the file in as a new board, and says its id. `holder` is the person who holds it: whoever is uploading it.
- * The local app's own, with no API set up; with one, it's the API's (`boardForApi`). */
+ * The route sends the board to the API instead (`boardForApi`, ORR-1135): this is what the tests compare its write with. */
 export async function uploadBoard(db: Db, file: unknown, as: {id?: string, key?: string, name?: string}, actor: Actor, holder: string): Promise<string> {
     return await writeBoard(db, checkedBoard(file, as), actor, holder)
 }
@@ -207,6 +207,8 @@ async function writeBoard(db: Db, {file, tables, statusesInFile, id, key, name}:
             focus_prompt: null, milestone_prompt: null, instructions: '[]', starts: null, repo: null,
             releases_from: from, release_mode: source.release_mode !== 'own' && !from ? 'none' : source.release_mode,
             next_number: pastIds(tables.issues.map(issue => issue.id), source.next_number), next_milestone: pastIds(tables.milestones.map(milestone => milestone.id), source.next_milestone),
+            // Its titles are a file's, so no session is handed them till the owner lets sessions pick from it (ORR-1224).
+            picks_held: now,
         })
         await db.run("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'owner', ?)", id, holder, now)
         for (const member of tables.project_members) {

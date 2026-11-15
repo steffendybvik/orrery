@@ -151,3 +151,33 @@ async fn it_serves_on_the_port_its_start_line_names_and_answers_only_the_token()
     let wrong = client.get(format!("http://{}/api/projects", serving.1)).header("Orrery-API-Token", "not-the-token-at-all!!").send().await.unwrap();
     assert_eq!(wrong.status(), 401);
 }
+
+/// Stopped with SIGTERM, as the Nuxt server and `docker compose stop` stop it, it lets go of the database cleanly, and
+/// what's in the `-wal` goes into the file first (ORR-1214): a copy of `orrery.db` alone, taken once orrery has stopped,
+/// then has everything. The Nuxt server's connection stays open throughout, so its own close isn't what does it.
+#[cfg(unix)]
+#[tokio::test]
+async fn stopped_with_sigterm_it_writes_the_wal_into_the_file() {
+    use sqlx::{AnyConnection, Connection, Executor};
+    sqlx::any::install_default_drivers();
+    let path = migrated();
+    let mut nuxt = AnyConnection::connect(&format!("sqlite://{path}?mode=rw")).await.unwrap();
+    nuxt.execute("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0").await.unwrap();
+    let mut serving = serve(&path);
+    nuxt.execute("INSERT INTO settings (key, value) VALUES ('stop-test', 'kept')").await.unwrap();
+    let wal = format!("{path}-wal");
+    assert!(std::fs::metadata(&wal).unwrap().len() > 0, "the write is in the -wal");
+
+    let term = Command::new("kill").args(["-TERM", &serving.0.id().to_string()]).status().unwrap();
+    assert!(term.success());
+    let exited = serving.0.wait().unwrap();
+    assert!(exited.success(), "it exits cleanly on SIGTERM: {exited:?}");
+    assert_eq!(std::fs::metadata(&wal).map(|m| m.len()).unwrap_or(0), 0, "the -wal is written into the file");
+
+    let copy = format!("{path}.copy");
+    std::fs::copy(&path, &copy).unwrap();
+    nuxt.close().await.unwrap();
+    let mut copied = AnyConnection::connect(&format!("sqlite://{copy}?mode=rw")).await.unwrap();
+    let kept: (String,) = sqlx::query_as("SELECT value FROM settings WHERE key = 'stop-test'").fetch_one(&mut copied).await.unwrap();
+    assert_eq!(kept.0, "kept");
+}

@@ -181,6 +181,27 @@ async fn pruning_lets_old_lines_go_and_keeps_the_rest() {
     assert_eq!(left, ["New info", "Recent error"]);
 }
 
+/// Past their caps, the oldest go: the changes to the roadmap are capped apart from the rest, so a busy day's changes
+/// can't push an error out (moved here from the Nuxt server's tests, as the API is the log's one writer).
+#[tokio::test]
+async fn pruning_caps_the_changes_to_the_roadmap_apart_from_the_rest() {
+    let api = TestApi::new().await;
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+    line(&api, "error", "server.error", None, "boom", &now).await;
+    // Past the cap, written straight in: 5002 lines through the route would be slow.
+    api.run(
+        "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 5002) \
+         INSERT INTO events (level, kind, project, subject, message, count, first_seen, last_seen) \
+         SELECT 'info', 'issue.status', 'hub', 'HUB-' || i, 'moved', 1, ?, ? FROM n",
+        &[&now, &now],
+    )
+    .await;
+    let pruned = api.post("/api/events/log/prune", json!({})).send().await;
+    assert_eq!((pruned.status.as_u16(), pruned.body["pruned"].clone()), (200, json!(2)), "{}", pruned.body);
+    assert_eq!(api.count("SELECT COUNT(*) FROM events WHERE level = 'error'").await, 1);
+    assert_eq!(api.count("SELECT COUNT(*) FROM events WHERE kind LIKE 'issue.%'").await, 5000);
+}
+
 /// A line is its workspace's (ORR-1107): its project's, or the one the local app names for a line naming none. Each
 /// workspace's log lists and resolves its own lines alone.
 #[tokio::test]

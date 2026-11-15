@@ -34,7 +34,6 @@ import {Schedules} from '../server/utils/schedules'
 import {PullPoll} from '../server/utils/pull-poll'
 import type {PolledRow} from '../server/utils/pull-poll'
 import {openDb} from '../server/utils/db'
-import {isFresh} from '../server/utils/database-state'
 import {boardForApi, checkedBoard, uploadBoard} from '../server/utils/board-upload'
 import {PostgresDb} from '../server/utils/postgres'
 import {PHONE_LOGIN} from '#shared/phone'
@@ -338,31 +337,26 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('POST', '/api/events/log')).toBeUndefined()
     })
 
-    it('writes a line the local app made and prunes old ones as the log here did (ORR-1088)', async () => {
-        // The store's side is utils/event-log.ts with no API to send to, writing the same table itself.
-        const here: {event: unknown, fresh: boolean}[] = []
-        const log = new EventLog(store.db, async () => text => text, (event, fresh) => here.push({event, fresh}))
+    it('writes a line the local app made, and prunes, for the event log here (ORR-1088, ORR-1135)', async () => {
+        // utils/event-log.ts makes each line and sends it here, through the router: the API is its one writer.
         await store.db.run('DELETE FROM events')
-        const shape = (event: unknown) => {
-            const {id: _id, first_seen: _first, last_seen: _last, ...rest} = event as Record<string, unknown>
-            return rest
-        }
+        const heard: {fresh: boolean}[] = []
+        const log = new EventLog(async () => text => text, () => new Date(), async (method, path, body) => {
+            const sent = await viaApi(method, path, body, ORRERY)
+            if (sent.status >= 400) throw Object.assign(new Error(JSON.stringify(sent.body)), {statusCode: sent.status})
+            if (path === '/api/events/log/lines') heard.push({fresh: (sent.body as {fresh: boolean}).fresh})
+            return sent.body
+        })
         const line = {level: 'error', kind: 'page.error', project: 'primes', message: 'Boom', details: {route: 'GET /x'}} as const
         for (const time of [1, 2]) {
-            const written = await viaApi('PUT', '/api/events/log/lines', line, ORRERY)
-            expect(written.status, `time ${time}`).toBe(201)
-            await log.record(line)
-            const [last] = here.slice(-1)
-            expect(shape((written.body as {event: unknown}).event), `time ${time}`).toEqual(shape(JSON.parse(JSON.stringify(last!.event))))
-            expect((written.body as {fresh: boolean}).fresh, `time ${time}`).toBe(time === 1)
+            expect(await log.record(line), `time ${time}`).toMatchObject({...line, count: 1})
+            expect(heard.at(-1)?.fresh, `time ${time}`).toBe(time === 1)
         }
         const change = {type: 'issue.status', project: 'primes', subject: 'PRI-1', by: {name: 'claude', owner: false}, from: 'todo', to: 'done'}
-        await log.activity(change)
-        const kept = JSON.parse(JSON.stringify(here.at(-1)!.event)) as Record<string, unknown>
-        const sent = await viaApi('PUT', '/api/events/log/lines', {level: 'info', kind: kept.kind, project: kept.project, subject: kept.subject, message: kept.message, details: kept.details, activity: true}, ORRERY)
-        expect(shape((sent.body as {event: unknown}).event)).toEqual(shape(kept))
+        expect(await log.activity(change)).toMatchObject({level: 'info', kind: 'issue.status', project: 'primes', subject: 'PRI-1',
+            message: 'claude moved PRI-1: todo → done', details: {by: 'claude', owner: false, from: 'todo', to: 'done'}})
         expect(await viaApi('PUT', '/api/events/log/lines', {...line, level: 'loud'}, ORRERY)).toMatchObject({status: 400, body: {message: '"level" is "loud"; use error, warn, info'}})
-        expect((await viaApi('POST', '/api/events/log/prune', {}, ORRERY)).body).toEqual({pruned: 0})
+        expect(await log.prune()).toBe(0)
         expect(domainOf('PUT', '/api/events/log/lines')).toBeUndefined()
         expect(domainOf('POST', '/api/events/log/prune')).toBeUndefined()
     })
@@ -628,6 +622,34 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('POST', '/api/projects/through-api/issue-sessions/rename')).toBeUndefined()
     })
 
+    it('marks a board as moved, refusing its writes with where it went, and lifts it (ORR-1225)', async () => {
+        // The API's alone: no Nuxt route marks one; the router sends the owner's page here.
+        const marked = await viaApi('PUT', '/api/projects/through-api/moved', {to: 'https://orrery.example.com/'}, OWNER)
+        expect(marked.status).toBe(200)
+        expect(marked.body).toMatchObject({id: 'through-api', moved_to: 'https://orrery.example.com'})
+        expect(domainOf('PUT', '/api/projects/through-api/moved')).toBe('a project, marked as moved')
+        expect((await viaApi('PUT', '/api/projects/through-api/moved', {to: 'https://orrery.example.com'})).status).toBe(403)
+        const lifted = await viaApi('DELETE', '/api/projects/through-api/moved', undefined, OWNER)
+        expect(lifted.status).toBe(200)
+        expect((lifted.body as {moved_to?: string}).moved_to).toBeUndefined()
+    })
+
+    it('keeps what a session is, only ever tighter, and carries it to its new id (ORR-1171)', async () => {
+        // The API's alone: no Nuxt route keeps it, and the router never sends it there.
+        const kept = await viaApi('PUT', '/api/session-records/run-9', {kind: 'untrusted', project: 'through-api'})
+        expect(kept.status).toBe(200)
+        expect(kept.body).toMatchObject({session: 'run-9', kind: 'untrusted', project: 'through-api'})
+        expect((await viaApi('PUT', '/api/session-records/run-9', {kind: 'chat'})).status).toBe(409)
+        expect((await viaApi('PUT', '/api/session-records/run-9', {kind: 'owner'})).status).toBe(400)
+        expect(domainOf('PUT', '/api/session-records/run-9')).toBeUndefined()
+        // Who's there to hear (ORR-1172), said by the local app alone, for the rails' claim check.
+        expect((await viaApi('PUT', '/api/session-presence/run-9', {projects: ['through-api']})).status).toBe(204)
+        expect((await viaApi('PUT', '/api/session-presence/run-9', {projects: 'through-api'})).status).toBe(400)
+        expect((await viaApi('DELETE', '/api/session-presence/run-9')).status).toBe(204)
+        expect(domainOf('PUT', '/api/session-presence/run-9')).toBeUndefined()
+        await store.db.run("DELETE FROM session_records WHERE session = 'run-9'")
+    })
+
     it('writes, marks, moves and prunes signals alike (ORR-1090)', async () => {
         // The store's side is its own write with no API in front (`writeSignal`), the target picked as the API's caller does.
         const write = (p: string, fields: SignalFields) => (store as unknown as {writeSignal: (p: string, f: SignalFields) => Promise<unknown>}).writeSignal(p, fields)
@@ -797,7 +819,10 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         // Every project, listed with its counts (ORR-997): one list for the orrery too, with docs, sections, releases
         // drawn on and milestones by now. Asking for their boards stays with the Nuxt server.
         await store.createDoc('through-api', {title: 'Joinery', body: 'Mortise first.', section: 'Shop'})
+        // The API reads `starts` from the workspace's settings (ORR-1107, ORR-1208), the store's no-API fallback from the
+        // orrery's row it had before: the same here in both.
         await store.db.run("INSERT INTO settings (key, value) VALUES ('starts', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", JSON.stringify({max: 2}))
+        await store.db.run("INSERT INTO workspace_settings (workspace, key, value) VALUES ('default', 'starts', ?) ON CONFLICT (workspace, key) DO UPDATE SET value = excluded.value", JSON.stringify({max: 2}))
         expect(await viaApi('GET', '/api/projects')).toEqual(await viaStore(() => store.listProjects()))
         expect(domainOf('GET', '/api/projects')).toBe('projects, listed')
         expect(domainOf('POST', '/api/projects')).toBe('a project, made')
@@ -844,6 +869,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const listed = (await viaApi('GET', '/api/projects')).body as {id: string, milestones: number, docs: unknown[], starts?: unknown}[]
         expect(listed.find(p => p.id === 'through-api')).toMatchObject({milestones: 4, docs: expect.arrayContaining([expect.objectContaining({title: 'Joinery', section: 'Shop'})]), starts: {max: 2}})
         await store.db.run("DELETE FROM settings WHERE key = 'starts'")
+        await store.db.run("DELETE FROM workspace_settings WHERE key = 'starts'")
         // The steps compared something.
         const frame = await viaApi('GET', `/milestones/${ids['through-api']!.frame}`)
         expect(frame.body).toMatchObject({column: 'in-progress', summary: 'Square and glued', aliases: ['77'], issues: [ids['through-api']!.legs]})
@@ -1355,7 +1381,10 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
     it('says alike whether the database is a new orrery\'s (ORR-1140)', async () => {
         const state = await viaApi('GET', '/api/database')
         expect(state.status).toBe(200)
-        expect((state.body as {fresh: boolean}).fresh).toBe(await isFresh(store.db))
+        // A new orrery's: no projects, and no owner named yet, as the database itself has it.
+        const fresh = !Number((await store.db.get<{n: number}>('SELECT count(*) AS n FROM projects'))?.n ?? 0)
+            && !await store.db.get("SELECT 1 AS found FROM people WHERE role = 'owner'")
+        expect((state.body as {fresh: boolean}).fresh).toBe(fresh)
         expect(domainOf('GET', '/api/database')).toBeUndefined()
     })
 
@@ -1497,34 +1526,31 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             // Its messages are rows of their own (ORR-1100).
             for (const {id, at, ...message} of messages) await store.db.run('INSERT INTO chat_messages (chat, id, at, message) VALUES (?, ?, ?, ?)', chat.id, id, at, JSON.stringify(message))
         }
-        // The store's side is the chats module reading them back as orrery starts, with Nitro's globals stubbed.
-        vi.stubGlobal('useDatabase', () => store.db)
-        vi.stubGlobal('notFound', (await import('../server/utils/input')).notFound)
-        vi.resetModules()
-        const chats = await import('../server/utils/chats')
-        await chats.chatsLoaded()
-        const listed = await viaApi('GET', '/api/chats')
-        expect(listed.status).toBe(200)
-        expect(listed.body).toEqual(JSON.parse(JSON.stringify(chats.listChats())))
-        expect((listed.body as {id: string, project: string}[]).map(c => `${c.id} ${c.project}`)).toEqual(['c0ffee000002 through-api', 'c0ffee000003 through-api', 'c0ffee000001 through-store'])
-        for (const id of ['c0ffee000001', 'c0ffee000002']) expect((await viaApi('GET', `/api/chats/${id}`)).body, id).toEqual(JSON.parse(JSON.stringify(chats.readChat(id))))
-        let missing: unknown
-        try { chats.readChat('nope') } catch (error) { missing = (error as Error).message }
-        expect(await viaApi('GET', '/api/chats/nope')).toMatchObject({status: 404, body: {message: missing}})
-        // Read back as orrery starts with the API there, not the database (ORR-1142): the same chats, their messages'
-        // fields in the same order, so what's kept of each compares as the same text when the chat is heard again.
+        // The chats module reads them back as orrery starts, over HTTP alone (ORR-1142, ORR-1135), with Nitro's globals
+        // stubbed: the same chats, their messages' fields in the same order, so what's kept of each compares as the same
+        // text when the chat is heard again.
         vi.stubGlobal('useDatabase', () => { throw new Error('read from the database') })
         vi.stubGlobal('databaseSetting', () => setting)
+        vi.stubGlobal('notFound', (await import('../server/utils/input')).notFound)
         vi.resetModules()
         const router = await import('../server/utils/api-router')
         router.apiStarted({url, token: TOKEN})
         try {
-            const overHttp = await import('../server/utils/chats')
-            await overHttp.chatsLoaded()
-            expect(JSON.stringify(overHttp.listChats())).toBe(JSON.stringify(chats.listChats()))
+            const chats = await import('../server/utils/chats')
+            await chats.chatsLoaded()
+            const listed = await viaApi('GET', '/api/chats')
+            expect(listed.status).toBe(200)
+            expect(listed.body).toEqual(JSON.parse(JSON.stringify(chats.listChats())))
+            expect((listed.body as {id: string, project: string}[]).map(c => `${c.id} ${c.project}`)).toEqual(['c0ffee000002 through-api', 'c0ffee000003 through-api', 'c0ffee000001 through-store'])
+            // Each as it was kept, on the project its row names.
+            expect((listed.body as unknown[])[0]).toEqual({...rows[1], project: 'through-api'})
+            for (const id of ['c0ffee000001', 'c0ffee000002']) expect((await viaApi('GET', `/api/chats/${id}`)).body, id).toEqual(JSON.parse(JSON.stringify(chats.readChat(id))))
+            let missing: unknown
+            try { chats.readChat('nope') } catch (error) { missing = (error as Error).message }
+            expect(await viaApi('GET', '/api/chats/nope')).toMatchObject({status: 404, body: {message: missing}})
             const emitted: unknown[] = []
             vi.stubGlobal('projectEvents', {emit: (...args: unknown[]) => emitted.push(args)})
-            await overHttp.chatHeard('c0ffee000001')
+            await chats.chatHeard('c0ffee000001')
             expect(emitted, 'nothing new to hear').toEqual([])
         } finally {
             router.apiStarted(null)
@@ -1534,31 +1560,31 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const row = (id: string) => store.db.get<{project: string, started_at: string, ended_at: string | null, chat: string}>('SELECT project, started_at, ended_at, chat FROM chats WHERE id = ?', id)
         const said = (id: string, project: string) => ({...kept(id, project, '2026-11-05T13:00:00.000Z'), project, problem: 'A launcher too old', ended: true, ended_at: '2026-11-05T13:10:00.000Z',
             messages: [{id: 9, from: 'owner', text: 'Ünïcode, "quotes" and a\nline', images: ['up1'], at: '2026-11-05T13:00:00.000Z'}]})
-        await chats.keepChat(store.db, said('c0ffee000010', 'through-store') as never)
         expect(await viaApi('PUT', '/api/chats/c0ffee000011', said('c0ffee000011', 'through-api'))).toMatchObject({status: 204, changed: [], told: []})
-        const [byStore, byApi] = [await row('c0ffee000010'), await row('c0ffee000011')]
-        expect(byApi!.chat).toBe(byStore!.chat.replace('c0ffee000010', 'c0ffee000011').replace('"project":"through-store"', '"project":"through-api"'))
-        expect(JSON.parse(byApi!.chat)).not.toHaveProperty('problem')
-        expect({...byApi, chat: undefined}).toEqual({...byStore, chat: undefined, project: 'through-api'})
+        // Kept as the module kept it when it wrote the row itself: the chat with neither its messages nor its problem,
+        // its fields in the order sent.
+        const {messages: _messages, problem: _problem, ...rowOf11} = said('c0ffee000011', 'through-api')
+        const byApi = await row('c0ffee000011')
+        expect(byApi!.chat).toBe(JSON.stringify(rowOf11))
+        expect({...byApi, chat: undefined}).toEqual({project: 'through-api', started_at: '2026-11-05T13:00:00.000Z', ended_at: '2026-11-05T13:10:00.000Z', chat: undefined})
         // Changed again: its project and start stay as first kept.
-        await chats.keepChat(store.db, {...said('c0ffee000010', 'through-api'), started_at: '2027-01-01T00:00:00.000Z'} as never)
         await viaApi('PUT', '/api/chats/c0ffee000011', {...said('c0ffee000011', 'through-store'), started_at: '2027-01-01T00:00:00.000Z'})
-        expect([(await row('c0ffee000010'))!.project, (await row('c0ffee000011'))!.project]).toEqual(['through-store', 'through-api'])
+        expect((await row('c0ffee000011'))!.project).toBe('through-api')
         expect((await row('c0ffee000011'))!.started_at).toBe('2026-11-05T13:00:00.000Z')
         expect(await viaApi('PUT', '/api/chats/c0ffee000011', {id: 'another', project: 1})).toMatchObject({status: 400})
         expect(JSON.parse((await row('c0ffee000011'))!.chat)).not.toHaveProperty('messages')
         // Its messages, added and changed one at a time (ORR-1100): given the next id after every chat's, alike.
         const lines = (id: string) => store.db.all<{id: number, message: string}>('SELECT id, message FROM chat_messages WHERE chat = ? ORDER BY id', id)
         const asked = {from: 'claude', text: 'May I?', images: [], request: {setting: 'tint', from: null, to: 'blue', state: 'asked'}}
-        const byStoreLine = await chats.addLine(store.db, 'c0ffee000010', asked as never)
+        const last = Number((await store.db.get<{n: number | string}>('SELECT COALESCE(MAX(id), 0) AS n FROM chat_messages'))!.n)
         const byApiLine = await viaApi('POST', '/api/chats/c0ffee000011/lines', {...asked, id: 1, at: 'then'})
         expect(byApiLine).toMatchObject({status: 201, changed: [], told: []})
-        expect(byApiLine.body).toEqual({...byStoreLine, id: byStoreLine.id + 1, at: expect.any(String)})
+        expect(byApiLine.body).toEqual({id: last + 1, at: expect.any(String), ...asked})
         const answered = {...asked, request: {...asked.request, state: 'allowed'}}
-        await chats.keepLine(store.db, 'c0ffee000010', {...answered, id: byStoreLine.id, at: byStoreLine.at} as never)
-        const changedByApi = await viaApi('PUT', `/api/chats/c0ffee000011/lines/${byStoreLine.id + 1}`, answered)
-        expect(changedByApi).toMatchObject({status: 200, body: {id: byStoreLine.id + 1, request: {state: 'allowed'}}})
-        expect((await lines('c0ffee000011')).map(l => l.message)).toEqual((await lines('c0ffee000010')).map(l => l.message))
+        const changedByApi = await viaApi('PUT', `/api/chats/c0ffee000011/lines/${last + 1}`, answered)
+        expect(changedByApi).toMatchObject({status: 200, body: {id: last + 1, request: {state: 'allowed'}}})
+        // Kept as the module kept a message itself: without its id and time, its fields in the order sent.
+        expect((await lines('c0ffee000011')).map(l => l.message)).toEqual([JSON.stringify(answered)])
         expect(await viaApi('POST', '/api/chats/nope/lines', asked)).toMatchObject({status: 404})
         expect(await viaApi('PUT', '/api/chats/c0ffee000011/lines/999', asked)).toMatchObject({status: 404})
         expect(await viaApi('POST', '/api/chats/c0ffee000011/lines', {from: 'someone'})).toMatchObject({status: 400})
@@ -1602,10 +1628,9 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const documenting = await viaApi('POST', '/api/chats/c0ffee000003/doc-requests', {doc: {title: 'Plan', body: 'Sieve'}, why: 'You asked.'})
         expect(documenting).toMatchObject({status: 201, body: {from: 'claude', text: 'You asked.', images: [], doc: {title: 'Plan', body: {title: 'Plan', body: 'Sieve'}, state: 'asked'}}})
         expect(await viaApi('POST', '/api/chats/c0ffee000011/doc-requests', {doc: {title: 'Plan'}})).toMatchObject({status: 404})
-        await chats.keepChat(store.db, said('c0ffee000010', 'through-store') as never, true)
         expect(await viaApi('DELETE', '/api/chats/c0ffee000011')).toMatchObject({status: 204})
-        expect([await row('c0ffee000010'), await row('c0ffee000011')]).toEqual([undefined, undefined])
-        expect([await lines('c0ffee000010'), await lines('c0ffee000011')]).toEqual([[], []])
+        expect(await row('c0ffee000011')).toBeUndefined()
+        expect(await lines('c0ffee000011')).toEqual([])
         vi.unstubAllGlobals()
         expect(domainOf('GET', '/api/chats')).toBeUndefined()
         expect(domainOf('PUT', '/api/chats/c0ffee000011')).toBeUndefined()
@@ -1633,9 +1658,9 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         }
     })
 
-    it('runs the owner\'s chat end to end alike, with the store and with the Rust API in front (ORR-1044)', async () => {
+    it('runs the owner\'s chat end to end with the Rust API in front (ORR-1044, ORR-1135)', async () => {
         // The chat module with Nitro's globals stubbed: its launches and the messages to its session are caught here, the
-        // board is the real store, and the chat's row goes to the database or through the API as the app sends it.
+        // board is the real store, and the chat's row and its Allow's writes go through the API, the one way there is.
         let launches = 0
         const heard: {shown: Chat[], sent: string[], noted: string[]} = {shown: [], sent: [], noted: []}
         const page = new EventEmitter()
@@ -1702,23 +1727,19 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             }
         }
 
-        // A project each of its own, as what the steps above made differs between the two.
-        for (const [name, key] of [['chat-through-store', 'CHS'], ['chat-through-api', 'CHA']] as const) await store.createProject({name, key})
+        await store.createProject({name: 'chat-through-api', key: 'CHA'})
         try {
-            const byStore = await flow('chat-through-store')
             router.apiStarted({url, token: TOKEN})
             const before = new Set(reached)
             const byApi = await flow('chat-through-api')
             // The chat's own row and Allow's writes went to the API.
             const asked = [...reached].filter(r => !before.has(r) || /chats|docs|milestones/.test(r))
-            for (const route of ['PUT /api/chats/c0ffee000102', 'POST /api/chats/c0ffee000102/lines', 'DELETE /api/chats/c0ffee000102', 'POST /api/projects/chat-through-api/docs', 'PATCH /api/projects/chat-through-api/docs/how-joints-work', 'POST /api/projects/chat-through-api/milestones']) {
+            for (const route of ['PUT /api/chats/c0ffee000101', 'POST /api/chats/c0ffee000101/lines', 'DELETE /api/chats/c0ffee000101', 'POST /api/projects/chat-through-api/docs', 'PATCH /api/projects/chat-through-api/docs/how-joints-work', 'POST /api/projects/chat-through-api/milestones']) {
                 expect(asked, route).toContain(route)
             }
-            // The two chats' ids differ by their launch, and the issues' keys by their project, keys of `was` too.
-            const alike = (outcome: Outcome, project: string) => same(JSON.parse(JSON.stringify(outcome).replaceAll(/c0ffee0001\d\d/g, '<chat>').replaceAll(/\bCH[SA]-(\d+)\b/g, 'KEY-$1')) as Outcome, project)
-            expect(alike(byApi, 'chat-through-api')).toEqual(alike(byStore, 'chat-through-store'))
-            expect(byStore.heard.shown.at(-1)).toMatchObject({deleted: true, ended: true})
-            expect(byStore.row).toMatchObject({ended: true, project: 'chat-through-store'})
+            expect(byApi.heard.shown.at(-1)).toMatchObject({deleted: true, ended: true})
+            expect(byApi.row).toMatchObject({ended: true, project: 'chat-through-api'})
+            expect(byApi.heard.sent.length).toBeGreaterThan(0)
             expect(byApi.heard.noted).toContain('chat.answered: steffen allowed the chat\'s request to make the milestone "Joints"')
             expect(byApi.board).toMatchObject({joints: 'A hinge turns, and squeaks.', issues: [{title: 'Fit the hinge', status: 'in-progress'}, {title: 'Oil the hinge', status: 'backlog'}]})
         } finally {
@@ -3154,6 +3175,20 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(domainOf('POST', '/api/boards')).toBeUndefined()
     })
 
+    it('lets sessions pick from an uploaded board, the owner alone (ORR-1224)', async () => {
+        // The API's alone: no Nuxt route lets them; the router sends the owner's page here.
+        const file = JSON.parse(JSON.stringify(await exportBoard(store.db, 'through-api'))) as Record<string, unknown>
+        const made = await viaApi('POST', '/api/boards', boardForApi(checkedBoard(file, {id: 'held-api', key: 'HLA'}), OWNER.name), OWNER)
+        expect(made.status, JSON.stringify(made.body)).toBe(201)
+        expect(typeof (made.body as {picks_held?: string}).picks_held).toBe('string')
+        expect(domainOf('DELETE', '/api/projects/held-api/picks-held')).toBe('a project, let sessions pick from')
+        expect((await viaApi('DELETE', '/api/projects/held-api/picks-held')).status).toBe(403)
+        const lifted = await viaApi('DELETE', '/api/projects/held-api/picks-held', undefined, OWNER)
+        expect(lifted.status).toBe(200)
+        expect((lifted.body as {picks_held?: string}).picks_held).toBeUndefined()
+        await store.deleteProject('held-api', OWNER)
+    })
+
     it('imports a roadmap alike, with the project\'s ids and the file\'s as aliases (ORR-1006)', async () => {
         // On projects of their own, so replacing a roadmap leaves the others' issues be.
         const on = (p: string) => `${p}-import`
@@ -3818,7 +3853,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'owner', 'board members', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'a schedule, made', 'a schedule across projects, deleted', 'a schedule across projects, made', 'a schedule across projects, changed', 'schedules, paused or activated', 'a schedule, asked for', 'a schedule, answered', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, exported', 'a project, imported', 'the event log, read', 'an event, resolved', 'usage', 'the bell', 'epics', 'milestone and epic comments', 'workspaces', 'logging in'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'owner', 'board members', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'a schedule, made', 'a schedule across projects, deleted', 'a schedule across projects, made', 'a schedule across projects, changed', 'schedules, paused or activated', 'a schedule, asked for', 'a schedule, answered', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, marked as moved', 'a project, let sessions pick from', 'a project, exported', 'a project, imported', 'the event log, read', 'an event, resolved', 'usage', 'the bell', 'epics', 'milestone and epic comments', 'workspaces', 'logging in'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -3863,19 +3898,12 @@ describe('the router', () => {
         expect(domainOf('POST', '/api/projects/p/issues/P-1/activity')).toBeUndefined()
     })
 
-    it('checks a session\'s claim on the issue here before a comment\'s edit goes on (ORR-927)', async () => {
-        const claimed: string[][] = []
-        vi.stubGlobal('claimFor', async (_event: unknown, project: string, issue: string) => {
-            claimed.push([project, issue])
-        })
-        try {
-            const line = DOMAINS.find(d => d.domain === 'comments')!
-            expect(Object.keys(line.first ?? {})).toEqual(['PATCH'])
-            await line.first!.PATCH!({} as never, 'projects/shop%20front/issues/SHO-4/comments/12')
-            expect(claimed).toEqual([['shop front', 'SHO-4']])
-        } finally {
-            vi.unstubAllGlobals()
-        }
+    it("leaves a session's claim on a comment's edit or a schedule request to the API's rails (ORR-627, ORR-1172)", () => {
+        // The rails check it from who's there, which this server tells the API (utils/presence.ts); cargo's
+        // routes/session_presence_tests.rs shows them refusing as `claimFor` here did.
+        for (const domain of ['comments', 'a schedule, asked for']) expect(DOMAINS.find(d => d.domain === domain)?.first, domain).toBeUndefined()
+        expect(domainOf('PATCH', '/api/projects/p/issues/P-1/comments/12')).toBe('comments')
+        expect(domainOf('POST', '/api/projects/p/issues/P-1/schedule-requests')).toBe('a schedule, asked for')
     })
 
     it('sends milestones and releases there, reads and writes, and keeps a milestone\'s focus here (ORR-926, ORR-974)', () => {
@@ -3973,12 +4001,12 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => [...new Set([...nuxtRoutes(), ...rustRoutes()])].sort().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(127)
+        expect(contract()).toHaveLength(130)
         expect(contract()).toEqual(routes())
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/auth/ways-in', 'GET /api/chats', 'GET /api/chats/{chat}', 'GET /api/database', 'GET /api/projects/{project}/comments/unanswered', 'GET /api/projects/{project}/issue-sessions', 'GET /api/projects/{project}/issues/{issue}/dependents', 'GET /api/projects/{project}/issues/{issue}/id', 'GET /api/projects/{project}/issues/{issue}/kept-pulls', 'GET /api/projects/{project}/issues/{issue}/row', 'GET /api/projects/{project}/issues/{issue}/workers', 'GET /api/projects/{project}/milestones/{milestone}/id', 'GET /api/projects/{project}/milestones/{milestone}/row', 'GET /api/projects/{project}/release-peers', 'GET /api/projects/{project}/releases/{release}/row', 'GET /api/projects/{project}/row', 'GET /api/projects/{project}/session-work', 'GET /api/projects/{project}/signals/last', 'GET /api/pulls/named', 'GET /api/pulls/repos', 'GET /api/pulls/{owner}/{name}', 'POST /api/auth/identity', 'POST /api/auth/link', 'POST /api/boards', 'POST /api/chats/{chat}/doc-requests', 'POST /api/chats/{chat}/issue-requests', 'POST /api/chats/{chat}/lines', 'POST /api/chats/{chat}/move-requests', 'POST /api/chats/{chat}/release-requests', 'POST /api/chats/{chat}/replies', 'POST /api/chats/{chat}/schedule-requests', 'POST /api/chats/{chat}/setting-requests', 'POST /api/database/compact', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/presets/seed', 'POST /api/projects/{project}/issue-sessions/rename', 'POST /api/projects/{project}/issues/{issue}/worked-by', 'POST /api/projects/{project}/signals', 'POST /api/projects/{project}/signals/retarget', 'POST /api/projects/{project}/signals/{signal}/receipts', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'POST /api/signals/prune', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/usage'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'DELETE /api/session-presence/{session}', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/auth/ways-in', 'GET /api/chats', 'GET /api/chats/{chat}', 'GET /api/database', 'GET /api/projects/{project}/comments/unanswered', 'GET /api/projects/{project}/issue-sessions', 'GET /api/projects/{project}/issues/{issue}/dependents', 'GET /api/projects/{project}/issues/{issue}/id', 'GET /api/projects/{project}/issues/{issue}/kept-pulls', 'GET /api/projects/{project}/issues/{issue}/row', 'GET /api/projects/{project}/issues/{issue}/workers', 'GET /api/projects/{project}/milestones/{milestone}/id', 'GET /api/projects/{project}/milestones/{milestone}/row', 'GET /api/projects/{project}/release-peers', 'GET /api/projects/{project}/releases/{release}/row', 'GET /api/projects/{project}/row', 'GET /api/projects/{project}/session-work', 'GET /api/projects/{project}/signals/last', 'GET /api/pulls/named', 'GET /api/pulls/repos', 'GET /api/pulls/{owner}/{name}', 'POST /api/auth/identity', 'POST /api/auth/link', 'POST /api/boards', 'POST /api/chats/{chat}/doc-requests', 'POST /api/chats/{chat}/issue-requests', 'POST /api/chats/{chat}/lines', 'POST /api/chats/{chat}/move-requests', 'POST /api/chats/{chat}/release-requests', 'POST /api/chats/{chat}/replies', 'POST /api/chats/{chat}/schedule-requests', 'POST /api/chats/{chat}/setting-requests', 'POST /api/database/compact', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/presets/seed', 'POST /api/projects/{project}/issue-sessions/rename', 'POST /api/projects/{project}/issues/{issue}/worked-by', 'POST /api/projects/{project}/signals', 'POST /api/projects/{project}/signals/retarget', 'POST /api/projects/{project}/signals/{signal}/receipts', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'POST /api/signals/prune', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/session-presence/{session}', 'PUT /api/session-records/{session}', 'PUT /api/usage'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })

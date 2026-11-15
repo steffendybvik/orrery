@@ -54,6 +54,7 @@ import {besideFor, besideName, servesMcp} from './mcp-beside.mjs'
 import {resumeArgs} from './locked-down.mjs'
 import {follow} from './sse.mjs'
 import {openWatch} from './terminal.mjs'
+import {typeInto} from './terminal-keys.mjs'
 import {BOOTSTRAP, CODE, VERSION, codeOnDisk, launcherMove, olderThan, servedOtherCode, versionOnDisk} from './version.mjs'
 
 const mode = process.env.ORRERY_PERMISSION_MODE || 'auto'
@@ -395,6 +396,20 @@ function deny(id) {
     }
 }
 
+/** Types into a session it started what the owner sent from under its live screen (ORR-1152): the text as it is,
+ * then each key, only the keys terminal-keys.mjs lists. */
+function typeKeys({id, text, keys}) {
+    const session = running.get(id)
+    if (!session) return
+    try {
+        typeInto(paneOf(session.tmux), {text, keys})
+        log(`typed into ${session.tmux}, as the owner sent it${keys?.length ? ` (${keys.join(', ')})` : ''}`)
+    } catch (error) {
+        // It has ended, or what came isn't something to type.
+        if (!/no server running|can't find session/i.test(error.message)) log(`didn't type into ${session.tmux}: ${error.message}`)
+    }
+}
+
 /** Gives a session it started a fresh context between pieces of work, as orrery asks once it's idle, as its agent
  * does that (Claude Code's `/clear`). */
 async function clear(id) {
@@ -632,6 +647,8 @@ function part(entry) {
             allow(JSON.parse(data).id)
         } else if (event === 'deny') {
             deny(JSON.parse(data).id)
+        } else if (event === 'keys') {
+            typeKeys(JSON.parse(data))
         } else if (event === 'view') {
             // Not awaited: it sends for as long as the owner views it, and the stream goes on meanwhile.
             view(JSON.parse(data).id).catch(error => log(`couldn't send a screen: ${error.message}`))

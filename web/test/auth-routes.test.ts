@@ -1,5 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Store as StoreType} from '../server/utils/store'
+import {apiConfig} from './api'
 import {failure, storeSetup} from './store-setup'
 import {exportBoard} from '../server/utils/board-export'
 
@@ -43,13 +44,13 @@ async function browser(person: string) {
 }
 
 beforeEach(async () => {
-    ({store} = await storeSetup())
+    ({store} = await storeSetup({api: true}))
     config = {auth: 'on', oidc: {issuer: '', clientId: '', clientSecret: ''}, listenHost: ''}
     cookies = []
     removed = []
     const fail = (statusCode: number) => (message: string) => Object.assign(new Error(message), {statusCode})
     vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
-    vi.stubGlobal('useRuntimeConfig', () => config)
+    vi.stubGlobal('useRuntimeConfig', () => ({...config, ...apiConfig()}))
     vi.stubGlobal('useStore', () => store)
     vi.stubGlobal('getHeader', (event: Event, name: string) => event.headers[name])
     vi.stubGlobal('getCookie', (event: Event, name: string) => new RegExp(`${name}=([^;]+)`).exec(event.headers.cookie ?? '')?.[1])
@@ -127,22 +128,27 @@ describe("POST /api/projects/upload (a board's file)", () => {
     const upload = (headers: Record<string, string>, query: Record<string, string>) =>
         ask(() => import('../server/api/projects/upload.post'), '/api/projects/upload', {method: 'POST', headers, body: query})
 
+    /** What was sent to the API to make a board. */
+    const sent: {method: string, path: string, id: string, holder: string, actor: string}[] = []
+
     beforeEach(async () => {
         const file = JSON.stringify(await exportBoard(store.db, 'greenhouse'))
         vi.stubGlobal('readRawBody', async () => file)
         // The query rides in the event's body here, as nothing else reads it.
         vi.stubGlobal('getQuery', (event: Event) => event.body)
-        vi.stubGlobal('useDatabase', () => store.db)
         vi.stubGlobal('personOf', (await import('../server/utils/actor')).personOf)
         vi.stubGlobal('useEventLog', () => ({note: () => {}}))
         vi.stubGlobal('setResponseStatus', (event: Event, status: number) => event.status = status)
         vi.stubGlobal('created', (event: Event, value: unknown) => (event.status = 201, value))
         const upload = await import('../server/utils/board-upload')
-        vi.stubGlobal('uploadBoard', upload.uploadBoard)
         vi.stubGlobal('checkedBoard', upload.checkedBoard)
         vi.stubGlobal('boardForApi', upload.boardForApi)
-        // No API here, so the store writes it.
-        vi.stubGlobal('writeToApi', async () => undefined)
+        // The API makes the board (ORR-1135): here it's caught, as the board's rows are the API's to write.
+        sent.length = 0
+        vi.stubGlobal('writeToApi', async (method: string, path: string, body: {id: string, holder: string}, actor: {name: string}) => {
+            sent.push({method, path, id: body.id, holder: body.holder, actor: actor.name})
+            return {reply: {id: body.id}}
+        })
         vi.stubGlobal('ownerNow', async () => store.ownerOf())
         vi.stubGlobal('BOARD_LIMIT', 256 * 1024 * 1024)
     })
@@ -150,7 +156,7 @@ describe("POST /api/projects/upload (a board's file)", () => {
     it('lets a member bring one in as a board they hold, as the table and the API say (ORR-725)', async () => {
         const made = await upload(await browser('hati'), {id: 'hatis', key: 'HAT'})
         expect(made.status).toBe(201)
-        expect(await store.holdsBoard('hatis', 'hati')).toBe(true)
+        expect(sent).toEqual([{method: 'POST', path: '/api/boards', id: 'hatis', holder: 'hati', actor: 'hati'}])
     })
 
     it("refuses a member's agent, with its key or by saying their name", async () => {
@@ -158,6 +164,6 @@ describe("POST /api/projects/upload (a board's file)", () => {
         expect((await failure(() => upload(bearer(key), {id: 'theirs', key: 'THE'}))).status).toBe(403)
         config.auth = 'off'
         expect((await failure(() => upload({'orrery-actor': 'claude', 'orrery-person': 'hati'}, {id: 'theirs', key: 'THE'}))).status).toBe(403)
-        expect(await store.db.get("SELECT 1 FROM projects WHERE id = 'theirs'")).toBeUndefined()
+        expect(sent).toEqual([])
     })
 })

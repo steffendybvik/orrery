@@ -452,7 +452,8 @@ async fn the_chats_and_an_untrusted_sessions_tool_calls_are_held_by_the_rails() 
     let id = api.issue(&own, json!({"title": "Sieve"})).await;
     let call = |name: &str, args: Value| rpc(&api, "tools/call", json!({"name": name, "arguments": args}));
 
-    let untrusted = |req: Req| req.untrusted().header("orrery-untrusted-project", &own);
+    api.record_session("run-3", "untrusted", Some(&own)).await;
+    let untrusted = |req: Req| req.untrusted().header("orrery-session", "run-3");
     let comment = untrusted(call("comment", json!({"id": id, "body": "Hi"}))).send().await;
     assert_eq!(comment.body["result"]["isError"], json!(true), "a comment on the owner's issue: {}", comment.body);
     let elsewhere = untrusted(call("create_issue", json!({"project": other, "title": "From outside"}))).send().await;

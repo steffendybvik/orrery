@@ -370,6 +370,11 @@ export interface Project {
     /** The project whose releases it ships in, when it's `shared` (a monorepo's apps going out together); its
      * `releases` are then that project's, counting its own issues. */
     releases_from?: string
+    /** The orrery it moved to, while the owner has it marked as moved (ORR-1225): writes to it here are refused, saying so. */
+    moved_to?: string
+    /** When it was uploaded from a file, while it's held out of pick lists (ORR-1224): no session is handed its issues
+     * (a pick list, a Todo hand-out, `next`) till the owner lets sessions pick from it on its Settings. */
+    picks_held?: string
     created_by: string
     protected: boolean
     created_at: string

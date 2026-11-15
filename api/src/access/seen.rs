@@ -1,6 +1,7 @@
 // The workspaces a request reaches, and the projects in them (ORR-1106, decision 6 of decision-workspaces): what the
 // rails hold a project's routes to, and what the lists and feeds across projects keep.
 use crate::access::people::Who;
+use crate::access::session_records::as_recorded;
 use crate::board::issue_writes::IssueWrites;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
@@ -27,8 +28,9 @@ impl Seen {
         if came_of(headers).server {
             return Ok(Seen::All);
         }
-        let own = header(headers, "orrery-untrusted-project").filter(|p| !p.is_empty());
-        Seen::asking(conn, who_of(headers).as_ref(), &actor_of(headers), own.as_deref()).await
+        // The session's record says whether it's untrusted and the project it was started for (ORR-1171).
+        let (actor, own) = as_recorded(conn, headers, &actor_of(headers)).await?;
+        Seen::asking(conn, who_of(headers).as_ref(), &actor, own.as_deref()).await
     }
 
     /// What a list of the workspace's own (its projects, releases, schedules) shows (ORR-1108): the one workspace the

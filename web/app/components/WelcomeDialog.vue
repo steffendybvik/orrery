@@ -25,11 +25,17 @@ watch(doneKey, key => {
 })
 
 type Step = 'name' | 'workspace' | 'agent' | 'project'
-// The steps there are, and those answered or skipped: the name stays listed once given, so the count under them doesn't
-// change as it's answered, and the workspace's comes in once it's known to be theirs.
-const answered = ref(new Set<Step>())
+// The steps there are, and those answered or skipped, in the order they were: the name stays listed once asked, so the
+// count under them doesn't change as it's answered and Back can return to it, and the workspace's comes in once it's
+// known to be theirs.
+const history = ref<Step[]>([])
+const answered = computed(() => new Set(history.value))
+const askedName = ref(false)
+watchEffect(() => {
+    if (!named.value) askedName.value = true
+})
 const steps = computed<Step[]>(() => [
-    ...!named.value || answered.value.has('name') ? ['name' as const] : [],
+    ...!named.value || askedName.value ? ['name' as const] : [],
     ...workspace.value?.role === 'owner' ? ['workspace' as const] : [],
     'agent', 'project',
 ])
@@ -41,8 +47,13 @@ const open = computed(() => !named.value || (ready.value && !finished.value && !
  *  the step on screen by then is already the next one. */
 function next(which = step.value) {
     if (!which) return
-    answered.value = new Set([...answered.value, which])
+    if (!history.value.includes(which)) history.value = [...history.value, which]
     if (!step.value) finish()
+}
+/** Back to the step answered or skipped last, with what was entered there still in it (ORR-1202). */
+function back() {
+    failed.value = ''
+    history.value = history.value.slice(0, -1)
 }
 function finish() {
     localStorage.setItem(doneKey.value, 'done')
@@ -142,7 +153,7 @@ function submit() {
     <template v-if="step === 'name'">
       <div class="flex flex-col gap-1">
         <h2 class="text-[15px] font-semibold text-fg">Welcome! What's your name?</h2>
-        <p class="text-xs text-muted">You own this orrery: what you make, nobody else can delete. You can change it later in Settings.</p>
+        <p class="text-xs text-muted">How people and agents see you here. You can change it later in Settings.</p>
       </div>
       <input v-model="display" placeholder="Your name" aria-label="Your name" maxlength="60" autofocus class="bg-transparent text-lg font-semibold text-fg placeholder:text-faint focus:outline-none">
       <fieldset class="flex flex-col gap-1.5">
@@ -211,6 +222,7 @@ function submit() {
     </template>
 
     <div class="flex items-center gap-2 border-t border-line pt-3">
+      <UiButton v-if="at > 0" variant="ghost" size="md" :disabled="saving" data-testid="welcome-back" @click="back">Back</UiButton>
       <span v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</span>
       <UiButton v-if="step !== 'name' && !(step === 'agent' && connected)" variant="ghost" size="md" class="ml-auto" @click="step === 'project' ? finish() : next(step)">
         {{ step === 'project' ? 'Skip for now' : 'Skip' }}

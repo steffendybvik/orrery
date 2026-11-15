@@ -159,3 +159,35 @@ async fn a_member_s_comment_is_theirs_and_the_owner_s_to_change() {
     assert_eq!(own.status, 200, "{}", own.body);
     assert_eq!(api.delete(&format!("{path}/{id}")).send().await.status, 204);
 }
+
+/// An epic's thread is its workspace's (ORR-1107, ORR-1222): someone outside it neither reads, adds to, edits nor
+/// deletes a comment there, each a 404 as for an epic that isn't here, and the comment stays as it was.
+#[tokio::test]
+async fn an_epics_thread_is_its_workspaces_alone() {
+    let api = TestApi::new().await;
+    api.team().await;
+    api.acme(&["bo"]).await;
+    let as_person = |req: crate::testing::Req, person: &'static str| {
+        let api = &api;
+        async move { api.signed(req.header("orrery-sent-origin", "http://localhost").header("orrery-workspace", "acme"), person).await.send().await }
+    };
+    let epic = as_person(api.post("/api/epics", json!({"title": "Launch"})), "bo").await;
+    assert_eq!(epic.status, 201, "{}", epic.body);
+    let epic = epic.body["id"].as_i64().unwrap();
+    let path = format!("/api/epics/{epic}/comments");
+    let made = as_person(api.post(&path, json!({"body": "Fuelled."})), "bo").await;
+    assert_eq!(made.status, 201, "{}", made.body);
+    let comment = made.body["id"].as_i64().unwrap();
+    for (what, reply) in [
+        ("read", as_person(api.get(&path), "ana").await),
+        ("add", as_person(api.post(&path, json!({"body": "Mine now."})), "ana").await),
+        ("edit", as_person(api.patch(&format!("{path}/{comment}"), json!({"body": "Changed."})), "ana").await),
+        ("delete", as_person(api.delete(&format!("{path}/{comment}")), "ana").await),
+    ] {
+        assert_eq!(reply.status, 404, "{what}: {}", reply.body);
+    }
+    let kept = as_person(api.get(&path), "bo").await;
+    assert_eq!(kept.status, 200, "{}", kept.body);
+    let bodies: Vec<&str> = kept.body.as_array().unwrap().iter().map(|c| c["body"].as_str().unwrap()).collect();
+    assert_eq!(bodies, ["Fuelled."]);
+}

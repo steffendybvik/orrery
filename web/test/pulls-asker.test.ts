@@ -2,6 +2,8 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {AllPulls, IssuePulls, OpenPull, PullRequest} from '#shared/roadmap'
 import {actorOf} from '../server/utils/actor'
 import {kindOf} from '../server/utils/authorize'
+import {Store} from '../server/utils/store'
+import {apiTestDb, withApi} from './api'
 
 // Who gets what an outsider may have written about a PR (ORR-532), through both routes; their h3 helpers and the utils
 // they reach are Nitro auto-imports.
@@ -25,7 +27,11 @@ beforeEach(async () => {
     vi.stubGlobal('getHeader', (event: Event, name: string) => event.headers[name])
     vi.stubGlobal('getQuery', () => ({}))
     vi.stubGlobal('param', () => 'shop')
-    vi.stubGlobal('useStore', () => ({ownerOf: async () => ({name: 'skoll'}), people: async () => [{id: 'skoll'}, {id: 'mani'}]}))
+    // The owner and the people are read through the Rust API (ORR-1163).
+    const store = new Store(apiTestDb())
+    await store.nameOwner({name: 'Skoll'})
+    await store.addPerson({name: 'Mani'})
+    await withApi(store)
     vi.stubGlobal('sessionName', () => undefined)
     vi.stubGlobal('untrustedWrite', (event: Event) => event.headers['orrery-untrusted'] === 'yes')
     vi.stubGlobal('chatWrite', (event: Event) => event.headers['orrery-chat'] === 'yes')

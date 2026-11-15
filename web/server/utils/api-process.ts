@@ -74,16 +74,32 @@ export class ApiProcess {
         await this.start()
     }
 
-    stop() {
+    /** Ends it for good, and resolves once it has exited: it writes the database's `-wal` into the file as it goes
+     * (ORR-1214), so this server lets go of the database after it. One that hasn't gone in `wait` ms is killed. */
+    stop(wait = 10_000): Promise<void> {
         this.closed = true
-        this.end()
+        const gone = this.end(wait)
         apiStarting(false)
+        return gone
     }
 
-    private end() {
+    private end(wait = 10_000): Promise<void> {
         const child = this.child
         this.child = null
         apiStarted(null)
-        child?.kill()
+        if (!child) return Promise.resolve()
+        const gone = (child.exitCode ?? child.signalCode ?? null) !== null ? Promise.resolve() : new Promise<void>(resolve => {
+            const timer = setTimeout(() => {
+                child.kill('SIGKILL')
+                resolve()
+            }, wait)
+            timer.unref?.()
+            child.once('exit', () => {
+                clearTimeout(timer)
+                resolve()
+            })
+        })
+        child.kill()
+        return gone
     }
 }

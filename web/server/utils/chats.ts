@@ -1,17 +1,16 @@
-import type {Db} from './database'
 import type {H3Event} from 'h3'
 import type {Chat, ChatRequestDrift, SessionContext, ChatMilestoneField, ChatMilestoneRequest, ChatDocRequest, ChatIssueRequest, ChatIssues, ChatMessage, ChatMoveRequest, ChatReleaseField, ChatReleaseRequest, ChatScheduleRequest, ChatSendRequest, ChatSessionRequest, ChatSetting, Release, Schedule, Session, SessionState} from '#shared/roadmap'
 import {CHAT_MILESTONE_FIELDS, CHAT_DOC_FIELDS, CHAT_ISSUES, CHAT_RELEASE_FIELDS, CHAT_SETTINGS, SESSION_STATES, scheduleValue, settingValue} from '#shared/roadmap'
 import type {OrreryEvent} from '#shared/happenings'
 import type {Actor} from '../store/schema'
-import {MILESTONE_FIELDS, DOC_FIELDS, ISSUE_FIELDS, ORRERY, SETTINGS_FIELDS} from '../store/schema'
+import {MILESTONE_FIELDS, DOC_FIELDS, ISSUE_FIELDS, SETTINGS_FIELDS} from '../store/schema'
 import {sectionOf} from '../store/docs'
 import {checkInput, isObject} from './input'
 import {known} from '#shared/known'
 import {refusedFor} from './permission'
 import {anotherPersons, sessionHeader} from './actor'
 import {scheduleAsk, scheduleDrift, scheduleRequest} from './schedule-requests'
-import {docNow, issueNow, milestoneNow, projectIdOf, readFromApi, releasesNow, settingsNow, writeToApi} from './api-router'
+import {docNow, issueNow, milestoneNow, projectIdOf, readFromApiOnly, releasesNow, settingsNow, writeToApiOnly} from './api-router'
 import {ownerNow} from './roster'
 
 // The owner's chats: a Claude session started for one alone (launches.ts `startChat`), which the owner talks to on the
@@ -80,66 +79,35 @@ function save(chat: Chat, gone = false) {
     }).catch(error => console.error(`[orrery] keeping chat ${chat.id}:`, error))
 }
 
-/** The chat's row as it is now, or none (`gone`, its messages with it): its one write, as the Rust API takes it from the
- * local app once it's swapped in (ORR-951). Why its launcher couldn't start it isn't kept, nor its messages, which are
- * rows of their own (`addLine`, `keepLine`). */
-export async function keepChat(db: Db, chat: Chat, gone = false) {
-    if (gone) {
-        await db.run('DELETE FROM chat_messages WHERE chat = ?', chat.id)
-        return void await db.run('DELETE FROM chats WHERE id = ?', chat.id)
-    }
-    const {problem: _problem, messages: _messages, ...row} = chat
-    await db.run('INSERT INTO chats (id, project, started_at, ended_at, chat) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET ended_at = excluded.ended_at, chat = excluded.chat',
-        chat.id, chat.project, chat.started_at, chat.ended_at ?? null, JSON.stringify(row))
-}
+/** Where the chat's writes go: the Rust API alone (ORR-951, ORR-1100), the one writer of the `chats` and
+ * `chat_messages` tables. With no API set up, or one that's down, the write fails (`writeToApiOnly`). */
+const chatPath = (chat: string, ...parts: (string | number)[]) => `/api/chats/${[chat, ...parts].map(p => encodeURIComponent(String(p))).join('/')}`
 
-/** A message added to the chat's rows, given its id (the next after every chat's) and its time, as the Rust API's
- * `POST /api/chats/:chat/lines` does. */
-export async function addLine(db: Db, chat: string, message: Omit<ChatMessage, 'id' | 'at'>): Promise<ChatMessage> {
-    const {id: _id, at: _at, ...body} = message as ChatMessage
-    return await db.transaction(async () => {
-        const last = await db.get<{n: number | string}>('SELECT COALESCE(MAX(id), 0) AS n FROM chat_messages')
-        const said = {id: Number(last?.n ?? 0) + 1, at: new Date().toISOString(), ...body}
-        await db.run('INSERT INTO chat_messages (chat, id, at, message) VALUES (?, ?, ?, ?)', chat, said.id, said.at, JSON.stringify(body))
-        return said
-    })
-}
-
-/** The chat's message as it is now, its id and time as they were, as `PUT /api/chats/:chat/lines/:id` keeps it. */
-export async function keepLine(db: Db, chat: string, message: ChatMessage) {
-    const {id, at: _at, ...body} = message
-    await db.run('UPDATE chat_messages SET message = ? WHERE chat = ? AND id = ?', JSON.stringify(body), chat, id)
-}
-
-/** The chat's row kept through the Rust API when it's in front (`PUT`/`DELETE /api/chats/:chat`, ORR-951), as it's the
- * one writer of the `chats` table then (ORR-1044); otherwise straight into the database here (`keepChat`). */
+/** The chat's row as it is now (`PUT /api/chats/:chat`), or none (`DELETE`, its messages with it). Why its launcher
+ * couldn't start it isn't kept, nor its messages, which are rows of their own (`addLineThrough`, `keepLineThrough`). */
 async function keepChatThrough(chat: Chat, gone: boolean) {
     const {problem: _problem, messages: _messages, ...row} = chat
-    const sent = await writeToApi(gone ? 'DELETE' : 'PUT', `/api/chats/${encodeURIComponent(chat.id)}`, gone ? undefined : row, ORRERY, {always: true})
-    if (!sent) await keepChat(useDatabase(), chat, gone)
+    await writeToApiOnly(gone ? 'DELETE' : 'PUT', chatPath(chat.id), gone ? undefined : row)
 }
 
-/** A message added through the Rust API when it's in front (`POST /api/chats/:chat/lines`), which gives it its id. */
+/** A message added to the chat's rows (`POST /api/chats/:chat/lines`), which gives it its id and time. */
 async function addLineThrough(chat: string, message: Omit<ChatMessage, 'id' | 'at'>): Promise<ChatMessage> {
-    const sent = await writeToApi('POST', `/api/chats/${encodeURIComponent(chat)}/lines`, message, ORRERY, {always: true})
-    return sent ? sent.reply as ChatMessage : await addLine(useDatabase(), chat, message)
+    return await writeToApiOnly('POST', chatPath(chat, 'lines'), message) as ChatMessage
 }
 
-/** A message changed through the Rust API when it's in front (`PUT /api/chats/:chat/lines/:id`). */
+/** The chat's message as it is now, its id and time as they were (`PUT /api/chats/:chat/lines/:id`). */
 async function keepLineThrough(chat: string, message: ChatMessage) {
-    const sent = await writeToApi('PUT', `/api/chats/${encodeURIComponent(chat)}/lines/${message.id}`, message, ORRERY, {always: true})
-    if (!sent) await keepLine(useDatabase(), chat, message)
+    await writeToApiOnly('PUT', chatPath(chat, 'lines', message.id), message)
 }
 
 /** The path of `parts` under the chat's project, each percent-encoded. */
 const under = (project: string, ...parts: string[]) => `/api/projects/${[project, ...parts].map(encodeURIComponent).join('/')}`
 
-/** A board write the owner allowed through their chat: sent to the Rust API as the page's request would be, when it's in
- * front and serves it (`writeToApi`), so it's the one writer of its tables and its outbox hears it (ORR-1044); otherwise
- * `here`, the store's own write. `noteKeys` off: the settings change is noted here already. */
-async function through<T>(method: string, path: string, body: unknown, as: Actor, here: () => Promise<T>, opts: {noteKeys?: boolean} = {}): Promise<T> {
-    const sent = await writeToApi(method, path, body, as, opts)
-    return sent ? sent.reply as T : await here()
+/** A board write the owner allowed through their chat, sent to the Rust API as the page's request would be, so it's
+ * the one writer of its tables and its outbox hears it (ORR-1044); with no API there, it fails (ORR-1135). `noteKeys`
+ * off: the settings change is noted here already. */
+async function through<T>(method: string, path: string, body: unknown, as: Actor, opts: {noteKeys?: boolean} = {}): Promise<T> {
+    return await writeToApiOnly(method, path, body, as, opts) as T
 }
 
 /** Waits for every chat's writes so far to land (tests, and a server closing). */
@@ -183,27 +151,15 @@ function inOrder({id, at, ...rest}: ChatMessage): ChatMessage {
     return {id, at, ...rest} as ChatMessage
 }
 
-/** The chats kept, each with its messages, oldest first: read from the API (ORR-1142), or the database with none set up. */
+/** The chats kept, each with its messages, oldest first, as the API reads them (ORR-1142). */
 async function keptChats(): Promise<Chat[]> {
-    const read = await readFromApi<Chat[]>('/api/chats')
-    if (read) return read.map(chat => ({...chat, messages: chat.messages.map(inOrder)}))
-    const db = useDatabase()
-    const rows = await db.all<{project: string, chat: string}>('SELECT project, chat FROM chats')
-    const lines = await db.all<{chat: string, id: number | string, at: string, message: string}>('SELECT chat, id, at, message FROM chat_messages ORDER BY id')
-    const messages = new Map<string, ChatMessage[]>()
-    for (const line of lines) {
-        const said = {id: Number(line.id), at: line.at, ...JSON.parse(line.message) as Omit<ChatMessage, 'id' | 'at'>}
-        messages.set(line.chat, [...messages.get(line.chat) ?? [], said])
-    }
-    return rows.map(row => ({...JSON.parse(row.chat) as Chat, project: row.project, messages: messages.get((JSON.parse(row.chat) as Chat).id) ?? []}))
+    const read = await readFromApiOnly<Chat[]>('/api/chats')
+    return read.map(chat => ({...chat, messages: chat.messages.map(inOrder)}))
 }
 
-/** A chat's messages as kept, oldest first: read from the API (ORR-1142), or the database with none set up. */
+/** A chat's messages as kept, oldest first, as the API reads them (ORR-1142). */
 async function keptMessages(id: string): Promise<ChatMessage[]> {
-    const read = await readFromApi<Chat>(`/api/chats/${encodeURIComponent(id)}`)
-    if (read) return read.messages.map(inOrder)
-    const rows = await useDatabase().all<{id: number | string, at: string, message: string}>('SELECT id, at, message FROM chat_messages WHERE chat = ? ORDER BY id', id)
-    return rows.map(row => ({id: Number(row.id), at: row.at, ...JSON.parse(row.message) as Omit<ChatMessage, 'id' | 'at'>}) as ChatMessage)
+    return (await readFromApiOnly<Chat>(chatPath(id))).messages.map(inOrder)
 }
 
 /** Ends each chat read back as running whose session no launcher has said still runs. */
@@ -530,7 +486,7 @@ async function moveNow(chat: Chat, project: string, ids: string[], to: Omit<Chat
     const moved: string[] = []
     try {
         for (const issue of ids) {
-            await through('PATCH', under(project, 'issues', issue), to, as, () => useStore().updateIssue(project, issue, to, as))
+            await through('PATCH', under(project, 'issues', issue), to, as)
             moved.push(issue)
         }
     } catch (error) {
@@ -857,8 +813,8 @@ async function answerRelease(chat: Chat, request: ChatReleaseRequest, allow: boo
     const project = request.project ?? chat.project
     if (allow) {
         const as: Actor = {...actor, via: 'chat'}
-        if (request.change) await through('PATCH', under(project, 'releases', request.version), request.body, as, () => useStore().updateRelease(project, request.version, request.body, as))
-        else await through('POST', under(project, 'releases'), request.body, as, () => useStore().createRelease(project, request.body, as))
+        if (request.change) await through('PATCH', under(project, 'releases', request.version), request.body, as)
+        else await through('POST', under(project, 'releases'), request.body, as)
     }
     request.state = allow ? 'allowed' : 'denied'
     changed(chat)
@@ -889,7 +845,7 @@ async function answerMove(chat: Chat, request: ChatMoveRequest, allow: boolean, 
             for (const id of ids) {
                 if (moved.includes(id)) continue
                 if (undecided((await issueNow(project, id)).proposal)) throw refusedFor('issues.edit', `${id} is a proposal waiting on you now: decide it on its page`)
-                await through('PATCH', under(project, 'issues', id), to, as, () => useStore().updateIssue(project, id, to, as))
+                await through('PATCH', under(project, 'issues', id), to, as)
                 moved.push(id)
             }
         } catch (error) {
@@ -923,8 +879,8 @@ async function answerMilestone(chat: Chat, request: ChatMilestoneRequest, allow:
         const as: Actor = {...actor, via: 'chat'}
         const {id: target} = request
         made = target === undefined
-            ? await through('POST', under(project, 'milestones'), request.body, as, () => useStore().createMilestone(project, request.body, as))
-            : await through('PATCH', under(project, 'milestones', target), request.body, as, () => useStore().updateMilestone(project, target, request.body, as))
+            ? await through('POST', under(project, 'milestones'), request.body, as)
+            : await through('PATCH', under(project, 'milestones', target), request.body, as)
     }
     request.state = allow ? 'allowed' : 'denied'
     if (made) request.id = made.id
@@ -949,12 +905,11 @@ async function answerDoc(chat: Chat, request: ChatDocRequest, allow: boolean, ac
             const {was} = request
             if (was) {
                 const target = known(request.id, 'the doc a change is to')
-                // The Rust API's PATCH has no "as it was" to check against, so it's checked here first; the store's
-                // own write checks it again in its transaction.
+                // The Rust API's PATCH has no "as it was" to check against, so it's checked here first.
                 await stillAsShown(project, target, was)
-                made = await through('PATCH', under(project, 'docs', target), request.body, as, () => useStore().updateDoc(project, target, request.body, as, was))
+                made = await through('PATCH', under(project, 'docs', target), request.body, as)
             } else {
-                made = await through('POST', under(project, 'docs'), request.body, as, () => useStore().createDoc(project, request.body, as))
+                made = await through('POST', under(project, 'docs'), request.body, as)
             }
         } catch (error) {
             const {statusCode} = error as {statusCode?: number}
@@ -994,7 +949,7 @@ async function answerIssue(chat: Chat, request: ChatIssueRequest, allow: boolean
     const {id: _, state: __, project: ___, ...fields} = request
     const as: Actor = {...actor, via: 'chat'}
     const body = {...fields, status: chat.issues}
-    const made = allow ? await through('POST', under(project, 'issues'), body, as, () => useStore().createIssue(project, body, as)) : undefined
+    const made = allow ? await through<{id: string, title: string}>('POST', under(project, 'issues'), body, as) : undefined
     request.state = allow ? 'allowed' : 'denied'
     if (made) request.id = made.id
     changed(chat)
@@ -1048,7 +1003,7 @@ async function answerSetting(chat: Chat, request: NonNullable<ChatMessage['reque
     const label = CHAT_SETTINGS[request.setting]
     if (allow) {
         const body = {[request.setting]: request.to}
-        await through('PATCH', '/api/settings', body, actor, () => useStore().updateSettings(body, actor), {noteKeys: false})
+        await through('PATCH', '/api/settings', body, actor, {noteKeys: false})
         useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings through their chat: ${request.setting}`,
             details: {by: actor.name, keys: [request.setting], via: 'chat', from: request.from, to: request.to}})
     }

@@ -16,7 +16,12 @@ class FakeApi extends EventEmitter {
     listen(port: number) {
         this.stderr.emit('data', Buffer.from(`serving docs on http://127.0.0.1:${port}, …\n`))
     }
-    kill() {
+    /** Whether it ignores SIGTERM, as a stuck one would. */
+    stuck = false
+    signals: string[] = []
+    kill(signal = 'SIGTERM') {
+        this.signals.push(signal)
+        if (this.stuck && signal !== 'SIGKILL') return true
         this.killed = true
         setTimeout(() => this.emit('exit', null), 0)
         return true
@@ -117,5 +122,22 @@ describe('the Rust API this server runs', () => {
         await apiListening(1000)
         expect(Date.now() - at).toBeLessThan(50)
         api.stop()
+    })
+
+    it('waits for it to exit as it stops, so the database is let go of after it, and kills one that won\'t go (ORR-1214)', async () => {
+        const {api, spawned} = running({now: '/data/a.db'})
+        await api.start()
+        let gone = false
+        const stopping = api.stop().then(() => gone = true)
+        expect(gone).toBe(false)
+        await stopping
+        expect(spawned[0]!.signals).toEqual(['SIGTERM'])
+
+        const stuck = running({now: '/data/b.db'})
+        await stuck.api.start()
+        stuck.spawned[0]!.stuck = true
+        await stuck.api.stop(20)
+        expect(stuck.spawned[0]!.signals).toEqual(['SIGTERM', 'SIGKILL'])
+        await expect(running({now: '/data/c.db'}).api.stop()).resolves.toBeUndefined()
     })
 })

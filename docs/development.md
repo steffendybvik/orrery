@@ -211,6 +211,13 @@ fails on a new `/api/` string or `$fetch` anywhere else in `web/app`.
 With `TEST_POSTGRES_URL` set (`postgres://orrery:orrery@localhost:5432/orrery`), the unit tests run on that Postgres,
 each test in a schema of its own, and the ones that only make sense there run too. CI runs every unit test both ways.
 
+The unit tests need Rust: `pnpm test` runs `cargo build` in `api/` first (`test/global-setup.ts`; `ORRERY_API_BIN` names a
+binary instead). The Nuxt server needs the API, so a test of what reads or writes through it (`readFromApi`,
+`writeToApi`) runs the real one on its own database, never a fallback to the store: `storeSetup({api: true})`, or
+`new Store(apiTestDb())` then `await withApi(store)` (`test/api.ts`). A test that stubs `useRuntimeConfig` after that
+spreads `apiConfig()` into it. Each test's API stops when the test ends. The no-API fallbacks go as their tests move over
+([ORR-1163](/p/orrery/issues/ORR-1163)).
+
 `pnpm test:e2e` runs the flows in a real browser with Playwright, a file per area in `web/e2e/` (issues, proposals,
 roadmap, releases, sessions, schedules, the keys, the phone layout…). The page walks go over the whole app from one
 list of pages, `e2e/pages.ts`: `navigation.spec.ts` checks each renders with no error and that the sidebar, ⌘K and App
@@ -239,7 +246,10 @@ Linux the spec skips; `pnpm test:e2e:visual` (in `web/`) runs it in CI's Playwri
 `pnpm test:e2e:visual -- --update-snapshots` remakes the images after a change that's meant to show.
 
 `pnpm test:e2e:login` runs `e2e/login/` on an orrery of its own with `ORRERY_AUTH=on` and a fresh `web/.data/e2e-login.db`, as
-the flows' stays one person's: the login page, signing in with a key, Settings' keys and logging out.
+the flows' stays one person's: the login page, signing in with a key, Settings' keys and logging out. Then it runs
+`e2e/signup/` on another, with a fresh `web/.data/e2e-signup.db` and a login provider of its own (`scripts/e2e-oidc.mjs`),
+as a provider takes the key box off the login page: the first account in becomes the owner, someone new signs up into a
+workspace of their own, and neither sees the other's projects, workspaces or events.
 
 `pnpm test:e2e:restart` builds the app and runs `e2e/restart/` on it, with a fresh `web/.data/e2e-restart.db`: the spec
 stops and starts the server itself, to check what outlives a restart (the owner's chats). `RESTART_NO_BUILD=1` skips the build.
