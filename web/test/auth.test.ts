@@ -3,6 +3,7 @@ import {readdirSync} from 'node:fs'
 import {join} from 'node:path'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Store as StoreType} from '../server/utils/store'
+import {apiConfig} from './api'
 import {failure, storeSetup} from './store-setup'
 
 // Login and keys (ORR-664): the middleware that asks every /api route for a credential, against a real store, on events
@@ -23,11 +24,11 @@ const asking = (path: string, {method = 'GET', headers = {}, bound = '127.0.0.1'
 const bearer = (key: string, more: Record<string, string> = {}) => ({authorization: `Bearer ${key}`, ...more})
 
 beforeEach(async () => {
-    ({store} = await storeSetup())
+    ({store} = await storeSetup({api: true}))
     config = {auth: 'on', oidc: {issuer: '', clientId: '', clientSecret: ''}, listenHost: ''}
     const fail = (statusCode: number) => (message: string) => Object.assign(new Error(message), {statusCode})
     vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
-    vi.stubGlobal('useRuntimeConfig', () => config)
+    vi.stubGlobal('useRuntimeConfig', () => ({...config, ...apiConfig()}))
     vi.stubGlobal('useStore', () => store)
     vi.stubGlobal('getHeader', (event: Event, name: string) => event.headers[name])
     vi.stubGlobal('getCookie', (event: Event, name: string) => new RegExp(`${name}=([^;]+)`).exec(event.headers.cookie ?? '')?.[1])
@@ -207,7 +208,7 @@ describe('when it is on', () => {
     const off = async (event = asking('/api/projects')) => authMode(event as never)
 
     it('stays off for one person on loopback, whatever they send', async () => {
-        const {store: alone} = await storeSetup()
+        const {store: alone} = await storeSetup({api: true})
         await alone.nameOwner({name: 'Solo'})
         vi.stubGlobal('useStore', () => alone)
         config.auth = ''
@@ -226,7 +227,7 @@ describe('when it is on', () => {
     })
 
     it("comes on off loopback, and for a proxy's request alone", async () => {
-        const {store: alone} = await storeSetup()
+        const {store: alone} = await storeSetup({api: true})
         await alone.nameOwner({name: 'Solo'})
         vi.stubGlobal('useStore', () => alone)
         config.auth = ''

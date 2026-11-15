@@ -1,5 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {Store as StoreType} from '../server/utils/store'
+import {apiConfig} from './api'
 import {failure, storeSetup} from './store-setup'
 import {exportBoard} from '../server/utils/board-export'
 
@@ -43,13 +44,13 @@ async function browser(person: string) {
 }
 
 beforeEach(async () => {
-    ({store} = await storeSetup())
+    ({store} = await storeSetup({api: true}))
     config = {auth: 'on', oidc: {issuer: '', clientId: '', clientSecret: ''}, listenHost: ''}
     cookies = []
     removed = []
     const fail = (statusCode: number) => (message: string) => Object.assign(new Error(message), {statusCode})
     vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
-    vi.stubGlobal('useRuntimeConfig', () => config)
+    vi.stubGlobal('useRuntimeConfig', () => ({...config, ...apiConfig()}))
     vi.stubGlobal('useStore', () => store)
     vi.stubGlobal('getHeader', (event: Event, name: string) => event.headers[name])
     vi.stubGlobal('getCookie', (event: Event, name: string) => new RegExp(`${name}=([^;]+)`).exec(event.headers.cookie ?? '')?.[1])

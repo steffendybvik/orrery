@@ -4,6 +4,7 @@ import type {ConnectTarget} from '#shared/connect'
 import {connectPieces, idsFor} from '#shared/connect'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
+import {apiTestDb, withApi} from './api'
 
 const greenhouse: ConnectTarget = {origin: 'http://localhost:9000', id: 'greenhouse', name: 'Greenhouse', key: 'GRE', isNew: false}
 
@@ -135,12 +136,13 @@ describe('who is asking', () => {
     afterEach(() => vi.unstubAllGlobals())
 
     it('is the Orrery-Actor header, the owner when it is their id, agent without one', async () => {
-        const store = new Store(testDb())
+        // The owner and the people are read through the Rust API (ORR-1163).
+        const store = new Store(apiTestDb())
         await store.nameOwner({name: 'Sköll Fenrisson'})
+        await withApi(store)
         let header: string | undefined
         let session: string | undefined
         let untrusted = false
-        vi.stubGlobal('useStore', () => store)
         vi.stubGlobal('getHeader', (_event: unknown, name: string) => name === 'orrery-session' ? session : name === 'orrery-actor' ? header : undefined)
         vi.stubGlobal('chatWrite', () => false)
         vi.stubGlobal('untrustedWrite', () => untrusted)

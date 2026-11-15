@@ -1,4 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
+import {Store} from '../server/utils/store'
+import {apiTestDb, withApi} from './api'
 
 // An untrusted schedule's session is held to the project it was started for on the server, not only by its channel's
 // `projectOf` (ORR-1069): what it read can't steer it into raising proposals on another board.
@@ -16,7 +18,11 @@ beforeEach(async () => {
     vi.stubGlobal('sessionHeader', (event: Event) => event.headers['orrery-session'])
     // orrery knows untrusted-1, started for greenhouse; untrusted-2 it doesn't know yet (it restarted).
     vi.stubGlobal('untrustedProject', (id: string | undefined) => id === 'untrusted-1' ? 'greenhouse' : undefined)
-    vi.stubGlobal('useStore', () => ({listProjects: async () => [{id: 'greenhouse', key: 'GRE'}, {id: 'pantry', key: 'PAN'}]}))
+    // The projects are read through the Rust API (ORR-1163).
+    const store = new Store(apiTestDb())
+    await store.createProject({name: 'greenhouse', key: 'GRE'})
+    await store.createProject({name: 'pantry', key: 'PAN'})
+    await withApi(store)
     vi.doMock('../server/utils/guard', () => ({guard: async () => {}}))
     vi.resetModules()
     handler = (await import('../server/middleware/untrusted')).default as unknown as typeof handler
