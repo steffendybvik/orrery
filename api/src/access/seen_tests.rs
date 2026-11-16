@@ -391,7 +391,11 @@ async fn mcp_tools_name_only_the_askers_projects() {
     let anas = with_agent_key(&api, api.post("/mcp", body.clone()), "ana", Some("default")).await.send().await;
     assert!(!anas.body.to_string().contains(&format!("\"{rockets}\"")), "ana's tools name Acme's project: {}", anas.body);
     // A second board in Acme, so a tool there takes which project, and lists them.
-    let comets = api.signed(api.post("/api/projects", json!({"name": "Comets"})).header("orrery-workspace", "acme").header("orrery-sent-origin", "http://localhost"), "bo").await.send().await;
+    let comets = api
+        .signed(api.post("/api/projects", json!({"name": "Comets"})).header("orrery-workspace", "acme").header("orrery-sent-origin", "http://localhost"), "bo")
+        .await
+        .send()
+        .await;
     assert_eq!(comets.status, 201, "{}", comets.body);
     let in_acme = with_agent_key(&api, api.post("/mcp", body.clone()).header("orrery-workspace", "acme"), "bo", None).await.send().await;
     assert!(in_acme.body.to_string().contains(&format!("\"{rockets}\"")), "bo's tools in Acme should name it: {}", in_acme.body);
