@@ -3088,9 +3088,9 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             const {id: issue} = await store.createIssue(project, {title: 'Varnish the lid', notes: `![lid](/api/uploads/${image})`, assignee: 'owner'}, OWNER)
             await store.createComment(project, issue, {body: `Before: ![lid](/api/uploads/${image})`}, OWNER)
         }
-        const response = await fetch(`${url}/api/projects/through-api/export`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK, ...actorHeaders(AGENT)}})
+        const response = await fetch(`${url}/api/projects/through-api/export?uploads=1`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK, ...actorHeaders(AGENT)}})
         const file = await response.json() as {exported_at: string, uploads: {id: string, data: string}[]}
-        const kept = await exportBoard(store.db, 'through-api')
+        const kept = await exportBoard(store.db, 'through-api', true)
         expect(file.exported_at).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/)
         expect({...file, exported_at: ''}).toEqual(JSON.parse(JSON.stringify({...kept, exported_at: ''})))
         expect(file.uploads.map(upload => [upload.id, upload.data])).toEqual([[image, Buffer.from((await store.upload(image)).data).toString('base64')]])
@@ -3098,6 +3098,9 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(response.headers.get('content-disposition')).toBe(`attachment; filename="through-api-${file.exported_at.slice(0, 10)}.orrery.json"`)
         await both('no such project', () => viaStore(() => store.project('nowhere')), () => viaApi('GET', '/api/projects/nowhere/export'))
         expect(domainOf('GET', '/api/projects/through-api/export')).toBe('a project, exported')
+        // Without `uploads=1`, alike with none (ORR-1248).
+        const bare = await (await fetch(`${url}/api/projects/through-api/export`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK, ...actorHeaders(AGENT)}})).json() as {exported_at: string}
+        expect({...bare, exported_at: ''}).toEqual(JSON.parse(JSON.stringify({...await exportBoard(store.db, 'through-api'), exported_at: ''})))
     })
 
     it('reads and writes the sessions\' bookkeeping alike (ORR-1141)', async () => {

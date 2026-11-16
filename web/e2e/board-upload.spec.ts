@@ -23,12 +23,12 @@ test('uploads a board\'s export as a new board, which opens with its issues, and
     await expect(page.getByText('brought it in from a file')).toBeVisible()
 })
 
-test('uploads a file from a project\'s settings, asking for another id and key when they\'re taken (ORR-747)', async ({page, request}) => {
+test('uploads a file from App settings, asking for another id and key when they\'re taken (ORR-747, ORR-1248)', async ({page, request}) => {
     await makeProject(request, {name: 'Quay', key: 'QUA'})
     const issue = await projectApi('quay')(request, 'post', '/issues', {title: 'Tar the hull'})
     const file = await (await request.get('/api/projects/quay/export')).text()
 
-    await page.goto('/p/quay/settings')
+    await page.goto('/settings#upload')
     const upload = page.locator('#upload')
     await expect(upload.getByLabel('Upload a board…')).toBeAttached()
 
@@ -58,7 +58,7 @@ test('brings a board\'s comments, pictures and docs along with its issues (ORR-1
     const picture = await (await request.post('/api/uploads', {data: {name: 'barrel.png', data: png}, headers: AGENT})).json() as {url: string}
     await coop(request, 'post', `/issues/${issue.id}/comments`, {body: `Three done:\n\n![The barrels](${picture.url})`})
     await coop(request, 'post', '/docs', {title: 'Staves', body: 'Oak, quarter-sawn.'})
-    const file = await (await request.get('/api/projects/cooperage/export')).json()
+    const file = await (await request.get('/api/projects/cooperage/export?uploads=1')).json()
     expect(file.uploads.map((u: {id: string}) => `/api/uploads/${u.id}`)).toEqual([picture.url])
 
     const [id, key] = test.info().retry ? ['tun-again', 'TUA'] : ['tun', 'TUN']

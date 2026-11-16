@@ -3,9 +3,9 @@
 use crate::testing::TestApi;
 use serde_json::{json, Value};
 
-/// A board's file for `project`, as its export makes it.
+/// A board's file for `project`, images and all, as its export makes it.
 async fn exported(api: &TestApi, project: &str) -> Value {
-    let reply = api.get(&format!("/api/projects/{project}/export")).send().await;
+    let reply = api.get(&format!("/api/projects/{project}/export?uploads=1")).send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
     reply.body
 }

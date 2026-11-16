@@ -298,7 +298,7 @@ export async function importOrrery({source, target, name, color, fromWorkspace =
     const files = new Map()
     for (const p of plan) {
         if (p.skipped) continue
-        const file = await source.get(`/projects/${encodeURIComponent(p.from)}/export`, from)
+        const file = await source.get(`/projects/${encodeURIComponent(p.from)}/export?uploads=1`, from)
         files.set(p.from, file)
         const t = file.tables ?? {}
         p.counts = {issues: t.issues?.length ?? 0, comments: (t.comments?.length ?? 0) + (t.milestone_comments?.length ?? 0), docs: t.docs?.length ?? 0, schedules: t.schedules?.length ?? 0}

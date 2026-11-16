@@ -33,6 +33,9 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
         {id: 'workspace', text: 'Name', level: 2},
         {id: 'tint', text: 'Colour', level: 2},
         {id: 'projects', text: 'Projects in the sidebar', level: 2},
+        // A board's file, out and in (ORR-1248): here, not on a project's Settings, as an upload makes a new board.
+        {id: 'export', text: 'Export a board', level: 2},
+        {id: 'upload', text: 'Upload a board', level: 2},
         {id: 'proposals', text: 'Proposals', level: 2},
         {id: 'tracker', text: 'Team tracker', level: 2},
         {id: 'statuses', text: 'Issue statuses', level: 2},
@@ -406,6 +409,28 @@ async function pick(tint: string | null) {
         </ul>
         <p v-else class="text-xs text-faint">No projects yet.</p>
         <p v-if="projectsFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ projectsFailed }}</p>
+      </section>
+
+      <section v-if="tab === 'workspace'" id="export" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.export }}</h2>
+          <p class="text-xs text-muted">
+            A project's whole board as one file: its issues, comments, activity, docs and their history, schedules and presets. Secrets stay here,
+            and the board stays as it is. Its images make a big board's file many times larger, so they go in only when you ask.
+          </p>
+        </header>
+        <BoardExport />
+      </section>
+
+      <section v-if="tab === 'workspace'" id="upload" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.upload }}</h2>
+          <p class="text-xs text-muted">
+            Brings a board's file in as a new board, so every board here stays as it is. Nothing in the file counts as yours, and its schedules arrive paused.
+            Leave out its images when this orrery refuses a file that big.
+          </p>
+        </header>
+        <BoardUpload />
       </section>
 
       <section v-if="tab === 'workspace'" id="proposals" class="scroll-mt-6 flex flex-col gap-3">

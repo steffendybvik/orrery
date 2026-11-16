@@ -909,9 +909,12 @@ paths:
       summary: The board as one file
       description: |
         A snapshot of the project, read in one transaction, that leaves the board as it is: its rows of each table a board
-        takes (`tables`), the people it names, the statuses its issues are in, and the images its text shows (`data` in
-        base64). Secrets, credentials and live state stay behind. `Content-Disposition` names it for the project and the
-        day, so a browser saves it. Whether the asker is on the board is the Nuxt server's to check, before it sends this on.
+        takes (`tables`), the people it names, the statuses its issues are in, and, with `uploads=1`, the images its text
+        shows (`data` in base64); without it `uploads` is empty (ORR-1248), as images are most of a big board's file.
+        Secrets, credentials and live state stay behind. `Content-Disposition` names it for the project and the day, so a
+        browser saves it. Whether the asker is on the board is the Nuxt server's to check, before it sends this on.
+      parameters:
+        - {name: uploads, in: query, required: false, description: '`1` to put the images its text shows in the file', schema: {type: string, enum: ['1', 'true']}}
       responses:
         '200': {description: The board's file, content: {application/json: {schema: {type: object, required: [format, format_version, schema_step, exported_at, project, people, statuses, uploads, tables], properties: {format: {type: string, enum: [orrery-board]}, format_version: {type: integer}, schema_step: {type: integer}, exported_at: {type: string}, project: {type: string}, people: {type: array, items: {type: object}}, statuses: {type: array, items: {type: object}}, uploads: {type: array, items: {type: object}}, tables: {type: object}}}}}}
         '404': {$ref: '#/components/responses/NotFound'}

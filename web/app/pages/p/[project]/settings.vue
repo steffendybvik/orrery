@@ -267,19 +267,11 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
       <section id="export" class="flex flex-col gap-3 border-t border-line pt-8">
         <div>
           <h2 class="text-[15px] font-semibold text-fg">Export</h2>
-          <p class="mt-0.5 text-[13px] text-muted">The whole board as one file: its issues, comments, activity, docs and their history, images, schedules and presets. Secrets stay here, and the board stays as it is.</p>
+          <p class="mt-0.5 text-[13px] text-muted">
+            Exporting this board as a file, and uploading a board's file, are in
+            <NuxtLink :to="{path: '/settings', query: {tab: 'workspace', board: project.id}, hash: '#export'}" class="underline underline-offset-2">App settings</NuxtLink>.
+          </p>
         </div>
-        <div>
-          <a :href="apiUrl(`/projects/${encodeURIComponent(project.id)}/export`)" download class="inline-flex items-center rounded-md px-3 py-1.5 text-[13px] font-medium ring-1 ring-line text-fg hover:bg-hover">Download the board</a>
-        </div>
-      </section>
-
-      <section id="upload" class="flex flex-col gap-3 border-t border-line pt-8">
-        <div>
-          <h2 class="text-[15px] font-semibold text-fg">Upload</h2>
-          <p class="mt-0.5 text-[13px] text-muted">Brings a board's file in as a new board, so this one stays as it is. Nothing in the file counts as yours, and its schedules arrive paused.</p>
-        </div>
-        <BoardUpload />
       </section>
 
       <section v-if="isOwner" id="moved" class="flex flex-col gap-3 border-t border-line pt-8">

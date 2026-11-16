@@ -174,11 +174,12 @@ async fn delete_project(State(app): Shared, Path(project): Path<String>, headers
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut projects.effects)))
 }
 
-/// `GET /api/projects/{project}/export` → the board as one file (`board::export`), named for the project and the day, so a
-/// browser saves it.
-async fn export_project(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
+/// `GET /api/projects/{project}/export?uploads=1` → the board as one file (`board::export`), named for the project and the
+/// day, so a browser saves it; its images only with `uploads=1`.
+async fn export_project(State(app): Shared, Path(project): Path<String>, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let board = export::export(&mut conn, &project).await?;
+    let with_uploads = query.get("uploads").is_some_and(|u| u == "1" || u == "true");
+    let board = export::export(&mut conn, &project, with_uploads).await?;
     let day = board["exported_at"].as_str().unwrap_or_default().get(..10).unwrap_or_default().to_string();
     let mut response = Json(board).into_response();
     let named = format!("attachment; filename=\"{project}-{day}.orrery.json\"");

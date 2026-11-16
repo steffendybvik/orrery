@@ -54,7 +54,7 @@ describe('a board\'s export', () => {
 
     it('holds every kind of thing on the board, and only this board\'s', async () => {
         const {db, parent, image, other} = await fullBoard()
-        const board = await exportBoard(db, 'greenhouse')
+        const board = await exportBoard(db, 'greenhouse', true)
         expect(board).toMatchObject({format: 'orrery-board', format_version: 1, schema_step: MIGRATIONS.length, project: 'greenhouse'})
         const {tables} = board
         expect(tables.projects).toMatchObject([{id: 'greenhouse'}])
@@ -71,6 +71,13 @@ describe('a board\'s export', () => {
         expect(board.uploads.map(u => u.id)).toEqual([image])
         expect(JSON.stringify(board)).not.toContain(other)
         expect(Buffer.from(String(board.uploads[0]?.data), 'base64').length).toBeGreaterThan(0)
+    })
+
+    it('leaves its images out unless asked for them (ORR-1248)', async () => {
+        const {db} = await fullBoard()
+        const board = await exportBoard(db, 'greenhouse')
+        expect(board.uploads).toEqual([])
+        expect(board.tables.docs.map(d => d.id)).toEqual(['notes'])
     })
 
     it('keeps a deleted doc\'s history, so it can still come back', async () => {
