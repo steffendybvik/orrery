@@ -12,10 +12,13 @@ test('splits App settings into tabs by what they reach, and a link opens the rig
     await page.getByRole('radio', {name: 'Workspace'}).click()
     await expect(page).toHaveURL(/tab=workspace/)
     await expect(page.getByText('This workspace: its name and colour')).toBeVisible()
-    for (const name of ['Name', 'Colour', 'Team tracker', 'Issue statuses', 'Proposals', 'Secrets']) await expect(page.getByRole('heading', {name, exact: true})).toBeVisible()
+    for (const name of ['Name', 'Colour', 'Team tracker', 'Issue statuses', 'Proposals', 'Secrets', 'Storage']) await expect(page.getByRole('heading', {name, exact: true})).toBeVisible()
     // Its name and colour first, then the projects, then how issues work, proposals first of those (ORR-612).
     expect(await page.locator('section[id]').evaluateAll(sections => sections.map(s => s.id)))
-        .toEqual(['workspace', 'tint', 'projects', 'export', 'upload', 'proposals', 'tracker', 'statuses', 'people', 'secrets', 'move']) // moving it last (ORR-1249)
+        .toEqual(['workspace', 'tint', 'projects', 'export', 'upload', 'proposals', 'tracker', 'statuses', 'people', 'secrets', 'storage', 'move']) // moving it last (ORR-1249)
+    // Storage (ORR-1250): with no image left behind, nothing to clean up.
+    await expect(page.locator('#storage').getByText('Every image here is shown somewhere.')).toBeVisible()
+    await expect(page.getByRole('button', {name: 'Clean up'})).toHaveCount(0)
     await expect(page.getByRole('heading', {name: 'Your name'})).toHaveCount(0)
 
     // An old tab's link opens the Workspace tab.

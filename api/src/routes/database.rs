@@ -47,18 +47,25 @@ async fn pragma(conn: &mut sqlx::AnyConnection, name: &str) -> Result<i64> {
 /// back (ORR-1134). Only with that much free, as housekeeping asks after a clean-up; `always`, whatever is free, as the
 /// local app asks once it has compressed the images. A Postgres database keeps its own space: never.
 async fn compact(State(app): Shared, body: Bytes) -> Result<Response> {
-    if on_postgres() {
-        return Ok(Json(json!({"compacted": false})).into_response());
-    }
     let always = body_of(&body).get("always").and_then(Value::as_bool).unwrap_or(false);
     let mut conn = app.pool.acquire().await?;
+    Ok(Json(json!({"compacted": compact_file(&mut conn, always).await?})).into_response())
+}
+
+/// Compacts the SQLite file when that much is free (or `always`), and says whether it did; never on Postgres. Also after
+/// the owner removes the images nothing shows (ORR-1250), so the room comes back at once.
+pub(crate) async fn compact_file(conn: &mut sqlx::AnyConnection, always: bool) -> Result<bool> {
+    if on_postgres() {
+        return Ok(false);
+    }
     if !always {
-        let (free, size, pages) = (pragma(&mut conn, "freelist_count").await?, pragma(&mut conn, "page_size").await?, pragma(&mut conn, "page_count").await?);
+        let (free, size, pages) =
+            (pragma(&mut *conn, "freelist_count").await?, pragma(&mut *conn, "page_size").await?, pragma(&mut *conn, "page_count").await?);
         if free * size < COMPACT_FROM_BYTES || (free as f64) < COMPACT_FROM_SHARE * pages as f64 {
-            return Ok(Json(json!({"compacted": false})).into_response());
+            return Ok(false);
         }
     }
     sqlx::query("VACUUM").execute(&mut *conn).await?;
     sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)").execute(&mut *conn).await?;
-    Ok(Json(json!({"compacted": true})).into_response())
+    Ok(true)
 }
