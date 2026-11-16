@@ -31,8 +31,9 @@ export function useWorkspaces() {
         loaded.value = true
     }
 
-    /** The id of the workspace this tab is in. */
-    const here = computed(() => workspaceIn(route.path) ?? (list.value.some(w => w.id === 'default') ? 'default' : list.value[0]?.id ?? 'default'))
+    /** The id of the workspace this tab is in. With none in the address, the one the API lists for (ORR-1251):
+     * `default`, else the first by id, as `Seen::pick` takes it, so the sidebar and Projects show its projects alone. */
+    const here = computed(() => workspaceIn(route.path) ?? (list.value.some(w => w.id === 'default') ? 'default' : list.value.map(w => w.id).sort()[0] ?? 'default'))
     const current = computed(() => list.value.find(w => w.id === here.value))
 
     /** Opens `workspace`'s My issues in this tab: a fresh page, so its settings, colour and boards are all its own. */

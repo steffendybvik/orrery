@@ -18,6 +18,26 @@ export async function memberSees(event: H3Event): Promise<Set<string> | undefine
     return projects
 }
 
+const listedKept = new Map<string, {at: number, projects: Set<string>}>()
+
+/** The projects a list across projects shows the asker (ORR-1251): those `GET /api/projects` lists for them, in the
+ * one workspace the request is in (its `Orrery-Workspace`, else `default`), the owner included, so the Sessions page
+ * doesn't mix workspaces. Undefined with nobody signed in or no API to ask, who see every one. `memberSees` stays
+ * the check for reaching one project, which isn't held to the tab's workspace. */
+export async function listedSees(event: H3Event): Promise<Set<string> | undefined> {
+    const who = event.context?.who as Who | undefined
+    if (!who) return undefined
+    const key = `${who.person}\u0000${getHeader(event, 'orrery-workspace') ?? ''}`
+    const now = Date.now()
+    const held = listedKept.get(key)
+    if (held && now - held.at < KEEP_MS) return held.projects
+    const listed = await readAsAsker<{id: string}[]>(event, '/api/projects')
+    if (!listed) return undefined
+    const projects = new Set(listed.map(p => p.id))
+    listedKept.set(key, {at: now, projects})
+    return projects
+}
+
 /** A 404 for a project a member can't see, as if it weren't here. */
 export async function needsSeen(event: H3Event, project: string) {
     const sees = await memberSees(event)

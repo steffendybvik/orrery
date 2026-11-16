@@ -34,15 +34,18 @@ impl Seen {
         Seen::asking(conn, who_of(headers).as_ref(), &actor, own.as_deref()).await
     }
 
-    /// What a list of the workspace's own (its projects, releases, schedules) shows (ORR-1108): the one workspace the
-    /// request names in `Orrery-Workspace` when it's one the asker is in, as a page sends its address's; else all of
-    /// theirs, as `of`.
+    /// What a list of the workspace's own (its projects, releases, schedules, a session's project choices) shows
+    /// (ORR-1108, ORR-1251): one workspace, the one the request acts in. That's the one it names in `Orrery-Workspace`
+    /// when the asker is in it, as a page sends its address's, else the one `pick` acts in with none named: `default`
+    /// when they're in it, else their first. A page with no `/w/…` in its address shows itself in that same one, so
+    /// it lists only that workspace's projects. The Nuxt server's own work still sees every workspace.
     pub(crate) async fn listed(conn: &mut AnyConnection, headers: &HeaderMap) -> Result<Seen> {
         let seen = Seen::of(conn, headers).await?;
         let named = header(headers, "orrery-workspace").map(|w| w.trim().to_string()).filter(|w| !w.is_empty());
-        Ok(match (seen, named) {
-            (Seen::Only { workspaces, own, off }, Some(named)) if workspaces.contains(&named) => Seen::Only { workspaces: vec![named], own, off },
-            (seen, _) => seen,
+        let one = seen.pick(named.as_deref()).or_else(|_| seen.pick(None)).ok();
+        Ok(match seen {
+            Seen::Only { own, off, .. } => Seen::Only { workspaces: one.into_iter().collect(), own, off },
+            all => all,
         })
     }
 
