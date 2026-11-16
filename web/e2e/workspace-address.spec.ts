@@ -60,4 +60,9 @@ test('the switcher makes a workspace and moves this tab into it, and links stay 
     await other.goto('/mine')
     await expect(other.getByTestId('workspace-switcher').getByRole('button').first()).not.toContainText(name)
     expect((await icons(other)).map(href => new URL(href).pathname)).toEqual(['/favicon.ico', '/favicon.svg'])
+    // Each carries a hash of what's in it (ORR-1255), so an old copy kept at the bare address is never shown, and is served.
+    for (const href of await icons(other)) {
+        expect(new URL(href).search).toMatch(/^\?v=[0-9a-f]{8}$/)
+        expect((await other.request.get(href)).ok(), href).toBe(true)
+    }
 })
