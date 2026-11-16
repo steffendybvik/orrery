@@ -66,7 +66,7 @@ function watchOtherHosts(page: Page, origin: string) {
 const directives = (csp = '') => Object.fromEntries(csp.split(';').map(d => d.trim().split(/\s+/)).filter(d => d[0]).map(([name, ...values]) => [name, values.join(' ')]))
 
 test('every page renders its heading, with no page or console error, and loads nothing from another host', async ({page, baseURL}) => {
-    test.setTimeout(120_000)
+    test.setTimeout(180_000)
     await setAdvanced(page, true)
     const errors = watchErrors(page)
     // orrery serves its own fonts and styles (ORR-766), and SECURITY.md says a page loads nothing from elsewhere.
@@ -76,6 +76,9 @@ test('every page renders its heading, with no page or console error, and loads n
             await page.goto(route.path)
             await expect(heading(page, route.heading)).toBeVisible()
             await expect(page.getByRole('heading', {name: /^Nothing at /})).toHaveCount(0)
+            // Settled before the next `goto`, or the modules it's still loading (a schedule suggestion's icons) are cut
+            // short, and Firefox's Vue logs each as an error on the next page.
+            await page.waitForLoadState('networkidle')
             expect(errors, route.path).toEqual([])
         })
     }
