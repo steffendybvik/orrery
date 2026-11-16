@@ -9,7 +9,7 @@ import {writeSpaLoading} from './scripts/spa-loading'
 const {version} = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {version: string}
 
 // The icons' addresses carry a hash of what's in them (ORR-1255), so a browser or a proxy holding an old copy at the
-// same address never shows it again: orrery.dybben.com's tab kept Nuxt's logo, which /favicon.ico had answered with
+// same address never shows it again: a hosted orrery's tab kept Nuxt's logo, which /favicon.ico had answered with
 // while the server was down and the proxy fell through to another site.
 const versioned = (path: string) => `${path}?v=${createHash('sha256').update(readFileSync(new URL(`./public${path}`, import.meta.url))).digest('hex').slice(0, 8)}`
 
