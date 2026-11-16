@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it, vi} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
-import {addToList, adoptable, inWsl, installedFrom, keepingSessions, launcherAlive, listChanges, listIn, pickUp, plist, projectAt, readConfig, RELOADS, servedElsewhere, serviceProblem, skipping, systemdUnit, withAgent, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
+import {addToList, adoptable, inWsl, installedFrom, keepingSessions, launcherAlive, listChanges, listIn, pickUp, plist, projectAt, readConfig, RELOADS, removeFromList, servedElsewhere, serviceProblem, skipping, systemdUnit, withAgent, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
 // @ts-expect-error: the same
 import {follow} from '../../channel/sse.mjs'
 
@@ -26,6 +26,21 @@ describe("the launcher's list", () => {
         const now = new Date('2026-10-31T08:00:00.000Z')
         addToList([{url: 'http://localhost:9000', project: 'shop', dir: '/code/shop'}], '/code/shop', {file, now})
         expect(readConfig(file)).toMatchObject({projects: [{project: 'shop', dir: '/code/shop', connected_at: now.toISOString()}], skip: []})
+    })
+
+    it("takes a repo off for Remove on Connected repos, keeps it from pick-up, and lets Connect a repo put it back (ORR-1260)", () => {
+        const file = join(mkdtempSync(join(tmpdir(), 'orrery-launcher-')), 'list.json')
+        const shop = {url: 'http://localhost:9000', project: 'shop', dir: '/code/shop'}
+        const elsewhere = {url: 'http://localhost:9010', project: 'shop', dir: '/code/shop'}
+        writeFileSync(file, JSON.stringify({projects: [shop, elsewhere, greenhouse], pickUp: true, skip: []}))
+        // Only this orrery's project, and only from that folder.
+        expect(removeFromList([{url: shop.url, project: 'shop'}], '/code/elsewhere', {file})).toEqual([])
+        expect(removeFromList([{url: shop.url, project: 'shop'}], '/code/shop', {file})).toEqual([shop])
+        expect(readConfig(file)).toMatchObject({projects: [elsewhere, greenhouse], skip: ['/code/shop']})
+        expect(pickUp([shop], '/code/shop', {file})).toEqual([])
+        addToList([shop], '/code/shop', {file})
+        expect(readConfig(file).projects.map((p: {project: string, url: string}) => `${p.url} ${p.project}`)).toContain(`${shop.url} shop`)
+        expect(readConfig(file).skip).toEqual([])
     })
 
     it("maps a folder to its project on an orrery, the nearest repo's, and to none where that can't be told (ORR-1068)", () => {

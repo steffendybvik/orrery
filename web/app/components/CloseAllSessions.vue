@@ -6,8 +6,9 @@ import {closable} from '#shared/roadmap'
 // same way each card's Stop does: one orrery started through its launch, one opened in a terminal through its channel.
 // The owner's chat stays, as it's their conversation, not work. It asks first, saying how many and how many are in the
 // middle of something, as that goes with them; a session's own Stop doesn't (ORR-971), this stops many at once.
+// `sure` is that question, open: the Sessions page's ⋯ opens it on a phone, where this button hides (ORR-1220).
 const props = defineProps<{sessions: Session[]}>()
-const sure = ref(false)
+const sure = defineModel<boolean>('sure', {default: false})
 const busy = ref(false)
 const failed = ref('')
 const targets = computed(() => props.sessions.filter(closable))
@@ -37,6 +38,6 @@ async function closeAll() {
       <UiButton variant="danger-outline" class="shrink-0" :disabled="busy" @click="closeAll"><UiBusy :busy="busy" label="Closing…">Close all</UiBusy></UiButton>
       <UiButton class="shrink-0" :disabled="busy" @click="sure = false">Cancel</UiButton>
     </template>
-    <UiButton v-else class="shrink-0" :title="`Stop all ${plural(targets.length)} listed here; the chat stays`" @click="sure = true">Close all</UiButton>
+    <UiButton v-else class="shrink-0 max-sm:hidden" :title="`Stop all ${plural(targets.length)} listed here; the chat stays`" @click="sure = true">Close all</UiButton>
   </span>
 </template>

@@ -254,7 +254,9 @@ The launcher starts sessions only in folders on its list (`~/.config/orrery/laun
 on your machine puts a folder there: `--install` in it, with pick-up on (ORR-599) orrery's channel in a Claude
 session you opened in it, which is the folder trust Claude Code asked you for, or you choosing it in the folder picker for
 **Connect a repo** (below). orrery never names a folder for the launcher, so whoever can reach orrery can't make it start
-sessions somewhere new. `--no-pick-up` leaves it to `--install` and that picker, and `--uninstall` in a repo keeps it off.
+sessions somewhere new. **Remove** on Connected repos (ORR-1260) only takes one off: orrery sends back a folder a launcher
+said it serves, to the launchers serving it, and each takes it off only if it's that launcher's own; nothing is added or written
+but the list. `--no-pick-up` leaves it to `--install` and that picker, and `--uninstall` in a repo keeps it off.
 The one folder it adds itself is its **default folder**, `~/.orrery/<orrery id>/home` (ORR-1066), for the projects with no
 repo: the launcher makes the path from the orrery's id (checked to be a plain id), writes only orrery's channel, hooks and a
 CLAUDE.md there, and never tells orrery where it is. Claude Code's trust prompt still has to be answered there by hand once.

@@ -48,7 +48,7 @@ export abstract class StoreBase {
      * router reads the store. */
     protected async fromApi<T>(path: string, workspace?: string): Promise<T | undefined> {
         const {readFromApi} = await import('../utils/api-router')
-        return await readFromApi<T>(path, {workspace})
+        return await readFromApi<T>(path, workspace ? {workspace} : {})
     }
 
     /** Tells what a write the Rust API made set off (`work`, the router's hooks), without a second row in the outbox. */
@@ -163,12 +163,13 @@ export abstract class StoreBase {
     }
 
     /** The orrery's statuses, in order (`StatusStore` has them). */
-    abstract statuses(project?: string): Promise<IssueStatus[]>
+    abstract statuses(workspace?: string): Promise<IssueStatus[]>
+    protected abstract statusesOf(project: string): Promise<IssueStatus[]>
 
     // Reading
 
     protected async projectOf(row: ProjectRow): Promise<Project> {
-        const statuses = await this.statuses(row.id)
+        const statuses = await this.statusesOf(row.id)
         const board = await readBoard(this.db, row.id, statuses)
         return {
             id: row.id,
@@ -201,7 +202,7 @@ export abstract class StoreBase {
      * there isn't. */
     protected async boardOf(project: string): Promise<Board> {
         await this.projectRow(project)
-        return await readBoard(this.db, project, await this.statuses(project))
+        return await readBoard(this.db, project, await this.statusesOf(project))
     }
 
     /** The issue's id, from its id, an id it had before (an alias), or the full form of either on this board. */

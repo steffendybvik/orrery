@@ -41,6 +41,8 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
         {id: 'statuses', text: 'Issue statuses', level: 2},
         {id: 'people', text: 'People', level: 2},
         {id: 'secrets', text: 'Secrets', level: 2},
+        // Images nothing shows, and the room they take (ORR-1250).
+        {id: 'storage', text: 'Storage', level: 2},
         {id: 'move', text: 'Move to another orrery', level: 2},
     ]},
     // Usage has a tab of its own (ORR-900): counting what you use is your choice, not a tool for looking into problems.
@@ -509,6 +511,17 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <SecretSettings />
+      </section>
+
+      <section v-if="tab === 'workspace'" id="storage" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.storage }}</h2>
+          <p class="text-xs text-muted">
+            Images that no issue, comment or doc shows any more, not even an old version of one. Only those more than a day old count,
+            so one you're still writing into a comment stays.
+          </p>
+        </header>
+        <StorageSettings />
       </section>
 
       <section v-if="tab === 'workspace'" id="move" class="scroll-mt-6 flex flex-col gap-3">

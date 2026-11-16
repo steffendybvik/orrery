@@ -26,8 +26,8 @@ export abstract class IssueStore extends ClaimStore {
         if (filter.parent && filter.parent !== 'none') filter = {...filter, parent: await this.issueId(project, filter.parent)}
         if (filter.release && filter.release !== 'none') await this.releaseRow(project, filter.release)
         const q = filter.q?.toLowerCase()
-        const statuses = filter.status ? await this.statusIds(filter.status, project) : []
-        const columns = filter.column === 'proposed' ? ['proposed'] : filter.column ? await this.statusIds(filter.column, project) : []
+        const statuses = filter.status ? await this.statusIds(filter.status, await this.statusesOf(project)) : []
+        const columns = filter.column === 'proposed' ? ['proposed'] : filter.column ? await this.statusIds(filter.column, await this.statusesOf(project)) : []
         const assignee = filter.assignee && filter.assignee !== 'none' ? await this.assigneeOf(filter.assignee) : undefined
         const [github] = filter.github_issue ? (await this.githubIssuesOf(project, JSON.stringify([filter.github_issue])) ?? []).map(g => g.toLowerCase()) : []
         const handle = await this.handle()
@@ -99,7 +99,7 @@ export abstract class IssueStore extends ClaimStore {
         let assigned = proposed ? await this.ownerId() : nullable(await this.assigneeOf(input.assignee))
         const rails = await this.railsFor(actor)
         const person = rails?.person
-        const kind = (await this.statuses(project)).find(s => s.id === status)?.kind
+        const kind = (await this.statusesOf(project)).find(s => s.id === status)?.kind
         if (rails && !actor.untrusted) {
             // A follow-up under its person's issue is theirs too, unless it's a proposal, which waits on the owner. A new
             // issue with no parent is anyone's on the board to make, but stays nobody's, so it can't be made already taken up.
@@ -190,7 +190,7 @@ export abstract class IssueStore extends ClaimStore {
         if (rails && parent && parent !== row.parent) await this.mustHold(rails, parent, (await this.issueRow(project, parent)).assignee, 'move an issue under it')
         if (rails && input.proposal !== 'pending') assignee = await this.railedAssignee(rails, id, assignee)
         // A claim ends with the issue closed or reassigned; reopening it doesn't bring it back.
-        const kinds = await this.statuses(project)
+        const kinds = await this.statusesOf(project)
         const toKind = status === undefined ? undefined : kinds.find(s => s.id === status)?.kind
         const reassigned = assignee !== undefined && (assignee ?? '').toLowerCase() !== (row.assignee ?? '').toLowerCase()
         const ended = reassigned || !!toKind && CLOSED.includes(toKind)
@@ -388,7 +388,7 @@ export abstract class IssueStore extends ClaimStore {
     protected async urgent(project: string, before: IssueRow | null, after: IssueRow, actor: Actor) {
         try {
             const urgentWork = async (row: IssueRow) => row.priority === 'P0' && !row.proposal
-                && !CLOSED.includes((await this.statuses(project)).find(s => s.id === row.status)?.kind as Kind)
+                && !CLOSED.includes((await this.statusesOf(project)).find(s => s.id === row.status)?.kind as Kind)
             if (!(actor.owner || actor.person) || !await urgentWork(after) || (before && await urgentWork(before))) return
             // One blocked (ORR-601) waits for what it depends on, urgent or not: it's handed out once that's done.
             if ((await this.blockers(project, after.id)).length) return

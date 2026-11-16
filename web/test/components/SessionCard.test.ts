@@ -68,6 +68,35 @@ describe("a session's line", () => {
     })
 })
 
+describe('its summary line and Details (ORR-1220)', () => {
+    const doing = (id: string) => ({id, title: `Issue ${id}`, column: 'in-progress', kind: 'started'}) as SessionWork['issues'][number]
+
+    it('says the issue it is on in the summary, with a count of the others', async () => {
+        const wrapper = await mount({session: session(), work: {issues: [doing('SHO-1'), doing('SHO-4')], signals: []}})
+        const now = wrapper.find('[data-testid="session-now"]')
+        expect(now.attributes('href')).toBe('/p/shop/issues/SHO-1')
+        expect(now.text()).toContain('Issue SHO-1')
+        expect(now.text()).toContain('+1')
+    })
+
+    it('keeps its details folded until its name is pressed', async () => {
+        const wrapper = await mount({session: session({cwd: '/Users/ada/shop'})})
+        const folded = () => wrapper.find('[data-testid="session-details"]').attributes('style')?.includes('display: none') ?? false
+        const toggle = wrapper.find('button[aria-label="Details for shop · Brokk"]')
+        expect(folded()).toBe(true)
+        expect(toggle.attributes('aria-expanded')).toBe('false')
+        await toggle.trigger('click')
+        expect(folded()).toBe(false)
+        expect(toggle.attributes('aria-expanded')).toBe('true')
+    })
+
+    it('opens them for the one a link points at', async () => {
+        const wrapper = await mountSuspended(SessionCard, {props: {project: 'shop', session: session(), lit: true}})
+        mounted.push(wrapper as VueWrapper)
+        expect(wrapper.find('[data-testid="session-details"]').attributes('style') ?? '').not.toContain('display: none')
+    })
+})
+
 describe('what a session is on', () => {
     const issue = (id: string, kind: string) => ({id, title: `Issue ${id}`, column: kind === 'started' ? 'in-progress' : 'done', kind}) as SessionWork['issues'][number]
     const signal = (id: number, over: object) => ({id, project: 'shop', created_by: 'claude', created_at: new Date().toISOString(), ...over}) as SessionWork['signals'][number]

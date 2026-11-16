@@ -3,6 +3,7 @@
 // does.
 use crate::access::seen::Seen;
 use crate::board::compress::compress_image;
+use crate::board::export::UPLOAD;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
 use crate::write::{js, stamp, Actor};
@@ -14,6 +15,7 @@ use base64::Engine;
 use regex::Regex;
 use serde_json::{json, Value};
 use sqlx::{AnyConnection, Row};
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
 static ID: LazyLock<Regex> = LazyLock::new(|| Regex::new("^[0-9a-f]{24}$").unwrap());
@@ -180,4 +182,112 @@ pub(crate) async fn workspace_for(conn: &mut AnyConnection, seen: &Seen, named: 
         },
         (Err(error), _) => Err(error),
     }
+}
+
+/// The tables whose text never counts as showing an image (ORR-1250): the images themselves, and the event log and the
+/// changes, which only tell of what happened. Every other text column of every table does, as `uploadsReferred` in
+/// web/server/store/signals.ts reads them, so a table added later is never missed.
+const NOT_SHOWING: [&str; 3] = ["uploads", "events", "changes"];
+
+/// How long an image nothing shows is left be (ORR-1250): one being written into a comment isn't shown yet.
+const GRACE_HOURS: i64 = 24;
+
+/// The ids of the images something shows, in any workspace: an image is never taken while anything at all shows it.
+pub(crate) async fn shown(conn: &mut AnyConnection) -> Result<HashSet<String>> {
+    let columns: Vec<(String, String)> = sqlx::query_as(if crate::db::on_postgres() {
+        "SELECT CAST(table_name AS TEXT), CAST(column_name AS TEXT) FROM information_schema.columns \
+         WHERE table_schema = current_schema() AND data_type IN ('text', 'character varying', 'json', 'jsonb')"
+    } else {
+        "SELECT m.name, c.name FROM sqlite_master m JOIN pragma_table_info(m.name) c \
+         WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%' AND upper(c.type) NOT IN ('BLOB', 'INTEGER', 'REAL')"
+    })
+    .fetch_all(&mut *conn)
+    .await?;
+    let columns: Vec<_> = columns.into_iter().filter(|(table, _)| !NOT_SHOWING.contains(&table.as_str())).collect();
+    if !columns.iter().any(|(table, column)| table == "comments" && column == "body") {
+        return Err(ApiError::internal("which columns hold text"));
+    }
+    let mut ids = HashSet::new();
+    for (table, column) in columns {
+        let text = sql(&format!("SELECT CAST(\"{column}\" AS TEXT) FROM \"{table}\" WHERE CAST(\"{column}\" AS TEXT) LIKE ?"));
+        let found: Vec<(Option<String>,)> = sqlx::query_as(&text).bind("%/api/uploads/%").fetch_all(&mut *conn).await?;
+        for text in found.into_iter().filter_map(|(text,)| text) {
+            ids.extend(UPLOAD.captures_iter(&text).filter_map(|found| found.get(1)).map(|m| m.as_str().to_string()));
+        }
+    }
+    Ok(ids)
+}
+
+/// The moment before which an image nothing shows counts as unused.
+fn grace() -> String {
+    (chrono::Utc::now() - chrono::Duration::hours(GRACE_HOURS)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
+}
+
+/// `workspace`'s images, newest first, each with whether anything shows it (`used`) and whether it's unused: shown
+/// nowhere and more than a day old. With `unused_only`, only those. `count` and `size` add up what's listed.
+pub async fn list_uploads(conn: &mut AnyConnection, workspace: &str, unused_only: bool) -> Result<Value> {
+    let shown = shown(conn).await?;
+    let before = grace();
+    let found = sqlx::query(&sql("SELECT id, type, name, size, created_by, created_at FROM uploads WHERE workspace = ? ORDER BY created_at DESC, id"))
+        .bind(workspace)
+        .fetch_all(&mut *conn)
+        .await?;
+    let mut listed = vec![];
+    let mut size = 0_i64;
+    for row in found {
+        let id: String = row.get("id");
+        let created_at: String = row.get("created_at");
+        let used = shown.contains(&id);
+        let unused = !used && created_at < before;
+        if unused_only && !unused {
+            continue;
+        }
+        let bytes: i64 = row.get("size");
+        size += bytes;
+        listed.push(json!({
+            "id": id,
+            "type": row.get::<String, _>("type"),
+            "name": row.get::<Option<String>, _>("name"),
+            "size": bytes,
+            "created_by": row.get::<String, _>("created_by"),
+            "created_at": created_at,
+            "used": used,
+            "unused": unused,
+            "url": format!("/api/uploads/{id}"),
+        }));
+    }
+    Ok(json!({"count": listed.len(), "size": size, "uploads": listed}))
+}
+
+/// Removes one of `workspace`'s images: 404 when it isn't one, 409 while something still shows it.
+pub async fn delete_upload(conn: &mut AnyConnection, id: &str, workspace: &str) -> Result<()> {
+    let found = if ID.is_match(id) {
+        sqlx::query(&sql("SELECT id FROM uploads WHERE id = ? AND workspace = ?")).bind(id).bind(workspace).fetch_optional(&mut *conn).await?
+    } else {
+        None
+    };
+    if found.is_none() {
+        return Err(ApiError::not_found(format!("No image {id}")));
+    }
+    if shown(conn).await?.contains(id) {
+        return Err(ApiError::conflict(format!("Image {id} is still shown: take it out of what shows it first")));
+    }
+    sqlx::query(&sql("DELETE FROM uploads WHERE id = ?")).bind(id).execute(conn).await?;
+    Ok(())
+}
+
+/// Removes every unused image of `workspace` (shown nowhere, more than a day old) in one go → `{count, size}` removed.
+pub async fn sweep_uploads(conn: &mut AnyConnection, workspace: &str) -> Result<Value> {
+    let listed = list_uploads(conn, workspace, true).await?;
+    let ids: Vec<String> = listed["uploads"].as_array().into_iter().flatten().filter_map(|u| u["id"].as_str().map(String::from)).collect();
+    for chunk in ids.chunks(200) {
+        let marks = vec!["?"; chunk.len()].join(", ");
+        let text = sql(&format!("DELETE FROM uploads WHERE id IN ({marks})"));
+        let mut q = sqlx::query(&text);
+        for id in chunk {
+            q = q.bind(id);
+        }
+        q.execute(&mut *conn).await?;
+    }
+    Ok(json!({"count": listed["count"], "size": listed["size"]}))
 }

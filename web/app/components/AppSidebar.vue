@@ -187,7 +187,7 @@ const workspaceEdge = computed(() => workspaceColor(workspaceHere.value?.color))
 <template>
   <!-- On a phone it's a drawer over the whole screen (the menu button in PageHeader), with bigger rows to tap. -->
   <aside
-      class="fixed inset-0 z-50 flex w-full shrink-0 flex-col bg-panel transition-transform duration-200 max-md:[&_nav_a]:py-2.5 max-md:[&_nav_a]:text-[15px] md:static md:z-auto md:w-64 md:translate-x-0 md:border-r md:border-line"
+      class="fixed inset-0 z-50 flex w-full shrink-0 flex-col bg-frame transition-transform duration-200 max-md:[&_nav_a]:py-2.5 max-md:[&_nav_a]:text-[15px] md:static md:z-auto md:w-64 md:translate-x-0 md:border-r md:border-line"
       :class="open ? 'translate-x-0' : '-translate-x-full'"
   >
     <!-- The workspace's colour along the top (ORR-1108), so which one a tab is in shows at a glance. -->

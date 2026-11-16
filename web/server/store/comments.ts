@@ -183,7 +183,7 @@ export abstract class CommentStore extends SignalStore {
         this.changed(project)
         this.tell('comment.added', project, issue, ORRERY)
         this.tell(type, project, issue, ORRERY)
-        const kind = (await this.statuses(project)).find(s => s.id === row.status)?.kind
+        const kind = (await this.statusesOf(project)).find(s => s.id === row.status)?.kind
         if (!kind || !CLOSED.includes(kind)) await this.carryComment(project, issue, body, ORRERY)
         return await this.comment(project, issue, id)
     }
@@ -257,7 +257,7 @@ export abstract class CommentStore extends SignalStore {
     async pullFocus(project: string, issue: string, note: string): Promise<Signal | null> {
         issue = await this.issueId(project, issue)
         const row = await this.issueRow(project, issue)
-        const kind = (await this.statuses(project)).find(s => s.id === row.status)?.kind
+        const kind = (await this.statusesOf(project)).find(s => s.id === row.status)?.kind
         if (kind && CLOSED.includes(kind)) return null
         if (await this.listeningWorker(project, issue)) return null
         const whose = await this.whoseWork(project, row.assignee)

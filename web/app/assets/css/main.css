@@ -53,6 +53,7 @@
 @theme inline {
     --color-canvas: var(--canvas);
     --color-panel: var(--panel);
+    --color-frame: var(--frame);
     --color-raised: var(--raised);
     --color-line: var(--line);
     --color-fg: var(--fg);
@@ -74,6 +75,8 @@
     --canvas: #fafafa;
     --panel: #ffffff;
     --raised: #ffffff;
+    /* The sidebar: the panel's colour, and the page background's tint when there is one. */
+    --frame: var(--panel);
     --line: rgb(0 0 0 / 0.08);
     --fg: #18181b;
     --muted: #52525b;
@@ -88,6 +91,7 @@
     --canvas: #09090b;
     --panel: #131316;
     --raised: #1c1c20;
+    --frame: var(--panel);
     --line: rgb(255 255 255 / 0.08);
     --fg: #f4f4f5;
     --muted: #a1a1aa;
@@ -98,20 +102,19 @@
     color-scheme: dark;
 }
 
-/* An orrery's tint (App settings), so one looks unlike another: the backgrounds take on a little of
-   its colour, more in the dark, and the faint grey moves away from them to stay readable. useAppSettings
-   sets `data-tint` and `--tint` on <html>. */
+/* An orrery's tint (App settings), so one looks unlike another: the page's background and the sidebar framing it take
+   on a little of its colour, more in the dark, and the faint grey moves away from them to stay readable. Cards, inputs,
+   menus and dialogs (`--panel`, `--raised`) keep their own colours, so they read the same tinted or not (ORR-1252).
+   useAppSettings sets `data-tint` and `--tint` on <html>. */
 :root[data-tint] {
     --canvas: color-mix(in oklab, var(--tint) 9%, #fafafa);
-    --panel: color-mix(in oklab, var(--tint) 6%, #ffffff);
-    --raised: color-mix(in oklab, var(--tint) 4%, #ffffff);
+    --frame: color-mix(in oklab, var(--tint) 6%, #ffffff);
     --faint: #5c5c64;
 }
 
 .dark[data-tint] {
     --canvas: color-mix(in oklab, var(--tint) 12%, #09090b);
-    --panel: color-mix(in oklab, var(--tint) 10%, #131316);
-    --raised: color-mix(in oklab, var(--tint) 8%, #1c1c20);
+    --frame: color-mix(in oklab, var(--tint) 10%, #131316);
     --faint: #9c9ca5;
 }
 

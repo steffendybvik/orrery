@@ -1,11 +1,14 @@
 <script setup lang="ts">
+import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 import {LockClosedIcon} from '@heroicons/vue/16/solid'
 import type {Comment, Issue} from '#shared/roadmap'
 import {fullId, shortId, total} from '#shared/roadmap'
 
 // An issue's own page: its title and full description, its open pull requests, sub-issues and activity, with its
 // properties beside them. The title and description edit in place, as the owner. j/k go to the next
-// and previous issue in the project, Esc goes back.
+// and previous issue in the project, Esc goes back. Under `lg` (ORR-1219) the description comes straight after the
+// title and one line of status, priority and assignee; sessions, pull requests and the proposal follow it, and the id
+// shows once, with its copy, in the top bar. Remove waits in the ⋯ beside the title at every width.
 const route = useRoute()
 const router = useRouter()
 const {projects, byId, ready, reload} = useRoadmaps()
@@ -197,12 +200,13 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           </template>
           <span class="hidden text-faint sm:inline">/</span>
           <span class="truncate font-mono text-xs text-fg">{{ issueId }}</span>
+          <span v-if="issue" class="shrink-0 lg:hidden" data-testid="issue-id"><CopyButton :text="full" :name="full" compact /></span>
         </template>
       </nav>
     </template>
     <template v-if="project && at >= 0" #actions>
       <div class="ml-auto flex items-center gap-1 text-xs text-faint">
-        <span class="mr-1 font-mono tabular-nums">{{ at + 1 }} / {{ order.length }}</span>
+        <span class="mr-1 font-mono tabular-nums max-sm:hidden">{{ at + 1 }} / {{ order.length }}</span>
         <UiButton variant="ghost" size="xs" square :disabled="at <= 0" title="Previous (k)" aria-label="Previous issue" @click="step(-1)">
           <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6" /></svg>
         </UiButton>
@@ -214,12 +218,8 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
   </PageHeader>
 
   <div class="clear-agent min-h-0 flex-1 overflow-y-auto">
-    <!-- One sticky block, so the bar sits right under the banner however many lines the banner wraps to (ORR-649). -->
     <div class="sticky top-0 z-20">
       <IssueWorkerBanner v-if="worker && issue && !isClosed(issue.kind)" :session="worker" :since="workerSince" />
-      <div v-if="issue && found && project" class="border-b border-line bg-panel px-4 py-1 sm:px-8 lg:hidden" data-testid="issue-id-bar">
-        <IssueIdRow :id="issue.id" :full="full" />
-      </div>
     </div>
     <div v-if="issue && found && project" :key="issue.id" class="mx-auto flex max-w-6xl animate-fade-up flex-col lg:flex-row">
       <article class="flex min-w-0 flex-1 flex-col gap-8 px-4 py-6 sm:px-8 sm:py-10">
@@ -235,16 +235,21 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
             >
               <SectionIcon section="schedules" class="size-3" /> {{ madeBy.title }}
             </button>
-            <UiButton
-                v-if="!removing"
-                variant="danger-ghost"
-                class="ml-auto"
-                title="Remove this issue"
-                @click="removing = 'ask'"
-            >
-              <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
-              Remove
-            </UiButton>
+            <Menu v-if="!removing" as="div" class="relative ml-auto">
+              <MenuButton as="template">
+                <UiButton variant="ghost" size="xs" square :aria-label="`More for ${issue.id}`" :title="`More for ${issue.id}`">
+                  <svg class="size-3.5" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
+                </UiButton>
+              </MenuButton>
+              <MenuItems class="menu absolute top-full right-0 z-40 mt-1.5 w-56">
+                <MenuItem v-slot="{active}" as="template">
+                  <UiMenuItem :lit="active" danger @click="removing = 'ask'">
+                    <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3" /></svg>
+                    Remove this issue
+                  </UiMenuItem>
+                </MenuItem>
+              </MenuItems>
+            </Menu>
             <UiConfirm v-else inline class="ml-auto text-xs" :busy="removing === 'busy'" @confirm="remove" @cancel="removing = null">
               Remove {{ issue.id }}{{ subCount ? ` and its ${subCount} sub-issue${subCount === 1 ? '' : 's'}` : '' }}, with its comments?
             </UiConfirm>
@@ -279,11 +284,11 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           <IssueProperties fold :issue="issue" :project="project" :milestone="found.milestone" :sub="found.parents.length > 0" :worker="isClosed(issue.kind) ? undefined : worker" />
         </div>
 
-        <ProposalPanel :project="project.id" :issue="issue" />
+        <ProposalPanel class="max-lg:order-1" :project="project.id" :issue="issue" />
 
-        <SessionsPanel v-if="!isClosed(issue.kind)" :project="project.id" :issue="issue.id" :worker="worker?.id" :blocked-by="issue.blocked_by" />
+        <SessionsPanel v-if="!isClosed(issue.kind)" class="max-lg:order-1" :project="project.id" :issue="issue.id" :worker="worker?.id" :blocked-by="issue.blocked_by" />
 
-        <IssuePulls :project="project.id" :issue="issue.id" :updated="issue.updated_at" />
+        <IssuePulls class="max-lg:order-1" :project="project.id" :issue="issue.id" :updated="issue.updated_at" />
 
         <section
             v-if="editingNotes"
@@ -327,16 +332,16 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           </div>
         </section>
 
-        <section v-if="issue.tasks.length" class="flex flex-col gap-2">
+        <section v-if="issue.tasks.length" class="flex flex-col gap-2 max-lg:order-2">
           <h2 class="label flex items-center gap-2">Sub-issues <span class="font-mono normal-case">{{ issue.kinds.done }}/{{ total(issue.kinds) }}</span></h2>
           <div class="overflow-hidden rounded-xl border border-line dark:bg-panel">
             <IssueRow v-for="sub in issue.tasks" :key="sub.id" :issue="sub" :project="project.id" nested />
           </div>
         </section>
 
-        <IssueActivity :project="project" :issue="issue" @comments="comments = $event" />
+        <IssueActivity class="max-lg:order-2" :project="project" :issue="issue" @comments="comments = $event" />
 
-        <p class="rounded-lg bg-well px-3 py-2 font-mono text-[11px] text-faint ring-1 ring-line">PATCH /api/projects/{{ project.id }}/issues/{{ issue.id }}</p>
+        <p class="rounded-lg bg-well px-3 py-2 font-mono max-lg:order-2 text-[11px] text-faint ring-1 ring-line">PATCH /api/projects/{{ project.id }}/issues/{{ issue.id }}</p>
       </article>
 
       <aside class="hidden w-80 shrink-0 border-l border-line px-6 py-10 lg:block dark:bg-panel">
