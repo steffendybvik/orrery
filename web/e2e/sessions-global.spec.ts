@@ -1,6 +1,6 @@
 import {readFileSync} from 'node:fs'
 import type {APIRequestContext, Page} from '@playwright/test'
-import {OWNER} from './support'
+import {OWNER, makeProject} from './support'
 import {expect, test} from './test'
 
 // A global session (ORR-1079): one orrery started in its default folder, hearing every project, with none of its own.
@@ -38,7 +38,8 @@ async function shot(page: Page, name: string) {
 
 test('lists a global session under Global, and starts one with no project ticked', async ({page, request, baseURL}) => {
     if (!(await api(request, 'get', '/owner')).named) await api(request, 'put', '/owner', {name: 'Ada Lovelace'})
-    for (const [name, key] of [['Pantry', 'PAN'], ['Cellar', 'CEL']]) await api(request, 'post', '/projects', {name, key})
+    // makeProject, so a retry finds the projects its first try made.
+    for (const [name, key] of [['Pantry', 'PAN'], ['Cellar', 'CEL']]) await makeProject(request, {name, key})
     // The orrery's own setting, shared with specs running beside this one: put back as it was.
     const was = (await (await request.get('/api/settings')).json()).starts ?? null
     const launcher = hold(baseURL!, `/api/projects/pantry/launches/stream?version=${version}`)
@@ -52,7 +53,8 @@ test('lists a global session under Global, and starts one with no project ticked
         await expect.poll(async () => (await api(request, 'get', '/projects/pantry/sessions')).find((s: {id: string}) => s.id === 'e2e-global')?.started?.global).toBe(true)
 
         await page.goto('/sessions')
-        await expect(page.locator('#session-e2e-global')).toBeVisible()
+        // A first visit under `nuxt dev` can take WebKit past 15s to hydrate, before the page has asked for its sessions.
+        await expect(page.locator('#session-e2e-global')).toBeVisible({timeout: 30_000})
         await shot(page, 'sessions')
         // Start session with no project ticked starts a global one, through a project that can start sessions now.
         if (!was) expect((await request.patch('/api/settings', {data: {starts: {limit: 5}}, headers: OWNER})).ok()).toBeTruthy()
