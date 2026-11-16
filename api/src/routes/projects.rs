@@ -77,12 +77,15 @@ async fn upload_board(State(app): Shared, request: Request) -> Result<Response> 
 
 /// `GET /api/projects` → every project with its counts; `?expand=board` gives each one's board instead, without the
 /// events stream's `rev`, which the Nuxt server adds. `&notes=0` and `&closed=0` trim the boards as one project's read
-/// does, but for the projects in `&whole=` (comma-separated ids).
+/// does, but for the projects in `&whole=` (comma-separated ids). `?every=1` lists every workspace the asker is in, not
+/// the one the request acts in: what the Nuxt server asks to learn which boards a launcher, a member's events stream or
+/// a member's reach can see, which aren't held to one tab's workspace.
 async fn list_projects(State(app): Shared, headers: HeaderMap, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let boards = query.get("expand").is_some_and(|e| e == "board");
     let mut value = Projects::new(&mut conn).list(boards).await?;
-    Seen::listed(&mut conn, &headers).await?.keep(&mut conn, &mut value, "id").await?;
+    let seen = if query.get("every").is_some_and(|e| e == "1") { Seen::of(&mut conn, &headers).await? } else { Seen::listed(&mut conn, &headers).await? };
+    seen.keep(&mut conn, &mut value, "id").await?;
     if boards {
         let dropped = |key: &str| query.get(key).is_some_and(|v| v == "0");
         let whole: Vec<&str> = query.get("whole").map(|w| w.split(',').collect()).unwrap_or_default();
