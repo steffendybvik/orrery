@@ -26,6 +26,7 @@ const SEALED_READS: Line = {rustOnly: 'how the local app reads a secret back as 
 const GIT: Line = {stays: "reads the local git repo or asks GitHub, which is the local app's to do (ORR-952, ORR-927)"}
 const ARTIFACT: Line = {stays: "drawn with the page's own sanitising and its locked-down headers"}
 const SESSIONS: Line = {stays: "the sessions, the launcher and their signals are the machine's"}
+const MOVE: Line = {stays: "moving an orrery runs the import here, against this orrery's own routes and another's, with a key held only in memory (ORR-1249)"}
 const MACHINE: Line = {stays: "the machine's: its files, the event log, its own use, and what it says about itself"}
 
 const BOARD: Line = {rustOnly: 'a board\'s file made a new board: the local app checks the file, then sends its rows itself (`writeToApi`, ORR-1142)'}
@@ -79,6 +80,9 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'GET /api/database': DATABASE,
     'POST /api/database/compact': {rustOnly: 'the SQLite file compacted after a clean-up or once the images are compressed: the local app asks for it itself (`writeToApi`, ORR-1134)'},
     'POST /api/egress': SEALED,
+    'POST /api/orrery-moves': MOVE,
+    'GET /api/orrery-moves/{id}': MOVE,
+    'POST /api/orrery-moves/workspaces': MOVE,
     'POST /api/epics/{epic}/focus': FOCUS,
     'GET /api/events': MACHINE,
     'POST /api/events/log': {stays: "a page's error report: each sender is counted in memory here, and the line made of it sent on (PUT /api/events/log/lines, ORR-1088)"},
