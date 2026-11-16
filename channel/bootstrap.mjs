@@ -97,11 +97,16 @@ async function lookUp(urls, {env, fetch, timeout}) {
     return {found: found.sort((a, b) => newer(b.manifest.version, a.manifest.version) ? 1 : newer(a.manifest.version, b.manifest.version) ? -1 : 0), problems}
 }
 
-/** Keeps the copies a role's pointer names, and removes the rest. Running processes have theirs loaded already. */
+/** Keeps the copies a role's pointer names, and removes the rest. Running processes have theirs loaded already. Only
+ * its own copies go: a folder holding nothing but a fetched script. The launcher's default folder (`home`, ORR-1066)
+ * shares this one, and removing it left sessions starting in a folder that wasn't there (ORR-1239). */
 function prune(dir) {
     const kept = new Set(Object.keys(SCRIPTS).map(role => readJson(join(dir, `current-${role}.json`))?.folder))
+    const scripts = new Set(Object.values(SCRIPTS))
     for (const entry of readdirSync(dir, {withFileTypes: true})) {
-        if (entry.isDirectory() && !kept.has(entry.name)) rmSync(join(dir, entry.name), {recursive: true, force: true})
+        if (!entry.isDirectory() || kept.has(entry.name) || entry.name === 'home') continue
+        const copy = join(dir, entry.name)
+        if (readdirSync(copy).every(name => scripts.has(name))) rmSync(copy, {recursive: true, force: true})
     }
 }
 
