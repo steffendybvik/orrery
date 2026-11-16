@@ -24,7 +24,7 @@ In practice:
 <td><img alt="The New issue dialog over a project's issue list, with a title and description typed in, and its status, priority, milestone and labels to pick" src="docs/images/new-issue-light.png"></td>
 </tr>
 <tr>
-<td><img alt="The Sessions page: each project's Claude sessions with their state, folder and a message box, and what the working one is on now" src="docs/images/sessions-light.png"></td>
+<td><img alt="The Sessions page: each project's Claude sessions, one line each with its state and since when, the working one with the issue it's on, and one asking for permission" src="docs/images/sessions-light.png"></td>
 <td><img alt="The chat pane open over a project's issue list, ready for a first question, with suggestions and new issues going to Todo" src="docs/images/chat-light.png"></td>
 </tr>
 <tr>
