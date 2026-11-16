@@ -11,6 +11,10 @@ test.skip(process.platform !== 'linux', "The images are Linux's: run `pnpm test:
 test.skip(({browserName}) => browserName !== 'chromium', "The images are Chrome's")
 test.describe.configure({mode: 'serial'})
 test.use({viewport: {width: 1280, height: 800}, colorScheme: 'light'})
+// Text always in grey anti-aliasing, as the images have it. Chrome picks LCD (coloured) anti-aliasing per layer, by
+// what's composited when the shot is taken, so the same header came out either way: on CI, after the whole suite, it
+// was LCD every time, and 80 px of the breadcrumb's edges failed the board (ORR-1247).
+test.use({launchOptions: {args: ['--disable-lcd-text']}})
 
 // The bell counts what earlier files left unread, so it's left out of every image. Its badge sits partly outside the
 // link, past the mask, so it's hidden too, as it is when nothing's unread.
