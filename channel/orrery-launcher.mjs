@@ -46,7 +46,7 @@ import {connector, pickerFor} from './connect-repo.mjs'
 import {commandsFor, homeFolder, homeProjects, setUpHome} from './home-folder.mjs'
 import {authHeaders, keyFor, keysFile} from './credentials.mjs'
 import {connectIfAsked} from './connect-machine.mjs'
-import {addToList, adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeService, restartKeepsSessions, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
+import {addToList, adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeFromList, removeService, restartKeepsSessions, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
 import {agentFor} from './agents.mjs'
 import {repoContext} from './repo-context.mjs'
 import {channelFor, channelsIn, onOrrery, projectsIn, servesEvery} from './repo-channels.mjs'
@@ -652,7 +652,24 @@ function part(entry) {
         } else if (event === 'view') {
             // Not awaited: it sends for as long as the owner views it, and the stream goes on meanwhile.
             view(JSON.parse(data).id).catch(error => log(`couldn't send a screen: ${error.message}`))
+        } else if (event === 'remove') {
+            removeRepo(JSON.parse(data).dir)
         }
+    }
+
+    /** Remove on Connected repos (ORR-1260): the owner taking the repo at `off` off, when it's this one's. The list
+     * loses it, as with --uninstall there, but its sessions go on: removing a connection stops no work. */
+    function removeRepo(off) {
+        if (home || off !== dir) return
+        try {
+            if (!removeFromList([{url, project}], dir).length && service) return
+        } catch (error) {
+            return log(`couldn't take ${project} in ${dir} off: ${error.message}`)
+        }
+        log(`took ${project} (${url}) in ${dir} off the list, as orrery's Connected repos asked; Connect a repo, or --install there, puts it back`)
+        // Only the service follows the list, which lets go of it; one run in a terminal lets go itself.
+        if (service) keepSessions.add(servingKey(entry))
+        else letGo(entry, {moved: true}).catch(error => log(`${project}: ${error.message}`))
     }
 
     // What its stream says it serves: the folder, so orrery knows which projects share one and can share a session, and
@@ -839,6 +856,9 @@ function begin(entry) {
     restream(entry.url)
 }
 
+/** Projects taken off by orrery's Remove (ORR-1260), by servingKey, whose sessions go on as they're let go. */
+const keepSessions = new Set()
+
 /** Lets go of a project taken off the list: stops following it, and stops the sessions it started for it, as taking it
  * off with --uninstall means. One that only moved to another repo keeps its sessions, served from there next. */
 async function letGo(entry, {moved}) {
@@ -860,7 +880,8 @@ function follows() {
         const {added, removed} = listChanges([...serving.values()].map(s => s.entry).filter(entry => !entry.home), list.projects)
         for (const entry of removed) {
             const moved = added.some(a => servingKey(a) === servingKey(entry))
-            await letGo(entry, {moved})
+            const kept = keepSessions.delete(servingKey(entry))
+            await letGo(entry, {moved: moved || kept})
             log(moved ? `${entry.project} (${entry.url}) moved to ${added.find(a => servingKey(a) === servingKey(entry)).dir}` : `let go of ${entry.project} (${entry.url}): it's off the list`)
         }
         for (const entry of added) {

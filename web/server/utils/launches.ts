@@ -62,6 +62,8 @@ export type LaunchEvent =
     | {type: 'allow', project: string, id: string}
     | {type: 'deny', project: string, id: string}
     | {type: 'keys', project: string, id: string, text?: string, keys?: string[]}
+    /** Remove on Connected repos (ORR-1260): the launchers serving the project from `dir` take it off their list. */
+    | {type: 'remove', project: string, dir: string}
 
 /** The schedule whose run started each launch, while it runs: what its session does as it stops is that run's doing,
  * so a session schedule on `session.stopped` can't start itself again without end (ORR-422). */
@@ -209,9 +211,21 @@ export function connectLauncher({project, dir, every, home, picked, connected}: 
     }, {token: done.token})
 }
 
+/** Remove on Connected repos (ORR-1260): asks the launchers serving `projects` from the folder `dir` to take them off
+ * their list. Only a folder a launcher said it serves is named back, to the launchers serving it. Says which it asked. */
+export function removeRepo(dir: string, projects: string[]): string[] {
+    const asked = projects.filter(project => folders.get(project)?.has(dir))
+    if (!asked.length) throw notFound('No launcher serves those projects from that folder now')
+    for (const project of asked) emit({type: 'remove', project, dir})
+    return asked
+}
+
 /** The project a launch event is on, and the launch it's about. */
 export const launchEventOn = (sent: LaunchEvent): {project: string, id: string} =>
-    sent.type === 'launch' ? {project: sent.launch.project, id: sent.launch.id} : {project: sent.project, id: sent.id}
+    sent.type === 'launch' ? {project: sent.launch.project, id: sent.launch.id}
+        // No launch: it's for the owner's launchers, whose folders Connected repos lists, and no member's hears it.
+        : sent.type === 'remove' ? {project: sent.project, id: ''}
+            : {project: sent.project, id: sent.id}
 
 /** A launch event as a launcher's stream sends it: a launch with its id, the rest with their project in the data. */
 export function launchEventSent(sent: LaunchEvent): {id?: string, event: string, data: string} {
