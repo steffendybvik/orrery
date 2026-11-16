@@ -49,6 +49,11 @@ async fn the_projects_list_holds_only_the_askers_workspaces() {
     // bo is in both, and the list holds one at a time: `default` with none named (ORR-1251).
     assert_eq!(ids(&as_person(&api, "/api/projects", "bo").await), std::slice::from_ref(&primes));
     assert_eq!(ids(&as_person_in(&api, "/api/projects", "bo", "acme").await), std::slice::from_ref(&rockets));
+    // `?every=1` lists every workspace they're in, as a launcher's stream reads it; still none of anyone else's.
+    let mut bos = ids(&as_person(&api, "/api/projects?every=1", "bo").await);
+    bos.sort();
+    assert_eq!(bos, [primes.clone(), rockets.clone()]);
+    assert_eq!(ids(&as_person(&api, "/api/projects?every=1", "ana").await), std::slice::from_ref(&primes));
     // The Nuxt server's own work sees every one; a request naming nobody here, only `default`'s.
     assert_eq!(ids(&api.get("/api/projects").send().await.body).len(), 2);
     assert_eq!(ids(&from_outside(api.get("/api/projects").agent_of_nobody()).send().await.body), [primes]);

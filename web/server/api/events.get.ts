@@ -16,7 +16,7 @@ export default defineEventHandler(async event => {
     let seen = new Set<string>()
     const {member, sees, ownersToo} = streamHearing(event.context?.who as Who | undefined, () => seen)
     const look = async () => {
-        const projects = await readAsAsker<{id: string}[]>(event, '/api/projects')
+        const projects = await readAsAsker<{id: string}[]>(event, '/api/projects?every=1')
         seen = new Set((projects ?? []).map(p => p.id))
     }
     if (member) await look()
