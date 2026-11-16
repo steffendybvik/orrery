@@ -1,13 +1,14 @@
 // Moving a whole orrery into another from App settings (ORR-1249): the same import as `pnpm orrery:import` (ORR-1110),
-// run by this server. One side is this orrery, reached through its own handler as the owner's page that asked, so it
-// passes the same checks their browser does; the other is the orrery at the address they gave, with the owner key they
+// run by this server. One side is this orrery, asked again as the owner's page that asked, so it passes the same checks
+// their browser does; the other is the orrery at the address they gave, with the owner key they
 // pasted. `send` makes this orrery the source (a hosted orrery can't reach one on `localhost`, so moving a local one up
 // is a send); `bring` makes it the target.
 // A run lives in memory: the key with it, never stored or logged, and gone an hour after it ends. A restart loses a run
 // that hasn't ended, which the page says, and running it again with "Add to it" leaves the boards that arrived alone.
 import type {H3Event} from 'h3'
 import {randomUUID} from 'node:crypto'
-import * as script from '../../scripts/import-orrery.mjs'
+import {request} from 'node:http'
+import * as script from '#shared/import-orrery.mjs'
 
 /** One orrery, as the import's client reaches it. */
 interface OrreryClient {
@@ -15,7 +16,7 @@ interface OrreryClient {
     get: (path: string, options?: {workspace?: string}) => Promise<unknown>
 }
 
-// The import is plain JavaScript, shared with the command line (scripts/import-orrery.mjs), so typed here as it's used.
+// The import is plain JavaScript, shared with the command line (shared/import-orrery.mjs), so typed here as it's used.
 const {client, importOrrery, summary} = script as unknown as {
     client: (base: string, options?: {key?: string, person?: string, fetch?: typeof fetch}) => OrreryClient
     importOrrery: (options: Record<string, unknown>) => Promise<unknown>
@@ -67,14 +68,30 @@ const TINTS = ['slate', 'blue', 'teal', 'green', 'amber', 'rose', 'violet']
  * server makes to itself on their behalf: the import's client sets the workspace and the body's type itself. */
 const DROP = new Set(['content-length', 'content-type', 'transfer-encoding', 'accept-encoding', 'connection', 'orrery-workspace', 'orrery-session', 'expect'])
 
-/** A `fetch` that answers from this server's own handler, as the page that asked. */
+/** A `fetch` that asks this server again, as the page that asked: over the very address and port that request came in on,
+ * with its headers (`Host`, `Origin`, the login cookie, a proxy's `X-Forwarded-*`), so each request passes the checks the
+ * owner's browser did, and no others. `node:http`, as `fetch` won't send another `Host`. */
 function selfFetch(event: H3Event): typeof fetch {
     const asked: Record<string, string> = {}
     for (const [name, value] of Object.entries(getRequestHeaders(event))) if (value !== undefined && !DROP.has(name.toLowerCase())) asked[name] = value
-    const local = useNitroApp().localFetch
+    const socket = event.node.req.socket as typeof event.node.req.socket & {server?: {address?: () => unknown}}
+    // `nuxt dev` hands requests on over a socket file of its own, which is then the way back in.
+    const bound = socket.server?.address?.()
+    const way = typeof bound === 'string' ? {socketPath: bound} : {host: (socket.localAddress ?? '127.0.0.1').replace(/^::ffff:/, ''), port: socket.localPort}
     return (async (input: string, init: RequestInit = {}) => {
         const url = new URL(input)
-        return local(url.pathname + url.search, {...init, headers: {...asked, ...init.headers as Record<string, string>}})
+        const body = init.body === undefined || init.body === null ? undefined : Buffer.from(init.body as string)
+        const headers = {...asked, ...init.headers as Record<string, string>, ...body ? {'content-length': String(body.length)} : {}}
+        return await new Promise<Response>((resolve, reject) => {
+            const req = request({...way, path: url.pathname + url.search, method: init.method ?? 'GET', headers}, res => {
+                const chunks: Buffer[] = []
+                res.on('data', chunk => chunks.push(chunk))
+                res.on('end', () => resolve(new Response(Buffer.concat(chunks), {status: res.statusCode ?? 500, headers: {'content-type': String(res.headers['content-type'] ?? 'application/json')}})))
+                res.on('error', reject)
+            })
+            req.on('error', reject)
+            req.end(body)
+        })
     }) as typeof fetch
 }
 

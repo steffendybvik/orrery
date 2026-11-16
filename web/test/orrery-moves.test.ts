@@ -1,13 +1,16 @@
+import {createServer} from 'node:http'
+import type {AddressInfo} from 'node:net'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 // Moving an orrery from App settings (ORR-1249): who may, what address it takes, the two sides it builds, and a run as
 // the page follows it. The route's h3 helpers are Nitro auto-imports, stood in for here; the import itself is
-// scripts/import-orrery.mjs, tested in import-orrery.test.ts.
+// shared/import-orrery.mjs, tested in import-orrery.test.ts.
 type Moves = typeof import('../server/utils/orrery-moves')
 let moves: Moves
-type Event = {headers: Record<string, string>, context: {who?: {via: string, owner: boolean}}, actor: Record<string, unknown>}
+type Event = {headers: Record<string, string>, context: {who?: {via: string, owner: boolean}}, actor: Record<string, unknown>, node: {req: {socket: {localAddress?: string, localPort?: number}}}}
 
-const event = (actor: Record<string, unknown>, who?: {via: string, owner: boolean}, headers: Record<string, string> = {}): Event => ({headers: {host: 'localhost:9010', ...headers}, context: who ? {who} : {}, actor})
+const event = (actor: Record<string, unknown>, who?: {via: string, owner: boolean}, headers: Record<string, string> = {}, socket: {localAddress?: string, localPort?: number} = {}): Event =>
+    ({headers: {host: 'localhost:9010', ...headers}, context: who ? {who} : {}, actor, node: {req: {socket}}})
 const KEY = 'orrery_person_SECRETSECRETSECRET'
 
 beforeEach(async () => {
@@ -16,7 +19,6 @@ beforeEach(async () => {
     vi.stubGlobal('sessionHeader', (e: Event) => e.headers['orrery-session'])
     vi.stubGlobal('getRequestURL', (e: Event) => new URL(`http://${e.headers.host}/api/orrery-moves`))
     vi.stubGlobal('getRequestHeaders', (e: Event) => e.headers)
-    vi.stubGlobal('useNitroApp', () => ({localFetch: async () => new Response('[]')}))
     vi.resetModules()
     moves = await import('../server/utils/orrery-moves')
     moves.forgetMoves()
@@ -88,14 +90,33 @@ describe('the two sides', () => {
         vi.stubGlobal('fetch', async () => new Response('{"projects":[]}'))
         await expect(moves.moveSides(event({owner: true}) as never, ask())).rejects.toThrow(/rc\.19/)
     })
-    it("asks this orrery as the page that asked, without the page's workspace or body headers", async () => {
-        const local = vi.fn(async () => new Response('[]'))
-        vi.stubGlobal('useNitroApp', () => ({localFetch: local}))
-        vi.stubGlobal('fetch', async () => new Response('[]'))
-        const page = event({owner: true}, {via: 'browser', owner: true}, {cookie: 'orrery_login=abc', origin: 'http://localhost:9010', 'orrery-workspace': 'work', 'content-length': '99'})
-        const {source} = await moves.moveSides(page as never, ask())
-        await source.get('/projects', {workspace: 'default'})
-        expect(local).toHaveBeenCalledWith('/api/projects', expect.objectContaining({method: 'GET', headers: {'host': 'localhost:9010', 'cookie': 'orrery_login=abc', 'origin': 'http://localhost:9010', 'Orrery-Workspace': 'default'}}))
+    it("asks this orrery again as the page that asked, over the address it came in on", async () => {
+        // This orrery, as a server that says what each request it's asked brings.
+        const heard: {method?: string, url?: string, headers: Record<string, unknown>, body: string}[] = []
+        const here = createServer((req, res) => {
+            let body = ''
+            req.on('data', chunk => { body += chunk })
+            req.on('end', () => {
+                heard.push({method: req.method, url: req.url, headers: req.headers, body})
+                res.setHeader('content-type', 'application/json')
+                res.end('[]')
+            })
+        })
+        await new Promise<void>(resolve => here.listen(0, '127.0.0.1', resolve))
+        try {
+            vi.stubGlobal('fetch', async () => new Response('[]'))
+            const socket = {localAddress: '127.0.0.1', localPort: (here.address() as AddressInfo).port}
+            const page = event({owner: true}, {via: 'browser', owner: true}, {'cookie': 'orrery_login=abc', 'origin': 'http://localhost:9010', 'orrery-workspace': 'work', 'content-length': '99'}, socket)
+            const {source} = await moves.moveSides(page as never, ask())
+            await source.get('/projects', {workspace: 'default'})
+            await (source as unknown as {post: (path: string, body: unknown) => Promise<unknown>}).post('/settings', {tint: 'teal'})
+            expect(heard.map(h => [h.method, h.url, h.body])).toEqual([['GET', '/api/projects', ''], ['POST', '/api/settings', '{"tint":"teal"}']])
+            // Its own Host, Origin and login, so it passes the checks the browser did; the workspace the import's, not the page's.
+            expect(heard[0]!.headers).toMatchObject({'host': 'localhost:9010', 'cookie': 'orrery_login=abc', 'origin': 'http://localhost:9010', 'orrery-workspace': 'default'})
+            expect(heard[1]!.headers).toMatchObject({'content-type': 'application/json', 'content-length': '15'})
+        } finally {
+            here.close()
+        }
     })
 })
 
