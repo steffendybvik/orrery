@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the channel is plain JavaScript, run by node from other repos
-import {ASK_TOOLS, CHANNELS_OWN, CHANNELS_REQUESTS, CHAT_READS, CHAT_REQUESTS, NOT_FOR_CHAT, ON_DEMAND, SERVED_ON_DEMAND, TOOLS, orreryTools, toolsFor} from '../../channel/tools.mjs'
+import {ASK_TOOLS, CHANNELS_OWN, CHANNELS_REQUESTS, CHAT_READS, CHAT_REQUESTS, NOT_FOR_CHAT, ON_DEMAND, RELEASE_TOOLS, SERVED_ON_DEMAND, TOOLS, orreryTools, toolsFor} from '../../channel/tools.mjs'
 
 type Call = {method: string, url: string, headers: Record<string, string>, body?: unknown}
 
@@ -397,7 +397,7 @@ describe("the channel's tools", () => {
         expect(calls).toEqual([])
     })
 
-    it("in the owner's chat, ask them to add or change a release, which no other session can", async () => {
+    it("in the owner's chat, ask them to add or change a release, as a work session makes one itself", async () => {
         const calls: {url: string, method: string, body?: unknown}[] = []
         const fetch = async (url: string, init: {method: string, body?: string}) => {
             calls.push({url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined})
@@ -412,8 +412,25 @@ describe("the channel's tools", () => {
         ])
         expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('create_release')
         expect(requestActions()).toEqual(expect.arrayContaining(['create_release', 'update_release']))
-        const other = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean}>
-        expect((await other('update_release', {version: '1.0.0', notes: 'X'})).isError).toBe(true)
+    })
+
+    it('in a work session, make and change a release at once, its tools a group of more_tools (ORR-2)', async () => {
+        const calls: {url: string, method: string, body?: unknown}[] = []
+        const fetch = async (url: string, init: {method: string, body?: string}) => {
+            calls.push({url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined})
+            return {ok: true, status: 201, statusText: '', text: async () => JSON.stringify({version: '1.1.0', branch: 'v1.1.0', frozen_on: init.method === 'PATCH' ? '2026-11-16' : null, shipped_on: null})}
+        }
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        expect((await call('create_release', {version: '1.1.0', branch: 'v1.1.0', notes: 'Spring', why: 'dropped'})).content[0]!.text).toBe('Made release 1.1.0 on v1.1.0. Put issues in it with edit_issue (release: "1.1.0").')
+        expect((await call('update_release', {version: '1.1.0', frozen_on: '2026-11-16'})).content[0]!.text).toBe('Changed release 1.1.0 on v1.1.0, frozen since 2026-11-16.')
+        expect(calls).toEqual([
+            {url: 'http://o/api/projects/greenhouse/releases', method: 'POST', body: {version: '1.1.0', branch: 'v1.1.0', notes: 'Spring'}},
+            {url: 'http://o/api/projects/greenhouse/releases/1.1.0', method: 'PATCH', body: {frozen_on: '2026-11-16'}},
+        ])
+        const loaded = toolsFor(['greenhouse'], {loaded: ['releases']}).map((t: {name: string}) => t.name)
+        expect(loaded).toEqual(expect.arrayContaining(['create_release', 'update_release']))
+        expect(ON_DEMAND.releases).toEqual(['create_release', 'update_release'])
+        expect(toolsFor(['greenhouse'], {untrusted: true, loaded: ['releases']}).map((t: {name: string}) => t.name)).not.toContain('create_release')
     })
 
     it("in the owner's chat, change an issue's fields with nothing about its state of work", async () => {
@@ -802,7 +819,7 @@ describe('one channel serving several projects', () => {
         expect(docs.inputSchema.required).toEqual(['project'])
         expect(docs.inputSchema.properties.project!.enum).toEqual(['greenhouse', 'pantry'])
         expect(tools.find(t => t.name === 'issue')!.inputSchema.properties).not.toHaveProperty('project')
-        expect(toolsFor(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug', 'review', 'epics', 'folder']})).toEqual([...TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)), ...ASK_TOOLS])
+        expect(toolsFor(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug', 'review', 'epics', 'releases', 'folder']})).toEqual([...TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)), ...ASK_TOOLS, ...RELEASE_TOOLS])
     })
 })
 
@@ -857,7 +874,7 @@ describe('tools loaded on demand', () => {
         expect(await call('more_tools', {group: 'everything'})).toMatchObject({isError: true})
         // Not listed yet, it still answers when called by its name.
         expect(await call('secrets')).not.toMatchObject({isError: true})
-        expect(tools({loaded: ['schedules', 'secrets', 'debug', 'review', 'epics', 'folder']})).not.toContain('more_tools')
+        expect(tools({loaded: ['schedules', 'secrets', 'debug', 'review', 'epics', 'releases', 'folder']})).not.toContain('more_tools')
     })
 
     it("isn't the chat's or an untrusted run's, and an untrusted run can't call what it isn't given", async () => {

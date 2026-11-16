@@ -48,10 +48,10 @@ describe('the tool list a session carries on every turn', () => {
         // the guide's section (ORR-848) about 65, which saves a session most of the 39,000 the guide sent whole. An issue's
         // epic (ORR-895) about 155, its tools waiting behind more_tools, and about 80 on an untrusted run, which has none of them.
         // Asking for its next issue (`next`, ORR-521) about 140, on a work session only. Linking its folder (ORR-1071) about
-        // 60, its tool waiting behind more_tools.
-        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(6_830)
-        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(7_715)
-        expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(9_460)
+        // 60, its tool waiting behind more_tools. Making and changing releases (ORR-2) about 40, the same way.
+        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(6_875)
+        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(7_760)
+        expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(9_505)
         expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(4_860)
         // The chat's fell from about 20,100 when its requests went behind request (ORR-624), reading GitHub (ORR-748) added about 1,500, and its own docs, egress and event log (ORR-750) about 1,900,
         // reading the epics (ORR-895) about 290, writing epics and milestones itself instead of asking (ORR-988) about 1,700,

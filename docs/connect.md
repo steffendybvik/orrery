@@ -163,8 +163,9 @@ from the orrery it's connected to): its contents, or one section or page with `s
 answer "how do schedules work?" without reading all of it. Those it needs less
 often wait behind `more_tools`, so they don't take up its context until it asks for them: `create_schedule` and
 `update_schedule`, to ask you on its issue for a schedule (saved only once you allow it); `secrets` and `egress`, to
-call an outside service with a [secret](API.md#secrets) it never sees; and `events` and `resolve_event`, to debug
-orrery from its [event log](API.md#event-log). `milestones`, `presets`, `preset` and `schedules`, which read the project's milestones, presets and schedules,
+call an outside service with a [secret](API.md#secrets) it never sees; `create_release` and `update_release`, to make a
+release and change its branch, notes, freeze or ship date at once (removing one stays yours, on the Releases page); and
+`events` and `resolve_event`, to debug orrery from its [event log](API.md#event-log). `milestones`, `presets`, `preset` and `schedules`, which read the project's milestones, presets and schedules,
 are the [chat](API.md#chats)'s. They write as `claude`, from that session, so your comments on an issue it worked go back
 to it. Tools work in any session with the server in `.mcp.json`, even one started without the
 channels flag; only the pushed messages need the flag.

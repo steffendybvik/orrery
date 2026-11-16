@@ -335,6 +335,23 @@ async fn releases_say_none_yet_and_a_new_one_with_its_count() {
 }
 
 #[tokio::test]
+async fn a_work_session_makes_and_changes_a_release_at_once() {
+    let api = TestApi::new().await;
+    api.project("alpha").await;
+    api.patch("/api/projects/alpha", json!({"release_mode": "own"})).send().await;
+    let made = said(&tool(&api, "create_release", json!({"version": "1.1.0", "branch": "v1.1.0"})).send().await).to_string();
+    assert_eq!(made, "Made release 1.1.0 on v1.1.0. Put issues in it with edit_issue (release: \"1.1.0\").");
+    let changed = said(&tool(&api, "update_release", json!({"version": "1.1.0", "frozen_on": "2026-11-16"})).send().await).to_string();
+    assert_eq!(changed, "Changed release 1.1.0 on v1.1.0, frozen since 2026-11-16.");
+    assert_eq!(
+        said(&tool(&api, "releases", json!({})).send().await),
+        "1.1.0 (feature freeze since 2026-11-16: fixes, tests and docs) on v1.1.0: 0 issues, 0/0 done"
+    );
+    // The chat asks for one instead, through `request`.
+    assert_eq!(said(&tool(&api, "create_release", json!({"version": "1.2.0"})).header("orrery-actor-kind", "chat").send().await), "No tool \"create_release\"");
+}
+
+#[tokio::test]
 async fn epics_are_made_changed_and_listed() {
     let api = TestApi::new().await;
     api.project("alpha").await;
