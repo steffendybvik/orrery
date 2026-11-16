@@ -72,9 +72,9 @@ export abstract class StatusStore extends StoreBase {
         return (row && JSON.parse(row.value) as WorkKind[] | null) ?? WORK_KINDS
     }
 
-    /** The issue statuses, in board order: by kind, then as arranged. */
-    async statuses(): Promise<IssueStatus[]> {
-        const read = await this.fromApi<IssueStatus[]>('/api/statuses')
+    /** The issue statuses, in board order: by kind, then as arranged. `workspace`'s (ORR-1107), else `default`'s. */
+    async statuses(workspace?: string): Promise<IssueStatus[]> {
+        const read = await this.fromApi<IssueStatus[]>('/api/statuses', workspace)
         if (read) return read
         const rows = await this.all<IssueStatus>('SELECT id, name, kind, color, position FROM statuses ORDER BY position, id')
         return KINDS.flatMap(kind => rows.filter(r => r.kind === kind))
@@ -143,14 +143,20 @@ export abstract class StatusStore extends StoreBase {
 
     /** What a status filter or focus means: the status ids it covers (an id, a kind, or an old word). */
     /** The status ids a status's id or kind stands for; several, comma-separated, stand for all of theirs. */
-    protected async statusIds(status: string): Promise<string[]> {
-        const statuses = await this.statuses()
+    protected async statusIds(status: string, statuses?: IssueStatus[]): Promise<string[]> {
+        statuses ??= await this.statuses()
         const of = (one: string) => {
             if (statuses.some(s => s.id === one)) return [one]
             const kind = (KINDS.includes(one as Kind) ? one : LEGACY_KINDS[one]) as Kind | undefined
             return kind ? statuses.filter(s => s.kind === kind).map(s => s.id) : []
         }
         return [...new Set(status.split(',').map(s => s.trim()).filter(Boolean).flatMap(of))]
+    }
+
+    /** The statuses of `project`'s workspace (ORR-1254): another workspace's ids start with its own (`work-todo`). */
+    protected async statusesOf(project: string): Promise<IssueStatus[]> {
+        const workspace = (await this.projectRow(project)).workspace
+        return await this.statuses(workspace && workspace !== 'default' ? workspace : undefined)
     }
 
     protected async keepOneOf(status: IssueStatus) {

@@ -196,10 +196,11 @@ export abstract class SignalStore extends IssueStore {
         const input = checkInput(body ?? {}, MILESTONE_SIGNAL_FIELDS)
         let status: string | null = null
         if (input.status) {
-            const all = await this.statuses()
+            // The project's workspace's (ORR-1254): a second workspace's ids start with its own (`work-todo`).
+            const all = await this.statusesOf(project)
             const words = String(input.status).split(',').map(s => s.trim())
             for (const one of words) {
-                const ids = await this.statusIds(one)
+                const ids = await this.statusIds(one, all)
                 const statuses = all.filter(s => ids.includes(s.id))
                 if (!statuses.length || statuses.some(s => CLOSED.includes(s.kind))) {
                     throw badRequest(`"status" has "${one}", not an open status (${all.filter(s => !CLOSED.includes(s.kind)).map(s => s.id).join(', ')}) or kind (backlog, todo, started)`)
