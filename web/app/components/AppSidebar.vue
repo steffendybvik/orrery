@@ -187,7 +187,7 @@ const workspaceEdge = computed(() => workspaceColor(workspaceHere.value?.color))
 <template>
   <!-- On a phone it's a drawer over the whole screen (the menu button in PageHeader), with bigger rows to tap. -->
   <aside
-      class="fixed inset-0 z-50 flex w-full shrink-0 flex-col bg-panel transition-transform duration-200 max-md:[&_nav_a]:py-2.5 max-md:[&_nav_a]:text-[15px] md:static md:z-auto md:w-64 md:translate-x-0 md:border-r md:border-line"
+      class="fixed inset-0 z-50 flex w-full shrink-0 flex-col bg-frame transition-transform duration-200 max-md:[&_nav_a]:py-2.5 max-md:[&_nav_a]:text-[15px] md:static md:z-auto md:w-64 md:translate-x-0 md:border-r md:border-line"
       :class="open ? 'translate-x-0' : '-translate-x-full'"
   >
     <!-- The workspace's colour along the top (ORR-1108), so which one a tab is in shows at a glance. -->
@@ -572,6 +572,7 @@ const workspaceEdge = computed(() => workspaceColor(workspaceHere.value?.color))
         <span><KeyHint>g</KeyHint> <KeyHint>m</KeyHint> home</span>
       </div>
       <ActingAs />
+      <SignedIn />
       <NewVersionNotice />
       <p class="mt-1.5 px-2 font-mono text-[10px] text-faint">
         <a v-if="!dev" :href="`https://github.com/steffendybvik/orrery/blob/v${version}/CHANGELOG.md`" target="_blank" rel="noopener" class="hover:text-fg hover:underline" title="What's in this version">v{{ version }}</a>

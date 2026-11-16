@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto'
 import {execFile} from 'node:child_process'
-import {existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync} from 'node:fs'
+import {existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync} from 'node:fs'
 import {createServer, type Server} from 'node:http'
 import type {AddressInfo} from 'node:net'
 import {tmpdir} from 'node:os'
@@ -76,6 +76,19 @@ describe('the bootstrap', () => {
         expect(next.version).toBe('1.0.1')
         expect(readFileSync(next.path!, 'utf8')).toContain('v2')
         expect(existsSync(first.path!)).toBe(false)
+    })
+
+    it('leaves the default folder and anything else it didn\'t fetch when it moves to new code (ORR-1239)', async () => {
+        await resolve('channel', {env: env(), home})
+        const dir = join(home, '.orrery', 'orr1')
+        mkdirSync(join(dir, 'home', '.claude'), {recursive: true})
+        writeFileSync(join(dir, 'home', '.mcp.json'), '{}')
+        mkdirSync(join(dir, 'notes'))
+        writeFileSync(join(dir, 'notes', 'mine.txt'), 'mine')
+        state.now = {version: '1.0.1', code: 'bbbb', script: 'console.log("v2")'}
+        await resolve('channel', {env: env(), home})
+        expect(existsSync(join(dir, 'home', '.mcp.json'))).toBe(true)
+        expect(existsSync(join(dir, 'notes', 'mine.txt'))).toBe(true)
     })
 
     it('runs the last good copy when the orrery is down, a file comes cut short, or a redirect answers', async () => {

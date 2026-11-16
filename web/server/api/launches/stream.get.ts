@@ -34,7 +34,7 @@ export default defineEventHandler(async event => {
     // serves only the projects its key sees (ORR-1109): those in the workspaces its person is in, all of them for a machine
     // connected from its install line, or its one workspace's for a key held to one, the owner's too.
     const member = launcherMember(event)
-    const sees = await authMode(event) === 'off' ? undefined : await readAsAsker<{id: string}[]>(event, '/api/projects')
+    const sees = await authMode(event) === 'off' ? undefined : await readAsAsker<{id: string}[]>(event, '/api/projects?every=1')
     const listed = sees ? new Set(sees.map(p => p.id)) : undefined
     const wanted = [...entries.keys()].filter(p => known.has(p) && (!listed || listed.has(p)))
     const on = new Set(member && !listed ? await store.boardsOf(member, wanted) : wanted)

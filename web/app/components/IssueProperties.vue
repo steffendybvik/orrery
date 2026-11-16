@@ -131,61 +131,64 @@ const assigneeOptions = computed(() => [{value: '', label: 'Unassigned'}, ...peo
 
 <template>
   <dl class="grid grid-cols-[6.5rem_1fr] items-center gap-x-3 gap-y-2 text-[13px]">
-    <dt class="label">Status</dt>
-    <dd class="flex min-w-0 flex-col">
-      <PropertyPicker v-model="column" :options="statusOptions" label="Status" :disabled="hasSubs || saving">
-        <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" />
-        <span class="truncate">{{ statusOptions.find(o => o.value === issue.column)?.label ?? issue.column }}</span>
-        <template #option="{option}">
-          <StatusIcon :column="option.value" />
-          <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
-        </template>
-      </PropertyPicker>
-      <span v-if="hasSubs" class="text-xs text-faint">from its sub-issues</span>
-    </dd>
+    <!-- Folded, status, priority, assignee and More are one line of chips; otherwise they're rows of the grid. -->
+    <div :class="fold ? 'col-span-2 flex flex-wrap items-center gap-1.5' : 'contents'">
+      <dt :class="fold ? 'sr-only' : 'label'">Status</dt>
+      <dd class="flex min-w-0 flex-col">
+        <PropertyPicker v-model="column" :options="statusOptions" label="Status" :chip="fold" :disabled="hasSubs || saving">
+          <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" />
+          <span class="truncate">{{ statusOptions.find(o => o.value === issue.column)?.label ?? issue.column }}</span>
+          <template #option="{option}">
+            <StatusIcon :column="option.value" />
+            <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+          </template>
+        </PropertyPicker>
+        <span v-if="hasSubs && !fold" class="text-xs text-faint">from its sub-issues</span>
+      </dd>
 
-    <dt class="label">Priority</dt>
-    <dd class="flex min-w-0">
-      <PropertyPicker v-model="priority" :options="PRIORITY_OPTIONS" label="Priority" :disabled="saving">
-        <PriorityIcon :priority="issue.priority" />
-        <span class="truncate" :class="!issue.priority && 'text-faint'">{{ issue.priority ? `${issue.priority} · ${PRIORITY_LABEL[issue.priority]}` : 'No priority' }}</span>
-        <template #option="{option}">
-          <PriorityIcon :priority="option.value || undefined" />
-          <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
-        </template>
-      </PropertyPicker>
-    </dd>
+      <dt :class="fold ? 'sr-only' : 'label'">Priority</dt>
+      <dd class="flex min-w-0">
+        <PropertyPicker v-model="priority" :options="PRIORITY_OPTIONS" label="Priority" :chip="fold" :disabled="saving">
+          <PriorityIcon :priority="issue.priority" />
+          <span class="truncate" :class="!issue.priority && 'text-faint'">{{ issue.priority ? `${issue.priority} · ${PRIORITY_LABEL[issue.priority]}` : 'No priority' }}</span>
+          <template #option="{option}">
+            <PriorityIcon :priority="option.value || undefined" />
+            <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+          </template>
+        </PropertyPicker>
+      </dd>
 
-    <dt class="label">Assignee</dt>
-    <dd class="flex min-w-0">
-      <PropertyPicker v-model="assignee" :options="assigneeOptions" label="Assignee" placeholder="Find or assign someone…" creatable create-verb="Assign" :disabled="saving">
-        <template v-if="worker && issue.assignee === 'claude'">
-          <SessionDot :session="worker" />
-          <span class="truncate" :title="`claude: ${worker.name} is working on it`">{{ worker.name }}</span>
-        </template>
-        <template v-else>
-          <PersonAvatar v-if="issue.assignee" :name="issue.assignee" />
-          <span class="truncate" :class="!issue.assignee && 'text-faint'" :title="issue.assignee ? who(issue.assignee) : undefined">{{ issue.assignee ? who(issue.assignee) : 'Unassigned' }}</span>
-        </template>
-        <template #option="{option}">
-          <PersonAvatar v-if="option.value" :name="option.value" />
-          <span v-else class="size-[18px] shrink-0 rounded-full border border-dashed border-faint/60" />
-          <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
-        </template>
-      </PropertyPicker>
-    </dd>
+      <dt :class="fold ? 'sr-only' : 'label'">Assignee</dt>
+      <dd class="flex min-w-0">
+        <PropertyPicker v-model="assignee" :options="assigneeOptions" label="Assignee" :chip="fold" placeholder="Find or assign someone…" creatable create-verb="Assign" :disabled="saving">
+          <template v-if="worker && issue.assignee === 'claude'">
+            <SessionDot :session="worker" />
+            <span class="truncate" :title="`claude: ${worker.name} is working on it`">{{ worker.name }}</span>
+          </template>
+          <template v-else>
+            <PersonAvatar v-if="issue.assignee" :name="issue.assignee" />
+            <span class="truncate" :class="!issue.assignee && 'text-faint'" :title="issue.assignee ? who(issue.assignee) : undefined">{{ issue.assignee ? who(issue.assignee) : 'Unassigned' }}</span>
+          </template>
+          <template #option="{option}">
+            <PersonAvatar v-if="option.value" :name="option.value" />
+            <span v-else class="size-[18px] shrink-0 rounded-full border border-dashed border-faint/60" />
+            <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+          </template>
+        </PropertyPicker>
+      </dd>
 
-    <template v-if="shared">
-      <dt class="label">Claim</dt>
-      <dd class="flex min-w-0"><IssueClaim :issue="issue" :project="project.id" :worker="worker" /></dd>
-    </template>
+      <template v-if="shared">
+        <dt :class="fold ? 'sr-only' : 'label'">Claim</dt>
+        <dd class="flex min-w-0"><IssueClaim :issue="issue" :project="project.id" :worker="worker" /></dd>
+      </template>
 
-    <dd v-if="fold" class="col-span-2 flex">
-      <UiButton variant="ghost" size="xs" class="-ml-1.5" :aria-expanded="more" @click="more = !more">
-        <svg class="size-3 transition-transform" :class="more && 'rotate-90'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
-        {{ more ? 'Less' : 'More' }}
-      </UiButton>
-    </dd>
+      <dd v-if="fold" class="flex">
+        <UiButton variant="ghost" size="xs" :aria-expanded="more" @click="more = !more">
+          <svg class="size-3 transition-transform" :class="more && 'rotate-90'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
+          {{ more ? 'Less' : 'More' }}
+        </UiButton>
+      </dd>
+    </div>
     <template v-if="!fold || more">
       <dt class="label">Labels</dt>
       <dd class="flex min-w-0">

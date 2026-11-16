@@ -3079,6 +3079,32 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         }
     })
 
+    it('lists and removes the images nothing shows, the Rust API alone (ORR-1250)', async () => {
+        const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+        const {id: shown} = await store.createUpload({data: PNG, name: 'shown.png'}, OWNER)
+        const {id: lost} = await store.createUpload({data: PNG, name: 'lost.png'}, OWNER)
+        // Both last week's, so the day's grace for one being written in has gone by.
+        await store.db.run('UPDATE uploads SET created_at = ? WHERE id IN (?, ?)', '2026-11-01T00:00:00.000Z', shown, lost)
+        // On both projects, so their issues keep the same numbers for the steps after.
+        for (const project of ['through-store', 'through-api']) await store.createIssue(project, {title: 'Sand the lid', notes: `![lid](/api/uploads/${shown})`}, OWNER)
+        const unused = await viaApi('GET', '/api/uploads?unused=1', undefined, OWNER)
+        expect(unused.status).toBe(200)
+        const ids = (unused.body as {uploads: {id: string}[]}).uploads.map(u => u.id)
+        expect(ids).toContain(lost)
+        expect(ids).not.toContain(shown)
+        expect(await viaApi('DELETE', `/api/uploads/${shown}`, undefined, OWNER)).toMatchObject({status: 409})
+        expect(await viaApi('DELETE', `/api/uploads/${lost}`, undefined, SESSION)).toMatchObject({status: 403})
+        expect(await viaApi('DELETE', '/api/uploads?unused=1', undefined, OWNER)).toMatchObject({status: 200, body: {count: ids.length}})
+        expect(await viaApi('GET', `/api/uploads/${lost}`)).toMatchObject({status: 404})
+        expect(await viaApi('DELETE', `/api/uploads/${shown}`, undefined, OWNER)).toMatchObject({status: 409})
+        // Shown no more, it goes, so the steps after see none of it.
+        await store.db.run("UPDATE issues SET notes = '' WHERE title = 'Sand the lid'")
+        expect(await viaApi('DELETE', `/api/uploads/${shown}`, undefined, OWNER)).toMatchObject({status: 204})
+        expect(domainOf('GET', '/api/uploads')).toBe('uploads, reading')
+        expect(domainOf('DELETE', '/api/uploads')).toBe('uploads, removed')
+        expect(domainOf('DELETE', `/api/uploads/${lost}`)).toBe('uploads, removed')
+    })
+
     it('exports a board alike, as one file named for the project and the day (ORR-1006)', async () => {
         // An image its text shows goes in the file, in base64, so the board takes one in an issue and a comment.
         const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
@@ -3088,9 +3114,9 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             const {id: issue} = await store.createIssue(project, {title: 'Varnish the lid', notes: `![lid](/api/uploads/${image})`, assignee: 'owner'}, OWNER)
             await store.createComment(project, issue, {body: `Before: ![lid](/api/uploads/${image})`}, OWNER)
         }
-        const response = await fetch(`${url}/api/projects/through-api/export`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK, ...actorHeaders(AGENT)}})
+        const response = await fetch(`${url}/api/projects/through-api/export?uploads=1`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK, ...actorHeaders(AGENT)}})
         const file = await response.json() as {exported_at: string, uploads: {id: string, data: string}[]}
-        const kept = await exportBoard(store.db, 'through-api')
+        const kept = await exportBoard(store.db, 'through-api', true)
         expect(file.exported_at).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/)
         expect({...file, exported_at: ''}).toEqual(JSON.parse(JSON.stringify({...kept, exported_at: ''})))
         expect(file.uploads.map(upload => [upload.id, upload.data])).toEqual([[image, Buffer.from((await store.upload(image)).data).toString('base64')]])
@@ -3098,6 +3124,9 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(response.headers.get('content-disposition')).toBe(`attachment; filename="through-api-${file.exported_at.slice(0, 10)}.orrery.json"`)
         await both('no such project', () => viaStore(() => store.project('nowhere')), () => viaApi('GET', '/api/projects/nowhere/export'))
         expect(domainOf('GET', '/api/projects/through-api/export')).toBe('a project, exported')
+        // Without `uploads=1`, alike with none (ORR-1248).
+        const bare = await (await fetch(`${url}/api/projects/through-api/export`, {headers: {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK, ...actorHeaders(AGENT)}})).json() as {exported_at: string}
+        expect({...bare, exported_at: ''}).toEqual(JSON.parse(JSON.stringify({...await exportBoard(store.db, 'through-api'), exported_at: ''})))
     })
 
     it('reads and writes the sessions\' bookkeeping alike (ORR-1141)', async () => {
@@ -3873,7 +3902,7 @@ describe('the router', () => {
     })
 
     it('routes by a table with a line per domain, so taking one back is taking its line out (ORR-925)', () => {
-        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'owner', 'your account', 'board members', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'a schedule, made', 'a schedule across projects, deleted', 'a schedule across projects, made', 'a schedule across projects, changed', 'schedules, paused or activated', 'a schedule, asked for', 'a schedule, answered', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, marked as moved', 'a project, let sessions pick from', 'a project, exported', 'a project, imported', 'the event log, read', 'an event, resolved', 'usage', 'the bell', 'epics', 'milestone and epic comments', 'workspaces', 'logging in'])
+        expect(DOMAINS.map(({domain}) => domain)).toEqual(['docs', 'statuses', 'permissions', 'issues, reading', 'comments', 'an issue, deleted', 'an issue, made', 'an issue, its words', 'issues, changed at once', 'a proposal, decided', 'claims', 'activity', 'milestones', 'releases', 'releases, every project\'s', 'people', 'invites', 'owner', 'your account', 'board members', 'keys', 'logins', 'uploads, reading', 'an upload, kept', 'uploads, removed', 'presets', 'secrets, reading', 'settings', 'a pull request, reading', "a pull request's risk", 'schedules, reading', 'a schedule, adopted', 'a schedule, deleted', 'a schedule, changed', 'a schedule, made', 'a schedule across projects, deleted', 'a schedule across projects, made', 'a schedule across projects, changed', 'schedules, paused or activated', 'a schedule, asked for', 'a schedule, answered', 'signals, reading', 'projects, listed', 'a project, made', 'a project, changed', 'a project, read', 'a project, deleted', 'a project, marked as moved', 'a project, let sessions pick from', 'a project, exported', 'a project, imported', 'the event log, read', 'an event, resolved', 'usage', 'the bell', 'epics', 'milestone and epic comments', 'workspaces', 'logging in'])
         expect(domainOf('PATCH', '/api/projects/p/docs/d')).toBe('docs')
         expect(domainOf('head', '/api/projects/p/doc-sections/')).toBe('docs')
         for (const method of ['POST', 'DELETE']) expect(domainOf(method, '/api/projects/p/issues/P-1/claim'), method).toBe('claims')
@@ -3953,7 +3982,8 @@ describe('the router', () => {
         expect(domainOf('GET', '/api/uploads/0123456789abcdef01234567')).toBe('uploads, reading')
         expect(domainOf('POST', '/api/uploads')).toBe('an upload, kept')
         expect(domainOf('POST', '/api/uploads/0123456789abcdef01234567')).toBeUndefined()
-        for (const path of ['/api/uploads', '/api/uploads/x/y']) expect(domainOf('GET', path), path).toBeUndefined()
+        expect(domainOf('GET', '/api/uploads')).toBe('uploads, reading')
+        expect(domainOf('GET', '/api/uploads/x/y')).toBeUndefined()
     })
 
     it('sends presets there, and counts a new one of the orrery\'s toward the owner\'s use (ORR-949)', () => {
@@ -4021,7 +4051,7 @@ describe('the contract (api/openapi.yaml)', () => {
     const routes = () => [...new Set([...nuxtRoutes(), ...rustRoutes()])].sort().filter(route => servedByApi(methodOf(route), pathOf(route)))
 
     it('has every route the router sends to the API, and no other', () => {
-        expect(contract()).toHaveLength(133)
+        expect(contract()).toHaveLength(136)
         expect(contract()).toEqual(routes())
     })
 

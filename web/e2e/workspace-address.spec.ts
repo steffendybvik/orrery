@@ -60,4 +60,34 @@ test('the switcher makes a workspace and moves this tab into it, and links stay 
     await other.goto('/mine')
     await expect(other.getByTestId('workspace-switcher').getByRole('button').first()).not.toContainText(name)
     expect((await icons(other)).map(href => new URL(href).pathname)).toEqual(['/favicon.ico', '/favicon.svg'])
+    // Each carries a hash of what's in it (ORR-1255), so an old copy kept at the bare address is never shown, and is served.
+    for (const href of await icons(other)) {
+        expect(new URL(href).search).toMatch(/^\?v=[0-9a-f]{8}$/)
+        expect((await other.request.get(href)).ok(), href).toBe(true)
+    }
+})
+
+// Neither workspace's projects show in the other's sidebar or Projects page (ORR-1251), and a page with no `/w/` in
+// its address shows `default`'s alone, the one it says it's in, not every workspace mixed together.
+test("each workspace's sidebar and Projects page list its own projects alone", async ({page, request}) => {
+    const suffix = Date.now().toString(36)
+    const made = await request.post('/api/workspaces', {data: {name: `Harbour ${suffix}`}, headers: {'Orrery-Actor': 'owner'}})
+    expect(made.ok(), await made.text()).toBeTruthy()
+    const harbour = (await made.json()).id as string
+    const boat = await request.post('/api/projects', {data: {name: `Boats ${suffix}`}, headers: {'Orrery-Actor': 'claude', 'Orrery-Workspace': harbour}})
+    expect(boat.ok(), await boat.text()).toBeTruthy()
+    const boats = (await boat.json()).name as string
+
+    const sidebar = page.locator('aside').first()
+    for (const at of ['/projects', '/w/default/projects']) {
+        await page.goto(at)
+        await expect(page.getByRole('link', {name: 'Lanterns'}).first()).toBeVisible()
+        await expect(page.getByRole('link', {name: boats})).toHaveCount(0)
+        await expect(sidebar.getByText(boats)).toHaveCount(0)
+    }
+
+    await page.goto(`/w/${harbour}/projects`)
+    await expect(page.getByRole('link', {name: boats}).first()).toBeVisible()
+    await expect(page.getByRole('link', {name: 'Lanterns'})).toHaveCount(0)
+    await expect(sidebar.getByText('Lanterns')).toHaveCount(0)
 })

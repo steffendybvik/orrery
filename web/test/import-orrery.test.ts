@@ -108,8 +108,8 @@ describe('importOrrery', () => {
     const source = () => fake('http://work', {
         '/projects': [{id: 'hub', key: 'HUB', name: 'Hub'}, {id: 'orrery', key: 'ORR', name: 'orrery'}],
         '/settings': {tint: 'teal', statuses: [{id: 'todo', name: 'Todo', kind: 'todo'}]},
-        '/projects/hub/export': {project: 'hub', tables: {issues: [{id: 'HUB-1'}], schedules: [{id: 1, title: 'Groom', enabled: 1}]}, people: [{id: 'ada', name: 'Ada'}]},
-        '/projects/orrery/export': {project: 'orrery', tables: {issues: []}},
+        '/projects/hub/export?uploads=1': {project: 'hub', tables: {issues: [{id: 'HUB-1'}], schedules: [{id: 1, title: 'Groom', enabled: 1}]}, people: [{id: 'ada', name: 'Ada'}]},
+        '/projects/orrery/export?uploads=1': {project: 'orrery', tables: {issues: []}},
         '/secrets': [{name: 'STRIPE', hosts: ['api.stripe.com'], projects: ['orrery']}],
     })
     const target = (workspaces: unknown[] = []) => fake('http://home', {
@@ -121,7 +121,10 @@ describe('importOrrery', () => {
     it('plans on a dry run and writes nothing to either', async () => {
         const from = source()
         const to = target()
-        const report = await importOrrery({source: from, target: to, name: 'Work', dryRun: true})
+        const steps: unknown[] = []
+        const report = await importOrrery({source: from, target: to, name: 'Work', dryRun: true, progress: (p: unknown) => steps.push(p)})
+        // How far it's got, for App settings to show (ORR-1249): each board read, and nothing uploaded on a dry run.
+        expect(steps).toEqual([{step: 'reading', project: 'hub', done: 0, total: 2}, {step: 'reading', project: 'orrery', done: 1, total: 2}])
         expect(from.writes).toEqual([])
         expect(to.writes).toEqual([])
         expect(report.projects.map((p: {id: string}) => p.id)).toEqual(['hub', 'orrery-2'])

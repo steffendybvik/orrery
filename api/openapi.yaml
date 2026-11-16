@@ -294,6 +294,21 @@ paths:
         '204': {description: Forgotten}
         '403': {$ref: '#/components/responses/Forbidden'}
   /api/uploads:
+    get:
+      summary: The workspace's images, and which nothing shows (ORR-1250)
+      description: Newest first, each with `used` (an issue's notes, a comment, a doc or its revisions, or any other text in any workspace shows it) and `unused` (nothing shows it and it's more than a day old, so one being written into a comment isn't counted). `?unused=1` lists only the unused. `count` and `size` add up what's listed.
+      parameters:
+        - {name: unused, in: query, required: false, description: '`1` for only the images nothing shows, more than a day old', schema: {type: string, enum: ['1', 'true']}}
+      responses:
+        '200': {description: The images, content: {application/json: {schema: {type: object, required: [count, size, uploads], properties: {count: {type: integer}, size: {type: integer}, uploads: {type: array, items: {type: object, required: [id, type, size, created_by, created_at, used, unused, url], properties: {id: {type: string}, type: {type: string}, name: {type: [string, 'null']}, size: {type: integer}, created_by: {type: string}, created_at: {type: string}, used: {type: boolean}, unused: {type: boolean}, url: {type: string}}}}}}}}}
+    delete:
+      summary: 'Removes every image nothing shows that''s more than a day old, at once; the owner''s (settings.write)'
+      parameters:
+        - {name: unused, in: query, required: true, description: '`1`: only the unused go', schema: {type: string, enum: ['1', 'true']}}
+      responses:
+        '200': {description: 'What was removed, and whether the SQLite file was compacted to give the room back (when that much came free; never on Postgres)', content: {application/json: {schema: {type: object, required: [count, size, compacted], properties: {count: {type: integer}, size: {type: integer}, compacted: {type: boolean}}}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
     post:
       summary: Keeps an image for Markdown to show
       description: '`data` is the image in base64 (a `data:` URL works too), a PNG, JPEG, GIF or WebP of 10 MB at most; `name` gives the Markdown its alt text. A PNG or JPEG of 16 KB or more is kept as WebP when that''s smaller (quality 90 and 82), no wider than 2560 and turned as its EXIF says, losing its metadata; a JPEG WebP doesn''t shrink is written again as a JPEG when that is smaller. A body too big for the largest image is refused before it''s read (413).'
@@ -311,6 +326,14 @@ paths:
       responses:
         '200': {description: The image, content: {image/png: {}, image/jpeg: {}, image/gif: {}, image/webp: {}}}
         '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      summary: 'Removes an image nothing shows; the owner''s (settings.write)'
+      description: Refused (409) while anything in any workspace still shows it. One outside the workspace the request acts in isn't found.
+      responses:
+        '204': {description: Removed}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
   /api/session-records/{session}:
     parameters:
       - {name: session, in: path, required: true, schema: {type: string}}
@@ -909,9 +932,12 @@ paths:
       summary: The board as one file
       description: |
         A snapshot of the project, read in one transaction, that leaves the board as it is: its rows of each table a board
-        takes (`tables`), the people it names, the statuses its issues are in, and the images its text shows (`data` in
-        base64). Secrets, credentials and live state stay behind. `Content-Disposition` names it for the project and the
-        day, so a browser saves it. Whether the asker is on the board is the Nuxt server's to check, before it sends this on.
+        takes (`tables`), the people it names, the statuses its issues are in, and, with `uploads=1`, the images its text
+        shows (`data` in base64); without it `uploads` is empty (ORR-1248), as images are most of a big board's file.
+        Secrets, credentials and live state stay behind. `Content-Disposition` names it for the project and the day, so a
+        browser saves it. Whether the asker is on the board is the Nuxt server's to check, before it sends this on.
+      parameters:
+        - {name: uploads, in: query, required: false, description: '`1` to put the images its text shows in the file', schema: {type: string, enum: ['1', 'true']}}
       responses:
         '200': {description: The board's file, content: {application/json: {schema: {type: object, required: [format, format_version, schema_step, exported_at, project, people, statuses, uploads, tables], properties: {format: {type: string, enum: [orrery-board]}, format_version: {type: integer}, schema_step: {type: integer}, exported_at: {type: string}, project: {type: string}, people: {type: array, items: {type: object}}, statuses: {type: array, items: {type: object}}, uploads: {type: array, items: {type: object}}, tables: {type: object}}}}}}
         '404': {$ref: '#/components/responses/NotFound'}

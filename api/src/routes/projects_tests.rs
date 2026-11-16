@@ -286,7 +286,7 @@ async fn a_board_is_exported_as_one_file_named_for_the_day() {
     let other = api.project("Gears").await;
     api.issue(&other, json!({"title": "Teeth"})).await;
 
-    let reply = api.get(&format!("/api/projects/{project}/export")).send().await;
+    let reply = api.get(&format!("/api/projects/{project}/export?uploads=1")).send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
     let day = reply.body["exported_at"].as_str().unwrap()[..10].to_string();
     assert_eq!(reply.header("content-disposition"), Some(format!("attachment; filename=\"{project}-{day}.orrery.json\"").as_str()));
@@ -300,6 +300,9 @@ async fn a_board_is_exported_as_one_file_named_for_the_day() {
     assert_eq!(body["statuses"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect::<Vec<_>>(), ["todo"], "only the statuses it uses");
     assert_eq!(body["uploads"].as_array().unwrap().len(), 1, "the images its text shows");
     assert_eq!(body["uploads"][0]["data"], "AQID", "an image's bytes go in base64");
+    let without = api.get(&format!("/api/projects/{project}/export")).send().await;
+    assert_eq!(without.body["uploads"], json!([]), "images only when asked for");
+    assert_eq!(without.body["tables"]["docs"][0]["id"], "plan", "the rest of the board all the same");
     assert_eq!(api.get("/api/projects/nope/export").send().await.status, 404);
 }
 

@@ -10,7 +10,7 @@ export default defineEventHandler(async event => {
     const all = await usePulls().all()
     const who = event.context?.who as Who | undefined
     if (!who || who.owner) return pullsPage(await pullsForAsker(event, all), getQuery(event))
-    const repos = new Set((await readAsAsker<{repo?: string | null}[]>(event, '/api/projects') ?? []).flatMap(p => p.repo ? [p.repo.toLowerCase()] : []))
+    const repos = new Set((await readAsAsker<{repo?: string | null}[]>(event, '/api/projects?every=1') ?? []).flatMap(p => p.repo ? [p.repo.toLowerCase()] : []))
     const mine = {...all, pulls: all.pulls.filter(p => repos.has(p.repo.toLowerCase())), repos: all.repos.filter(r => repos.has(r.repo.toLowerCase()))}
     return pullsPage(await pullsForAsker(event, mine), getQuery(event))
 })

@@ -28,7 +28,7 @@ async fn list_notices(State(app): Shared, headers: HeaderMap, Query(query): Quer
     let mut notices = Notices::new(&mut conn);
     let person = notices.person_of(who_of(&headers).as_ref(), &actor_of(&headers)).await?;
     let mut value = notices.notices(&Asked::of(&query), person.as_deref()).await?;
-    Seen::of(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
+    Seen::listed(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
     Ok(Json(value).into_response())
 }
 
@@ -37,7 +37,7 @@ async fn notice_changes(State(app): Shared, headers: HeaderMap, Query(query): Qu
     let mut notices = Notices::new(&mut conn);
     let person = notices.person_of(who_of(&headers).as_ref(), &actor_of(&headers)).await?;
     let mut value = notices.changes(query.get("since").map(String::as_str), person.as_deref()).await?;
-    Seen::of(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
+    Seen::listed(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
     Ok(Json(value).into_response())
 }
 

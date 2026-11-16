@@ -43,10 +43,10 @@ fn chose_other(other: &Value) -> String {
     format!("This session chose {named} as its orrery, so this one won't be read or written from it. Use that orrery's tools instead.")
 }
 
-/// The projects on this orrery the asker can see (ORR-1195), as `GET /api/projects` orders them: a tool on one takes
-/// which when there are several.
+/// The projects on this orrery the asker can see (ORR-1195) in the workspace the session is in (ORR-1251), as
+/// `GET /api/projects` lists and orders them: a tool on one takes which when there are several.
 async fn projects(conn: &mut AnyConnection, headers: &axum::http::HeaderMap) -> Result<Vec<String>> {
-    let hidden = crate::access::seen::Seen::of(conn, headers).await?.hidden(conn).await?;
+    let hidden = crate::access::seen::Seen::listed(conn, headers).await?.hidden(conn).await?;
     let rows = sqlx::query(&sql("SELECT id FROM projects ORDER BY lower(name), name")).fetch_all(conn).await?;
     Ok(rows.iter().map(|r| r.get::<String, _>("id")).filter(|id| !hidden.contains(id)).collect())
 }

@@ -42,7 +42,7 @@ async fn list_events(State(app): Shared, headers: HeaderMap, Query(query): Query
     let mut conn = app.pool.acquire().await?;
     let workspace = Seen::workspace(&mut conn, &headers).await?;
     let mut value = EventLog::of(&mut conn, workspace).list(&filter).await?;
-    Seen::of(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
+    Seen::listed(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
     Ok(Json(value).into_response())
 }
 

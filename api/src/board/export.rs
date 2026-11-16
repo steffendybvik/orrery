@@ -39,7 +39,7 @@ const EXPORTED: [(&str, &str); 18] = [
     ("presets", OF_PROJECT),
 ];
 
-static UPLOAD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"/api/uploads/([0-9a-f]{24})").unwrap());
+pub(crate) static UPLOAD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"/api/uploads/([0-9a-f]{24})").unwrap());
 
 /// One column of a row as the Nuxt server's drivers give it: a number, text, null, or (an upload's `data`) bytes, kept
 /// as an array here until it's put in base64. A whole REAL is written as JavaScript writes it, with no `.0`.
@@ -82,19 +82,20 @@ async fn rows(conn: &mut AnyConnection, query: &str, binds: &[&str]) -> Result<V
     q.fetch_all(&mut *conn).await?.iter().map(whole).collect()
 }
 
-/// The board `project` as one file's contents (`exportBoard`): 404 when there's no such project.
-pub async fn export(conn: &mut AnyConnection, project: &str) -> Result<Value> {
+/// The board `project` as one file's contents (`exportBoard`): 404 when there's no such project. Its images go in only
+/// `with_uploads` (ORR-1248): they're most of a big board's file, and one past a proxy's body cap can't be uploaded.
+pub async fn export(conn: &mut AnyConnection, project: &str, with_uploads: bool) -> Result<Value> {
     let found = sqlx::query(&sql("SELECT id FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *conn).await?;
     if found.is_none() {
         return Err(ApiError::not_found(format!("No project \"{project}\"")));
     }
     sqlx::query(if on_postgres() { "BEGIN ISOLATION LEVEL REPEATABLE READ" } else { "BEGIN" }).execute(&mut *conn).await?;
-    let read = read(conn, project).await;
+    let read = read(conn, project, with_uploads).await;
     sqlx::query(if read.is_ok() { "COMMIT" } else { "ROLLBACK" }).execute(&mut *conn).await?;
     read
 }
 
-async fn read(conn: &mut AnyConnection, project: &str) -> Result<Value> {
+async fn read(conn: &mut AnyConnection, project: &str, with_uploads: bool) -> Result<Value> {
     let mut tables = Map::new();
     for (table, which) in EXPORTED {
         tables.insert(table.to_string(), Value::Array(rows(conn, &format!("SELECT * FROM {table} WHERE {which}"), &[project]).await?));
@@ -126,7 +127,7 @@ async fn read(conn: &mut AnyConnection, project: &str) -> Result<Value> {
             shown.push(id)
         }
     }
-    let mut uploads = if shown.is_empty() {
+    let mut uploads = if shown.is_empty() || !with_uploads {
         Vec::new()
     } else {
         let marks = vec!["?"; shown.len()].join(", ");

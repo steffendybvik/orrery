@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto'
 import {readFileSync} from 'node:fs'
 import {fileURLToPath} from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
@@ -6,6 +7,11 @@ import {writeSpaLoading} from './scripts/spa-loading'
 
 // The version a release sets in package.json, shown at the foot of the sidebar.
 const {version} = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {version: string}
+
+// The icons' addresses carry a hash of what's in them (ORR-1255), so a browser or a proxy holding an old copy at the
+// same address never shows it again: a hosted orrery's tab kept Nuxt's logo, which /favicon.ico had answered with
+// while the server was down and the proxy fell through to another site.
+const versioned = (path: string) => `${path}?v=${createHash('sha256').update(readFileSync(new URL(`./public${path}`, import.meta.url))).digest('hex').slice(0, 8)}`
 
 const channelBundle = fileURLToPath(new URL('./.channel-bundle', import.meta.url))
 
@@ -139,10 +145,10 @@ export default defineNuxtConfig({
             meta: [{name: 'description', content: 'Where every app project stands'}],
             link: [
                 // Keyed, so app.vue can swap both for the workspace's colour (ORR-1104).
-                {key: 'icon', rel: 'icon', href: '/favicon.ico', sizes: '32x32'},
-                {key: 'icon-svg', rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg'},
-                {rel: 'apple-touch-icon', href: '/apple-touch-icon.png'},
-                {rel: 'manifest', href: '/site.webmanifest'},
+                {key: 'icon', rel: 'icon', href: versioned('/favicon.ico'), sizes: '32x32'},
+                {key: 'icon-svg', rel: 'icon', type: 'image/svg+xml', href: versioned('/favicon.svg')},
+                {rel: 'apple-touch-icon', href: versioned('/apple-touch-icon.png')},
+                {rel: 'manifest', href: versioned('/site.webmanifest')},
                 // Fetched with the page rather than once its stylesheet is read: nearly every page's text is in it (ORR-766).
                 {rel: 'preload', href: '/fonts/geist-latin.woff2', as: 'font', type: 'font/woff2', crossorigin: ''},
             ],

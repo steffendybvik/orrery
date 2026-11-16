@@ -33,11 +33,17 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
         {id: 'workspace', text: 'Name', level: 2},
         {id: 'tint', text: 'Colour', level: 2},
         {id: 'projects', text: 'Projects in the sidebar', level: 2},
+        // A board's file, out and in (ORR-1248): here, not on a project's Settings, as an upload makes a new board.
+        {id: 'export', text: 'Export a board', level: 2},
+        {id: 'upload', text: 'Upload a board', level: 2},
         {id: 'proposals', text: 'Proposals', level: 2},
         {id: 'tracker', text: 'Team tracker', level: 2},
         {id: 'statuses', text: 'Issue statuses', level: 2},
         {id: 'people', text: 'People', level: 2},
         {id: 'secrets', text: 'Secrets', level: 2},
+        // Images nothing shows, and the room they take (ORR-1250).
+        {id: 'storage', text: 'Storage', level: 2},
+        {id: 'move', text: 'Move to another orrery', level: 2},
     ]},
     // Usage has a tab of its own (ORR-900): counting what you use is your choice, not a tool for looking into problems.
     {value: 'usage', label: 'Usage', scope: 'What you use on this orrery, counted only while you let it, to find what could go.', sections: [
@@ -408,6 +414,28 @@ async function pick(tint: string | null) {
         <p v-if="projectsFailed" class="text-xs text-rose-700 dark:text-rose-400">{{ projectsFailed }}</p>
       </section>
 
+      <section v-if="tab === 'workspace'" id="export" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.export }}</h2>
+          <p class="text-xs text-muted">
+            A project's whole board as one file: its issues, comments, activity, docs and their history, schedules and presets. Secrets stay here,
+            and the board stays as it is. Its images make a big board's file many times larger, so they go in only when you ask.
+          </p>
+        </header>
+        <BoardExport />
+      </section>
+
+      <section v-if="tab === 'workspace'" id="upload" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.upload }}</h2>
+          <p class="text-xs text-muted">
+            Brings a board's file in as a new board, so every board here stays as it is. Nothing in the file counts as yours, and its schedules arrive paused.
+            Leave out its images when this orrery refuses a file that big.
+          </p>
+        </header>
+        <BoardUpload />
+      </section>
+
       <section v-if="tab === 'workspace'" id="proposals" class="scroll-mt-6 flex flex-col gap-3">
         <header class="flex flex-col gap-0.5">
           <h2 class="text-[15px] font-semibold text-fg">{{ title.proposals }}</h2>
@@ -483,6 +511,28 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <SecretSettings />
+      </section>
+
+      <section v-if="tab === 'workspace'" id="storage" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.storage }}</h2>
+          <p class="text-xs text-muted">
+            Images that no issue, comment or doc shows any more, not even an old version of one. Only those more than a day old count,
+            so one you're still writing into a comment stays.
+          </p>
+        </header>
+        <StorageSettings />
+      </section>
+
+      <section v-if="tab === 'workspace'" id="move" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.move }}</h2>
+          <p class="text-xs text-muted">
+            Send this workspace, its boards with their issues, comments, docs, schedules and epics, to another orrery of yours,
+            or bring one of another's in here. Preview what goes first; nothing is written until you move it.
+          </p>
+        </header>
+        <OrreryMove />
       </section>
 
       <section v-if="tab === 'advanced'" id="advanced" class="scroll-mt-6 flex flex-col gap-3">

@@ -133,6 +133,15 @@ describe('the user-level hook', () => {
         expect(standsDown({env: {ORRERY_PROJECT: 'orrery'}, dir: folder()})).toBe(false)
     })
 
+    it("leaves a session another orrery started to that orrery, the repo's hook too (ORR-1258)", () => {
+        // The repo's hook takes its project from ORRERY_PROJECT when set, which there is the other orrery's.
+        const repo = {ORRERY_ID: 'orr_personal', ORRERY_PROJECT: 'core'}
+        expect(standsDown({env: {...repo, ORRERY_STARTED_ON: 'orr_work'}, dir: folder()})).toBe(true)
+        expect(standsDown({env: {...repo, ORRERY_STARTED_ON: 'orr_personal'}, dir: folder()})).toBe(false)
+        // An older hook names no orrery, so it can't tell: it reports, as before.
+        expect(standsDown({env: {ORRERY_PROJECT: 'core', ORRERY_STARTED_ON: 'orr_work'}, dir: folder()})).toBe(false)
+    })
+
     it('says nothing where the folder has orrery\'s hook of its own, or no project is known', () => {
         const user = {ORRERY_SCOPE: 'user', ORRERY_PROJECT: 'reading-list'}
         expect(standsDown({env: user, dir: folder()})).toBe(false)

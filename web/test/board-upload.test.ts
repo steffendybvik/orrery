@@ -45,7 +45,7 @@ async function fullBoard() {
     await db.run("INSERT INTO schedule_runs (schedule, at, outcome) VALUES (?, ?, 'sent')", schedule, now)
     const preset = await db.get<{id: number}>("SELECT id FROM presets WHERE project = 'greenhouse'")
     await db.run('UPDATE schedules SET presets = ? WHERE id = ?', JSON.stringify([preset!.id]), schedule)
-    return {db, store, parent: parent.id, sub: sub.id, image: image.id, file: JSON.parse(JSON.stringify(await exportBoard(db, 'greenhouse'))) as File}
+    return {db, store, parent: parent.id, sub: sub.id, image: image.id, file: JSON.parse(JSON.stringify(await exportBoard(db, 'greenhouse', true))) as File}
 }
 
 /** A file with what an upload changes on purpose taken out: ids numbered across the server, and what no longer carries over. */
@@ -72,7 +72,7 @@ describe('uploading a board\'s file', () => {
         const {file} = await fullBoard()
         const {db} = await server('Hati')
         expect(await uploadBoard(db, file, {}, owner, 'skoll')).toBe('greenhouse')
-        const again = JSON.parse(JSON.stringify(await exportBoard(db, 'greenhouse')))
+        const again = JSON.parse(JSON.stringify(await exportBoard(db, 'greenhouse', true)))
         expect(same(again)).toEqual(same(file))
         // Held out of pick lists, as its titles are the file's (ORR-1224), which the file it came from wasn't.
         expect(again.tables.projects[0].picks_held).toEqual(expect.any(String))

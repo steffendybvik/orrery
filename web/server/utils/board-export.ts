@@ -87,13 +87,14 @@ export interface BoardExport {
     people: {id: string, name: string}[]
     /** The statuses its issues are in, for an upload to map to its own. */
     statuses: Row[]
-    /** The images its text shows, each `data` in base64. */
+    /** The images its text shows, each `data` in base64; none unless asked for (ORR-1248). */
     uploads: Row[]
     tables: Record<keyof typeof EXPORTED, Row[]>
 }
 
-/** The board `project` as one file's contents. */
-export async function exportBoard(db: Db, project: string): Promise<BoardExport> {
+/** The board `project` as one file's contents. Its images go in only `withUploads` (ORR-1248): they're most of a big
+ * board's file, and one past a proxy's body cap can't be uploaded. */
+export async function exportBoard(db: Db, project: string, withUploads = false): Promise<BoardExport> {
     return await db.transaction(async () => {
         if (db.dialect === 'postgres') await db.exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
         const tables = {} as BoardExport['tables']
@@ -106,7 +107,7 @@ export async function exportBoard(db: Db, project: string): Promise<BoardExport>
         const used = new Set(tables.issues.map(row => row.status))
         const statuses = (await db.all<Row>('SELECT * FROM statuses ORDER BY position')).filter(status => used.has(status.id))
         const shown = [...new Set([...JSON.stringify(tables).matchAll(UPLOAD)].map(match => match[1] as string))]
-        const uploads = shown.length ? await db.all<Row & {data: Uint8Array}>(`SELECT * FROM uploads WHERE id IN (${shown.map(() => '?').join(', ')}) ORDER BY id`, ...shown) : []
+        const uploads = shown.length && withUploads ? await db.all<Row & {data: Uint8Array}>(`SELECT * FROM uploads WHERE id IN (${shown.map(() => '?').join(', ')}) ORDER BY id`, ...shown) : []
         return {
             format: 'orrery-board', format_version: 1, schema_step: MIGRATIONS.length, exported_at: new Date().toISOString(), project, people, statuses,
             uploads: uploads.map(upload => ({...upload, data: Buffer.from(upload.data).toString('base64')})), tables,

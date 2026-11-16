@@ -213,3 +213,24 @@ test('links the GitHub issues an issue came from, short for the project\'s own r
     await expect(page.getByRole('link', {name: '#523', exact: true})).toBeVisible()
     await expect(page.getByRole('link', {name: 'orrery-e2e/depot#7', exact: true})).toHaveAttribute('href', 'https://github.com/orrery-e2e/depot/issues/7')
 })
+
+test('on a phone, the description comes right after the title and its chips; Remove waits in ⋯ (ORR-1219)', async ({page, request}) => {
+    const issue = await api(request, 'post', '/issues', {title: 'Label the jars', status: 'todo', priority: 'P2', notes: 'Every jar gets a date.'}, AGENT)
+    await page.setViewportSize({width: 390, height: 844})
+    await page.goto(`/p/scullery/issues/${issue.id}`)
+    const words = page.getByText('Every jar gets a date.')
+    await expect(words).toBeInViewport()
+    // Status, priority and assignee on one line of chips, above the description.
+    const status = page.locator('[data-picker="Status"]').locator('visible=true')
+    const assignee = page.locator('[data-picker="Assignee"]').locator('visible=true')
+    const top = async (l: typeof words) => (await l.boundingBox())!.y
+    expect(Math.abs(await top(status) - await top(assignee))).toBeLessThan(4)
+    expect(await top(status)).toBeLessThan(await top(words))
+    // No Remove in sight: it's in ⋯, and asks first.
+    await expect(page.getByRole('button', {name: 'Remove', exact: true})).toHaveCount(0)
+    await page.getByRole('button', {name: `More for ${issue.id}`}).click()
+    await page.getByRole('menuitem', {name: 'Remove this issue'}).click()
+    await page.getByRole('button', {name: 'Remove', exact: true}).click()
+    await expect(page).not.toHaveURL(new RegExp(`/issues/${issue.id}$`))
+    await expect.poll(async () => (await request.get(`/api/projects/scullery/issues/${issue.id}`, {headers: AGENT})).status()).toBe(404)
+})

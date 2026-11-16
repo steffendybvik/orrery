@@ -39,7 +39,7 @@ test('makes a milestone from the roadmap, renames it, gives it a summary and rem
 
 test("a milestone's right-click menu sets its priority, files an issue in it, copies its id, opens it and removes it (ORR-792)", async ({page, request}) => {
     const milestone = await api(request, 'post', '/milestones', {title: 'Ladders'})
-    await api(request, 'post', '/issues', {title: 'Check the rungs', milestone: milestone.id})
+    const rungs = await api(request, 'post', '/issues', {title: 'Check the rungs', milestone: milestone.id})
     await page.goto('/p/orchard/roadmap')
     await page.evaluate(() => {
         const copied: string[] = (window as unknown as {copied: string[]}).copied = []
@@ -69,7 +69,8 @@ test("a milestone's right-click menu sets its priority, files an issue in it, co
     await dialog.getByLabel('Title').fill('Oil the hinges')
     await dialog.getByRole('button', {name: /Create issue/}).click()
     await expect(page).toHaveURL(/\/p\/orchard\/issues\/ORC-\d+/)
-    expect(await api(request, 'get', `/issues/${page.url().split('/').at(-1)}`)).toMatchObject({milestone: milestone.id})
+    const hinges = page.url().split('/').at(-1)!
+    expect(await api(request, 'get', `/issues/${hinges}`)).toMatchObject({milestone: milestone.id})
 
     await page.goto('/p/orchard/roadmap')
     await card.click({button: 'right'})
@@ -86,9 +87,8 @@ test("a milestone's right-click menu sets its priority, files an issue in it, co
     await menu.getByRole('button', {name: 'Remove…'}).click()
     await menu.getByRole('button', {name: 'Remove', exact: true}).click()
     await expect.poll(async () => (await request.get(`/api/projects/orchard/milestones/${milestone.id}`)).status()).toBe(404)
-    const left = await api(request, 'get', '/issues')
-    const list = (Array.isArray(left) ? left : left.issues) as {title: string, milestone: unknown}[]
-    expect(list.filter(i => ['Check the rungs', 'Oil the hinges'].includes(i.title)).map(i => i.milestone ?? null)).toEqual([null, null])
+    // By id, as a retry finds the first try's issues of the same titles still in its Ladders.
+    for (const id of [rungs.id, hinges]) expect((await api(request, 'get', `/issues/${id}`)).milestone ?? null).toBeNull()
 })
 
 test("comments on a milestone's page: an agent's shows up live, and the owner's posts, edits and comes out (ORR-977)", async ({page, request}) => {

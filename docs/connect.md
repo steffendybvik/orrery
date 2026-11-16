@@ -4,7 +4,10 @@ The easy way: open **Connect an agent** in orrery's sidebar and press **Connect 
 machine's folder picker; choose the repo, tick its projects (or make one) on the page, and press **Set it up**. The launcher
 writes the repo's `CLAUDE.md` section, `.mcp.json` and hooks, keeping what's in them and safe to run again, puts the repo on
 its list, and opens Claude there in a terminal, where Claude Code asks once about the folder and the server. Commit the
-files with the repo. **Connected repos**, under the button, lists the repos your launchers serve.
+files with the repo. **Connected repos**, under the button, lists the repos your launchers serve. **Remove…** on one, after asking, has its
+launcher take it off its list, as `--uninstall` in the repo would: the projects, their issues and the sessions running there
+stay, and pick-up leaves the folder off until you connect it again with Connect a repo (or `--install` there). A launcher
+on code older than this doesn't know Remove, and the page says so.
 
 It needs the launcher running as a service, once per machine; the page gives the line until it is. macOS has its picker. On
 Linux it needs a desktop with `zenity` or `kdialog`. In WSL, or with neither, use the other way: pick (or make) the repo's
@@ -163,8 +166,9 @@ from the orrery it's connected to): its contents, or one section or page with `s
 answer "how do schedules work?" without reading all of it. Those it needs less
 often wait behind `more_tools`, so they don't take up its context until it asks for them: `create_schedule` and
 `update_schedule`, to ask you on its issue for a schedule (saved only once you allow it); `secrets` and `egress`, to
-call an outside service with a [secret](API.md#secrets) it never sees; and `events` and `resolve_event`, to debug
-orrery from its [event log](API.md#event-log). `milestones`, `presets`, `preset` and `schedules`, which read the project's milestones, presets and schedules,
+call an outside service with a [secret](API.md#secrets) it never sees; `create_release` and `update_release`, to make a
+release and change its branch, notes, freeze or ship date at once (removing one stays yours, on the Releases page); and
+`events` and `resolve_event`, to debug orrery from its [event log](API.md#event-log). `milestones`, `presets`, `preset` and `schedules`, which read the project's milestones, presets and schedules,
 are the [chat](API.md#chats)'s. They write as `claude`, from that session, so your comments on an issue it worked go back
 to it. Tools work in any session with the server in `.mcp.json`, even one started without the
 channels flag; only the pushed messages need the flag.
@@ -215,10 +219,11 @@ forgotten. An issue assigned to you stays with you, even if the session touched 
 }
 ```
 
-The same entry goes under each of the other events. `${ORRERY_PROJECT:-shop}` lets an alias pick the
-project; without one, it's `shop`. (Connect writes the project plainly, `ORRERY_PROJECT=shop`; the `:-` form is for
-when you want an alias to pick.) With a server serving several projects, it's the one a session is filed
-under; it shows under the others on the Sessions page too.
+The same entry goes under each of the other events. `${ORRERY_PROJECT:-shop}` lets the session's own
+`ORRERY_PROJECT` pick the project, and without one it's `shop`. Connect writes it this way (ORR-1258): in a repo
+serving several projects, a session orrery started for one of them (the launcher sets `ORRERY_PROJECT`) is filed
+under that one, and one you open yourself under `shop`, unless an alias sets another. It shows under the others on
+the Sessions page too. A session another orrery started is that orrery's to report, so this hook says nothing for it.
 
 With the hooks, a session can clear its context without losing its place: after a `/clear` (or when
 Claude Code compacts it) the channel stays connected, and `SessionStart` hands the fresh context the

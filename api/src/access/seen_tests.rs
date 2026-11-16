@@ -20,6 +20,13 @@ async fn as_person(api: &TestApi, path: &str, person: &str) -> Value {
     reply.body
 }
 
+/// `path` as `person` asks it from a page in `workspace` (`/w/<workspace>/…`): its body.
+async fn as_person_in(api: &TestApi, path: &str, person: &str, workspace: &str) -> Value {
+    let reply = api.signed(api.get(path).header("orrery-workspace", workspace), person).await.send().await;
+    assert_eq!(reply.status, 200, "{path} in {workspace}: {}", reply.body);
+    reply.body
+}
+
 /// The `project` of each entry in a list.
 fn projects_of(list: &Value) -> Vec<String> {
     list.as_array().expect("a list").iter().map(|e| e["project"].as_str().unwrap_or("-").to_string()).collect()
@@ -39,9 +46,14 @@ async fn the_projects_list_holds_only_the_askers_workspaces() {
     let (primes, rockets) = two_workspaces(&api).await;
     assert_eq!(ids(&as_person(&api, "/api/projects", "ana").await), std::slice::from_ref(&primes));
     assert_eq!(ids(&as_person(&api, "/api/projects", "sam").await), std::slice::from_ref(&primes));
-    let mut bos = ids(&as_person(&api, "/api/projects", "bo").await);
+    // bo is in both, and the list holds one at a time: `default` with none named (ORR-1251).
+    assert_eq!(ids(&as_person(&api, "/api/projects", "bo").await), std::slice::from_ref(&primes));
+    assert_eq!(ids(&as_person_in(&api, "/api/projects", "bo", "acme").await), std::slice::from_ref(&rockets));
+    // `?every=1` lists every workspace they're in, as a launcher's stream reads it; still none of anyone else's.
+    let mut bos = ids(&as_person(&api, "/api/projects?every=1", "bo").await);
     bos.sort();
     assert_eq!(bos, [primes.clone(), rockets.clone()]);
+    assert_eq!(ids(&as_person(&api, "/api/projects?every=1", "ana").await), std::slice::from_ref(&primes));
     // The Nuxt server's own work sees every one; a request naming nobody here, only `default`'s.
     assert_eq!(ids(&api.get("/api/projects").send().await.body).len(), 2);
     assert_eq!(ids(&from_outside(api.get("/api/projects").agent_of_nobody()).send().await.body), [primes]);
@@ -74,7 +86,8 @@ async fn the_schedules_agenda_holds_only_the_askers_workspaces() {
         .await;
     }
     assert_eq!(projects_of(&as_person(&api, "/api/schedules", "ana").await), std::slice::from_ref(&primes));
-    assert_eq!(projects_of(&as_person(&api, "/api/schedules", "bo").await).len(), 2);
+    assert_eq!(projects_of(&as_person(&api, "/api/schedules", "bo").await), std::slice::from_ref(&primes));
+    assert_eq!(projects_of(&as_person_in(&api, "/api/schedules", "bo", "acme").await), std::slice::from_ref(&rockets));
 }
 
 #[tokio::test]
@@ -105,7 +118,9 @@ async fn a_schedule_across_projects_shows_only_the_askers_projects() {
     let anas = as_person(&api, "/api/schedules/across", "ana").await;
     assert_eq!(anas.as_array().unwrap().len(), 1, "{anas}");
     assert_eq!(anas[0]["on_projects"], json!([primes]));
-    assert_eq!(as_person(&api, "/api/schedules/across", "bo").await.as_array().unwrap().len(), 2);
+    // bo is in both workspaces, but the list holds the one asked in (ORR-1251): in `default`, the one on Primes too,
+    // as ana sees it, and not the one on Rockets alone.
+    assert_eq!(as_person(&api, "/api/schedules/across", "bo").await, anas);
 }
 
 #[tokio::test]
@@ -124,7 +139,10 @@ async fn the_event_log_holds_only_the_askers_workspaces() {
     let mut anas = projects_of(&as_person(&api, "/api/events/log", "ana").await);
     anas.sort();
     assert_eq!(anas, ["-".to_string(), primes]);
-    assert_eq!(as_person(&api, "/api/events/log", "bo").await.as_array().unwrap().len(), 3);
+    // bo is in Acme too, but the log holds the workspace asked in (ORR-1251).
+    let mut bos = projects_of(&as_person(&api, "/api/events/log", "bo").await);
+    bos.sort();
+    assert_eq!(bos, anas);
 }
 
 #[tokio::test]
@@ -133,9 +151,8 @@ async fn the_releases_hold_only_the_askers_workspaces() {
     let (primes, rockets) = two_workspaces(&api).await;
     api.run("UPDATE projects SET release_mode = 'own'", &[]).await;
     assert_eq!(projects_of(&as_person(&api, "/api/releases", "ana").await), std::slice::from_ref(&primes));
-    let mut bos = projects_of(&as_person(&api, "/api/releases", "bo").await);
-    bos.sort();
-    assert_eq!(bos, [primes, rockets]);
+    assert_eq!(projects_of(&as_person(&api, "/api/releases", "bo").await), std::slice::from_ref(&primes));
+    assert_eq!(projects_of(&as_person_in(&api, "/api/releases", "bo", "acme").await), [rockets]);
 }
 
 #[tokio::test]
@@ -357,16 +374,39 @@ async fn the_projects_list_holds_the_workspace_a_page_names() {
     assert_eq!(listed("acme", "ana").await, std::slice::from_ref(&primes), "ana isn't in Acme: she sees her own");
 }
 
-/// `/mcp`'s tools name only the projects the asker can see, so another workspace's ids aren't listed (ORR-1195).
+/// A page with no `/w/…` in its address names no workspace, and shows itself in `default`: the projects list holds
+/// that one alone too, not every workspace the asker is in mixed together (ORR-1251).
+#[tokio::test]
+async fn the_projects_list_naming_none_holds_the_one_it_acts_in() {
+    let api = TestApi::new().await;
+    let (primes, rockets) = two_workspaces(&api).await;
+    let bos = ids(&api.signed(api.get("/api/projects"), "bo").await.send().await.body);
+    assert_eq!(bos, std::slice::from_ref(&primes), "bo is in both, and acts in default when none is named");
+    let releases = api.signed(api.get("/api/releases"), "bo").await.send().await;
+    assert!(!releases.body.to_string().contains(&format!("\"{rockets}\"")), "Acme's releases listed in default: {}", releases.body);
+}
+
+/// `/mcp`'s tools name only the projects the asker can see (ORR-1195), in the workspace the session is in
+/// (ORR-1251), so another workspace's ids aren't listed, even one its person is in too.
 #[tokio::test]
 async fn mcp_tools_name_only_the_askers_projects() {
     let api = TestApi::new().await;
-    let (_, rockets) = two_workspaces(&api).await;
+    let (primes, rockets) = two_workspaces(&api).await;
     let body = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"});
     let anas = with_agent_key(&api, api.post("/mcp", body.clone()), "ana", Some("default")).await.send().await;
     assert!(!anas.body.to_string().contains(&format!("\"{rockets}\"")), "ana's tools name Acme's project: {}", anas.body);
-    let bos = with_agent_key(&api, api.post("/mcp", body), "bo", None).await.send().await;
-    assert!(bos.body.to_string().contains(&format!("\"{rockets}\"")), "bo's tools should name it: {}", bos.body);
+    // A second board in Acme, so a tool there takes which project, and lists them.
+    let comets = api
+        .signed(api.post("/api/projects", json!({"name": "Comets"})).header("orrery-workspace", "acme").header("orrery-sent-origin", "http://localhost"), "bo")
+        .await
+        .send()
+        .await;
+    assert_eq!(comets.status, 201, "{}", comets.body);
+    let in_acme = with_agent_key(&api, api.post("/mcp", body.clone()).header("orrery-workspace", "acme"), "bo", None).await.send().await;
+    assert!(in_acme.body.to_string().contains(&format!("\"{rockets}\"")), "bo's tools in Acme should name it: {}", in_acme.body);
+    assert!(!in_acme.body.to_string().contains(&format!("\"{primes}\"")), "bo's tools in Acme name default's project: {}", in_acme.body);
+    let in_default = with_agent_key(&api, api.post("/mcp", body), "bo", None).await.send().await;
+    assert!(!in_default.body.to_string().contains(&format!("\"{rockets}\"")), "bo's tools in default name Acme's: {}", in_default.body);
 }
 
 // Every route outside a project, read from the source the same way, says how it's held in routes-outside-projects.json

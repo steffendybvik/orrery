@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import type {SessionWork} from '#shared/roadmap'
 import {launcherInstall} from '#shared/connect'
-import {TERMINALS, listable, withoutChannel} from '#shared/roadmap'
+import {TERMINALS, closable, listable, withoutChannel} from '#shared/roadmap'
+import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 import {areaId, permissionAreas} from '#shared/permissions'
 import type {Heading} from '~/utils/markdown'
 
 // Every Claude session, in one place, by project: what each is doing, what it's on and was last sent, with its
 // actions and a message box (SessionCard). A sidebar row opens its session (`#session-<id>`), lit up for a moment.
 // Start session starts one on any project, or several; Message sessions says one thing to all of them (idle ones by default);
-// Close all stops every one listed but the owner's chat, asking first (ORR-970).
+// Close all stops every one listed but the owner's chat, asking first (ORR-970). On a phone those two go under a ⋯,
+// leaving Start session the one button (ORR-1220).
 // Three tabs keep them apart: Sessions, what's running; Setup (`?tab=setup`, or a link to one of its sections): first the
 // launcher's install command, always in view (ORR-473; once, with repos picked up after, ORR-600), with whether orrery may start sessions
 // and how, then the presets to start one with, and what sessions hear;
@@ -48,6 +50,9 @@ const groups = computed(() => ordered.value
 const count = computed(() => globals.value.length + spanning.value.length + groups.value.reduce((n, g) => n + g.sessions.length, 0))
 // Every session the page lists, once each, for Close all (ORR-970).
 const listed = computed(() => [...globals.value, ...spanning.value, ...groups.value.flatMap(g => g.sessions)])
+// Close all asking first, opened from its button, or the phone's ⋯.
+const closing = ref(false)
+const closeable = computed(() => listed.value.filter(closable).length)
 // What takes the place of a session with no channel: a line per project, on what to do about it (ORR-716).
 const unheard = computed(() => ordered.value.map(project => ({project, sessions: withoutChannel(known(project.id))})).filter(u => u.sessions.length))
 
@@ -113,13 +118,28 @@ watch(() => [route.hash, count.value] as const, ([hash]) => show(hash), {immedia
     <SegmentedControl v-model="tab" :options="tabs" />
     <span v-if="count" class="truncate text-xs text-muted">{{ `${count} ${count === 1 ? 'session' : 'sessions'}` }}</span>
     <template #end>
-      <UiButton v-if="count" class="shrink-0" @click="messaging = true">Message sessions</UiButton>
+      <UiButton v-if="count" class="shrink-0 max-sm:hidden" @click="messaging = true">Message sessions</UiButton>
       <UiButton variant="primary" class="shrink-0" @click="open()">
         <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
         Start session
       </UiButton>
       <!-- Last, at the far right (ORR-979). -->
-      <CloseAllSessions :sessions="listed" />
+      <CloseAllSessions v-model:sure="closing" :sessions="listed" />
+      <Menu v-if="count && !closing" as="div" class="relative sm:hidden">
+        <MenuButton as="template">
+          <UiButton square aria-label="More for sessions" title="More for sessions">
+            <svg class="size-3.5" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
+          </UiButton>
+        </MenuButton>
+        <MenuItems class="menu absolute top-full right-0 z-40 mt-1.5 w-52">
+          <MenuItem v-slot="{active}" as="template">
+            <UiMenuItem :lit="active" @click="messaging = true">Message sessions</UiMenuItem>
+          </MenuItem>
+          <MenuItem v-if="closeable" v-slot="{active}" as="template">
+            <UiMenuItem :lit="active" @click="closing = true">Close all</UiMenuItem>
+          </MenuItem>
+        </MenuItems>
+      </Menu>
     </template>
   </ViewToolbar>
 

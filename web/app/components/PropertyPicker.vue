@@ -29,6 +29,8 @@ const props = defineProps<{
     field?: boolean
     /** With `field`, a toolbar's size rather than a form's. */
     small?: boolean
+    /** A small rounded chip, one of a line of them, as an issue's status, priority and assignee on a phone (ORR-1219). */
+    chip?: boolean
 }>()
 const model = defineModel<string | string[]>({required: true})
 
@@ -84,7 +86,7 @@ function closing(vnode: VNode) {
       v-slot="{open}"
       as="div"
       class="relative min-w-0"
-      :class="!field && 'flex-1'"
+      :class="!field && !chip && 'flex-1'"
       :model-value="model"
       :multiple="multiple"
       :disabled="disabled"
@@ -95,7 +97,9 @@ function closing(vnode: VNode) {
         type="button"
         tabindex="0"
         :data-picker="label"
-        :class="field && small
+        :class="chip
+          ? 'flex h-7 max-w-48 min-w-0 items-center gap-1.5 rounded-full px-2.5 text-left text-xs text-fg ring-1 ring-line hover:bg-hover focus:bg-hover focus:outline-none disabled:cursor-default disabled:hover:bg-transparent'
+          : field && small
           ? 'flex h-7 max-w-44 min-w-0 shrink-0 items-center gap-1.5 rounded-md bg-well pr-1.5 pl-2 text-left text-xs text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none disabled:cursor-default disabled:opacity-60'
           : field
           ? 'flex h-8 max-w-56 min-w-0 items-center gap-2 field pr-2 text-left disabled:cursor-default disabled:opacity-60'

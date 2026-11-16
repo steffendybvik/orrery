@@ -135,6 +135,17 @@ export function addToList(entries, dir, {file = configFile(), now = new Date()} 
     writeList(skipping(entries.map(entry => ({...entry, connected_at: now.toISOString()})).reduce(withProject, config), dir, false), file)
 }
 
+/** Remove on Connected repos (ORR-1260): takes the projects `entries` off the list where they're served from `dir`, as
+ * `--uninstall` there would, and keeps the repo off it for pick-up. Connect a repo or `--install` there puts it back. It
+ * writes the list alone, which the running service follows. Says which it took off. */
+export function removeFromList(entries, dir, {file = configFile()} = {}) {
+    const config = listIn(file)
+    if (!config) throw new Error(`${file} can't be read as a list`)
+    const off = config.projects.filter(p => p.dir === dir && entries.some(entry => same(p, entry)))
+    if (off.length) writeList(skipping({...config, projects: config.projects.filter(p => !off.includes(p))}, dir, true), file)
+    return off
+}
+
 /** The list with the repo at `dir` kept off it (`--uninstall` there) or not (`--install`), for pick-up. */
 export function skipping(config, dir, skip) {
     const others = config.skip.filter(d => d !== dir)

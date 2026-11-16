@@ -7,6 +7,59 @@ Each version's changes are grouped under **Features**, **Changes** and **Fixes**
 **Internal** where they help, with **Upgrading** first when an update needs a step of you. A group with nothing
 in it is left out. 1.0.0, the first release's overview, is one list.
 
+## 1.0.0-rc.20 (2026-11-16)
+
+### Upgrading
+
+- **Run Connect a repo once more** for a repo that serves several projects, or edit its hook by hand to
+  `ORRERY_PROJECT=${ORRERY_PROJECT:-<project>}`: until then, a session started for one of its other projects is still
+  filed under the first.
+- **Run the launcher's install line once more** from the Sessions page's **Setup** tab, so **Remove…** on /connect
+  reaches it. An older launcher ignores it, and the page says so.
+
+### Features
+
+- **Export and upload boards from App settings:** App settings → Workspace has **Export a board** and **Upload a
+  board**. An export leaves its images out unless asked, an upload can drop them, and one a proxy turns away as too big
+  says what to do.
+- **Work sessions make and change releases:** `create_release` and `update_release`, behind `more_tools releases`, so a
+  new orrery, which starts with none, doesn't leave a session stuck.
+- **Move a whole orrery from App settings:** **Move to another orrery** sends this workspace to another orrery, or
+  brings one in, with a preview and progress, and offers afterwards to mark each board here as moved.
+- **Clean up images nothing shows:** App settings → Workspace → **Storage** lists the images nothing shows and the room
+  they take, and **Clean up** removes them, without waiting 90 days for the daily sweep.
+
+### Changes
+
+- **An issue's description comes first on a phone:** its page leads with the title, one line of status, priority and
+  assignee, then the description. Remove moves into ⋯, and the id shows once, in the top bar.
+- **Session cards fold to one summary line:** dot, name, model, state and since when, and the issue it's on, with the
+  rest under **Details**. Show screen is the one action out front; Watch, +30 min, Copy and Stop, no longer red, go
+  under ⋯.
+
+### Fixes
+
+- **The default folder survives the bootstrap's updates:** fetching new code no longer deletes it, so sessions for
+  projects with no repo keep running, and the launcher sets it up again if it's gone.
+- **One workspace's projects at a time:** someone in two workspaces no longer sees both mixed in the sidebar, the
+  Projects page, the chat or a session's project choices.
+- **Sessions start in a second workspace:** a focus's status is checked against its own workspace's statuses, so
+  `work-todo` no longer fails.
+- **orrery's own icon in the browser tab:** each icon link carries a hash of its file, so a stale copy, such as Nuxt's
+  logo, is never shown again.
+- **Remove a connected repo from /connect:** **Remove…** takes it off the launchers serving it. The project, its issues
+  and its running sessions stay.
+- **A moved board's old comments stay heard:** they no longer go out to the next session as new.
+- **A session is filed under the project it was started for,** not the first project of a repo that serves several.
+- **A tint colours only the page's background and the sidebar:** cards, inputs, menus and dialogs keep their own
+  colours, light and dark.
+- **Signed in shows the latest five:** this browser and the four newest logins, with **Show all** for the rest.
+
+### Internal
+
+- **The perf run seeds over HTTP**, with the Rust API beside the built server, so it starts again.
+- **The visual snapshots are taken with grey text**, so they no longer flip between runs and stop the Release run.
+
 ## 1.0.0-rc.19 (2026-11-15)
 
 ### Upgrading

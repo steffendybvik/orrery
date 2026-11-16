@@ -3,9 +3,9 @@
 use crate::testing::TestApi;
 use serde_json::{json, Value};
 
-/// A board's file for `project`, as its export makes it.
+/// A board's file for `project`, images and all, as its export makes it.
 async fn exported(api: &TestApi, project: &str) -> Value {
-    let reply = api.get(&format!("/api/projects/{project}/export")).send().await;
+    let reply = api.get(&format!("/api/projects/{project}/export?uploads=1")).send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
     reply.body
 }
@@ -245,4 +245,34 @@ async fn only_the_owner_lets_sessions_pick_from_an_uploaded_board_and_its_logged
     let again = api.delete(at).header("orrery-actor-asked", "1").send().await;
     assert_eq!(again.status, 200, "{}", again.body);
     assert_eq!(api.count("SELECT count(*) FROM events WHERE kind = 'project.picks_let'").await, 1);
+}
+
+/// A board brought in tells no session about the comments it brings (ORR-1253): the owner's own keeps their comments as
+/// theirs, which a session connecting would otherwise catch up on as unheard, since the signals that heard them stayed behind.
+#[tokio::test]
+async fn an_uploaded_boards_comments_are_no_sessions_to_catch_up_on() {
+    let api = TestApi::new().await;
+    let (project, _) = primes(&api).await;
+    api.run("UPDATE comments SET owned = 1, created_by = 'owner'", &[]).await;
+    let unanswered = |project: &str| api.get(&format!("/api/projects/{project}/comments/unanswered"));
+    let waiting = unanswered(&project).send().await;
+    assert_eq!(waiting.body.as_array().map(Vec::len), Some(1), "the source still waits on it: {}", waiting.body);
+    let file = exported(&api, &project).await;
+    let mut body = sent(&file, "copy", "CPY");
+    body["own"] = json!(true);
+    let reply = api.post("/api/boards", body).send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert_eq!(api.count("SELECT count(*) FROM comments WHERE project = 'copy' AND owned = 1 AND created_by = 'owner'").await, 1);
+    assert_eq!(api.count("SELECT count(*) FROM signals WHERE project = 'copy'").await, 0, "nothing is signalled");
+    assert_eq!(unanswered("copy").send().await.body, json!([]));
+    // The owner's word on it after it came in is news again.
+    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+    api.run(
+        "INSERT INTO comments (project, issue, body, created_by, owned, by_agent, created_at, updated_at) VALUES ('copy', 'PRI-1', 'Carry on', 'owner', 1, 0, ?, ?)",
+        &[&now, &now],
+    )
+    .await;
+    let bodies = unanswered("copy").send().await.body;
+    assert_eq!(bodies.as_array().unwrap().iter().map(|c| c["body"].as_str().unwrap()).collect::<Vec<_>>(), ["Carry on"]);
 }

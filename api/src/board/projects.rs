@@ -351,7 +351,12 @@ impl<'c> Projects<'c> {
                 let read = self.starts(&workspace).await?;
                 starts.insert(workspace.clone(), read);
             }
-            out.push(self.project_of(row, &starts[&workspace], !boards).await?);
+            // A project removed while the list is read is left out, not a 404 for the whole list.
+            match self.project_of(row, &starts[&workspace], !boards).await {
+                Ok(project) => out.push(project),
+                Err(e) if e.status == axum::http::StatusCode::NOT_FOUND => {}
+                Err(e) => return Err(e),
+            }
         }
         Ok(Value::Array(out))
     }

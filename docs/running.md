@@ -3,7 +3,7 @@
 In a folder of its own:
 
 ```sh
-curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.19/compose.yml
+curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.20/compose.yml
 docker compose up -d        # http://localhost:9000
 ```
 
@@ -164,6 +164,14 @@ In a checkout you also work on orrery in, build them from a release rather than 
 
 A repo's channel and hook point at the server its projects are on, by `ORRERY_URL`:
 `http://localhost:9010` for a personal repo, `http://localhost:9020` for a work one.
+
+### Moving one orrery into another
+
+To bring a workspace from one orrery into another, say a local one up to a hosted one, open **App settings →
+Workspace → Move to another orrery** on either. On the local one, choose **Send this workspace** (a hosted orrery
+can't reach `localhost`, so it can't bring one in from there); give the other's address and a person key of its
+owner, **Preview**, then **Move it**. Secrets' values don't move: the summary lists them to set again. From a
+checkout, `pnpm orrery:import --from <url> --to <url> --name <workspace>` does the same (`--dry-run` to preview).
 
 ## Claiming it and logging in
 

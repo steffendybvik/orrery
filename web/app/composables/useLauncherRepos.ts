@@ -2,7 +2,10 @@ import type {LaunchState} from '~/composables/useLaunchState'
 
 export interface ServedRepo {
     dir: string
+    /** The projects' names, to show. */
     projects: string[]
+    /** Their ids, for Remove (ORR-1260). */
+    ids: string[]
     picked_at?: string
     connected_at?: string
 }
@@ -11,7 +14,7 @@ const earliest = (a: string | undefined, b: string | undefined) => !a || (b && b
 
 /** The repos the launchers serve (ORR-605), each folder once with its projects, and when it was connected (Connect a repo)
  * or picked up (a Claude session's channel), the earliest of its projects'. Asked of each project, and again as
- * launchers come and go; nothing while none runs. `loaded` is false until the first answers are in. */
+ * launchers come and go; nothing while none runs. `loaded` is false until the first answers are in; `ask` asks again. */
 export function useLauncherRepos() {
     const {launchers, byId} = useRoadmaps()
     const {ordered} = useProjectOrder()
@@ -28,8 +31,9 @@ export function useLauncherRepos() {
         const byDir = new Map<string, ServedRepo>()
         for (const [project, state] of Object.entries(states.value)) {
             for (const {dir, picked_at, connected_at} of state?.repos ?? []) {
-                const repo = byDir.get(dir) ?? {dir, projects: []}
+                const repo = byDir.get(dir) ?? {dir, projects: [], ids: []}
                 repo.projects.push(byId(project)?.name ?? project)
+                repo.ids.push(project)
                 repo.picked_at = earliest(repo.picked_at, picked_at)
                 repo.connected_at = earliest(repo.connected_at, connected_at)
                 byDir.set(dir, repo)
@@ -37,5 +41,5 @@ export function useLauncherRepos() {
         }
         return [...byDir.values()].sort((a, b) => a.dir.localeCompare(b.dir))
     })
-    return {repos, loaded}
+    return {repos, loaded, ask}
 }
