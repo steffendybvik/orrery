@@ -17,7 +17,7 @@ pnpm 10.14.0). The Nuxt server needs the Rust API, which serves the board's data
 
 ## Before a pull request
 
-- `pnpm test`, `pnpm typecheck`, `pnpm lint` and `pnpm test:e2e` pass (CI runs the first three on every pull request, `test:e2e` and `test:e2e:perf` on SQLite and Postgres on a release tag and on a pull request into `main` that isn't a draft (a release's; one into a release branch skips them), and builds the image; a release tag publishes only once they pass)
+- `pnpm test`, `pnpm typecheck`, `pnpm lint` and `pnpm test:e2e` pass (CI runs the first three on every pull request, `test:e2e` in Chrome on SQLite with a smaller set in WebKit and Firefox, and `test:e2e:perf` on SQLite and Postgres, on a release tag and on a pull request into `main` that isn't a draft (a release's; one into a release branch skips them), and builds the image; a release tag publishes only once they pass)
 - A pull request into a release branch needs `check` and `docker` green before it can merge
 - A change to the database is a new SQL step at the end of the Rust API's migrations, in both `api/migrations/sqlite` and `api/migrations/postgres`; never edit one, and add none to the Node app's frozen ones. Then write the step lists, as [docs/development.md](docs/development.md#migrations-in-rust) says
 - A change to the API updates [docs/API.md](docs/API.md), which is also what agents read
