@@ -573,7 +573,7 @@ function part(entry) {
     async function start(launch) {
         // A global session (ORR-1079) runs in the orrery's default folder, never a repo: none set up yet, and it's left
         // for a launcher that has one.
-        const folder = launch.global ? homes.get(url)?.dir : dir
+        const folder = launch.global || home ? homeFor(url) : dir
         if (!folder) {
             log(`can't start global session ${launch.tmux} on ${url}: its default folder isn't set up here yet`)
             return
@@ -888,6 +888,21 @@ async function orreryIdOf(url) {
 }
 /** What the default folder's channel and hooks run. */
 const commands = () => commandsFor({bootstrap: BOOTSTRAP, checkout: dirname(fileURLToPath(import.meta.url))})
+/** Sets `url`'s default folder up again when something took its files away since (ORR-1239), so a session never starts
+ * in a folder that isn't there: tmux would put it in `~`, which Claude Code asks to trust with nobody there to answer.
+ * Its folder, or none when it isn't set up here or can't be. */
+function homeFor(url) {
+    const home = homes.get(url)
+    if (!home) return undefined
+    try {
+        const {written} = setUpHome(home.dir, {url, orrery: home.orrery, commands: commands()})
+        if (written.length) log(`set ${home.dir} up again: ${written.join(', ')} had gone`)
+        return home.dir
+    } catch (error) {
+        log(`can't set ${home.dir} up again: ${error.message}`)
+        return undefined
+    }
+}
 
 /** Serves, from each orrery's default folder, its projects with no repo that the list doesn't serve from a repo here,
  * and lets go of those that have gained one, or gone. An orrery it can't reach keeps what it was served from there. */
@@ -902,8 +917,9 @@ async function followHomes(list) {
         if (!home) {
             try {
                 const dir = homeFolder(settings.id)
-                const {created} = setUpHome(dir, {url, orrery: {id: settings.id, environment: machine?.environment}, commands: commands()})
-                home = {dir}
+                const orrery = {id: settings.id, environment: machine?.environment}
+                const {created} = setUpHome(dir, {url, orrery, commands: commands()})
+                home = {dir, orrery}
                 homes.set(url, home)
                 log(`serves ${url}'s projects with no repo from ${dir}${created ? `; if claude hasn't run there before, run it there once to trust the folder` : ''}`)
             } catch (error) {
