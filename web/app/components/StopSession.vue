@@ -23,16 +23,16 @@ async function stop() {
 </script>
 
 <template>
-  <span class="flex shrink-0 items-center gap-1.5 text-xs max-sm:relative">
+  <span class="flex shrink-0 items-center gap-1.5 text-xs">
     <span v-if="failed" class="text-rose-700 dark:text-rose-400">{{ failed }}</span>
     <span v-if="busy" class="text-faint">Stopping…</span>
-    <Menu as="div" class="sm:relative">
+    <Menu as="div" class="relative">
       <MenuButton as="template">
         <UiButton size="xs" square :aria-label="`More for ${session.name}`" :title="`More for ${session.name}`">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
         </UiButton>
       </MenuButton>
-      <MenuItems class="menu absolute top-full right-0 z-40 mt-1.5 w-60 max-w-[calc(100vw-2rem)] max-sm:right-auto max-sm:left-0">
+      <MenuItems class="menu absolute top-full right-0 z-40 mt-1.5 w-60 max-w-[calc(100vw-2rem)]">
         <MenuItem v-slot="{active}" as="template">
           <UiMenuItem :lit="active" :disabled="busy" :title="`End ${session.name}: it quits in its terminal`" @click="stop">Stop</UiMenuItem>
         </MenuItem>

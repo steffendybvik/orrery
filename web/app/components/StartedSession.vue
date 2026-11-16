@@ -7,8 +7,8 @@ import {Menu, MenuButton, MenuItem, MenuItems} from '@headlessui/vue'
 // its live screen on the page), and the rest under ⋯ at every width (ORR-1220): Watch (its launcher opens a terminal
 // on it, on the launcher's machine), the owner's +30 min (for one with a time), the command that attaches to its tmux
 // session to copy, and Stop, last and not red, which still stops it on the first press (ORR-971). Headless UI's Menu
-// does the keys, focus and outside-click. On a phone ⋯'s list opens from the row's left edge, not out past the screen's
-// (ORR-1083).
+// does the keys, focus and outside-click. ⋯ ends its row at every width, so its list opens leftwards from there and stays
+// on a phone's screen (ORR-1083).
 const props = defineProps<{session: Session}>()
 const viewing = defineModel<boolean>('viewing', {default: false})
 const busy = ref<'stop' | 'extend' | 'watch' | null>(null)
@@ -41,18 +41,18 @@ async function copyAttach() {
 </script>
 
 <template>
-  <span v-if="session.started" class="flex shrink-0 items-center gap-1.5 text-xs max-sm:relative">
+  <span v-if="session.started" class="flex shrink-0 items-center gap-1.5 text-xs">
     <span v-if="failed" class="text-rose-700 dark:text-rose-400">{{ failed }}</span>
     <span v-if="note" class="text-faint">{{ note }}</span>
     <span v-if="busy === 'stop'" class="text-faint">Stopping…</span>
     <UiButton size="xs" :aria-expanded="viewing" @click="viewing = !viewing">{{ viewing ? 'Hide screen' : 'Show screen' }}</UiButton>
-    <Menu as="div" class="sm:relative">
+    <Menu as="div" class="relative">
       <MenuButton as="template">
         <UiButton size="xs" square :aria-label="`More for ${session.name}`" :title="`More for ${session.name}`">
           <svg class="size-3.5" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
         </UiButton>
       </MenuButton>
-      <MenuItems class="menu absolute top-full right-0 z-40 mt-1.5 w-64 max-w-[calc(100vw-2rem)] max-sm:right-auto max-sm:left-0">
+      <MenuItems class="menu absolute top-full right-0 z-40 mt-1.5 w-64 max-w-[calc(100vw-2rem)]">
         <MenuItem v-slot="{active}" as="template">
           <UiMenuItem :lit="active" :disabled="!!busy" :title="`Open ${TERMINALS[settings.terminal]} on ${session.name}, on its launcher's machine`" @click="act('watch')">
             <span class="min-w-0 flex-1">Watch <span class="text-faint">· opens on its launcher's machine</span></span>

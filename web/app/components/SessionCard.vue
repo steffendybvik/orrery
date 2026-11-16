@@ -12,7 +12,7 @@ import {olderVersion} from '#shared/version'
 // one; then what it's on now (`work`, on `project`): its issues in progress, the rest it worked folded under them, and
 // the latest thing it was sent, the rest folded too. One that hears other projects too says which: listed across
 // projects (`spans`), every project it hears as a chip, or All projects; a global one says it has no project of its
-// own. `lit` marks the one a link pointed at, and opens it. On a phone what it's doing takes a row of its own under the
+// own; those chips stay on the summary line, as they're why it's listed there. `lit` marks the one a link pointed at, and opens it. On a phone what it's doing takes a row of its own under the
 // name, so the name isn't cut to a few letters (ORR-828).
 const props = defineProps<{session: Session, project: string, work?: SessionWork, lit?: boolean, spans?: boolean}>()
 const {who} = useOwner()
@@ -83,6 +83,16 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
       </button>
       <!-- What it runs on and at what effort (ORR-871, ORR-894), as every place draws it (ORR-969). -->
       <ModelChip :session="session" class="shrink-0" />
+      <!-- Listed across projects, which ones it hears: the reason it is listed there. -->
+      <template v-if="session.listening">
+        <span v-if="spans && heard.all" class="rounded-md bg-well px-1.5 py-0.5 text-[11px] text-muted ring-1 ring-line">All projects</span>
+        <span v-else-if="spans" class="flex flex-wrap items-center gap-1" :aria-label="`Hears ${heardProjects.map(p => p.name).join(', ')}`">
+          <span v-for="p in heardProjects" :key="p.id" class="flex items-center gap-1 rounded-md bg-well px-1.5 py-0.5 text-[11px] text-muted ring-1 ring-line">
+            <ProjectIcon v-if="p.icon && heroicon(p.icon)" :icon="p.icon" :color="p.icon_color" class="size-3" />
+            {{ p.name }}
+          </span>
+        </span>
+      </template>
       <p class="flex min-w-0 flex-1 items-baseline gap-1.5 text-xs text-faint max-sm:order-last max-sm:basis-full max-sm:pl-5" data-testid="session-summary">
         <span class="shrink-0 whitespace-nowrap" :class="session.state === 'waiting' && 'text-rose-700 dark:text-rose-400'" :title="`Up since ${ago(session.started_at)}`">{{ stateLabel(session) }} · {{ ago(session.since) }}</span>
         <span v-if="session.cut_off" class="min-w-0 truncate text-amber-800 dark:text-amber-400" data-testid="session-cut-off">· {{ cutOffLabel(session.cut_off) }}<template v-if="session.cut_off.text">: {{ session.cut_off.text }}</template></span>
@@ -129,15 +139,6 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
         <span v-if="roles.length" class="flex items-center gap-1" :aria-label="`As ${roles.map(r => r.name).join(', ')}`">
           <span v-for="role in roles" :key="role.name" :title="role.name" class="inline-flex"><PresetBadge :preset="role" :size="18" /></span>
         </span>
-        <template v-if="session.listening">
-          <span v-if="spans && heard.all" class="rounded-md bg-well px-1.5 py-0.5 text-[11px] text-muted ring-1 ring-line">All projects</span>
-          <span v-else-if="spans" class="flex flex-wrap items-center gap-1" :aria-label="`Hears ${heardProjects.map(p => p.name).join(', ')}`">
-            <span v-for="p in heardProjects" :key="p.id" class="flex items-center gap-1 rounded-md bg-well px-1.5 py-0.5 text-[11px] text-muted ring-1 ring-line">
-              <ProjectIcon v-if="p.icon && heroicon(p.icon)" :icon="p.icon" :color="p.icon_color" class="size-3" />
-              {{ p.name }}
-            </span>
-          </span>
-        </template>
         <span v-if="left" class="whitespace-nowrap" :title="session.started?.stops_at && `orrery started it; it stops at ${new Date(session.started.stops_at).toLocaleTimeString()}, or once it's done after that`">{{ left }}</span>
         <span v-if="session.started?.global" class="whitespace-nowrap" title="A global session: it hears every project, and a call names the one it's for (ORR-1079)">· global, no project of its own</span>
         <span v-if="folder" class="whitespace-nowrap" :title="session.cwd">· in <span class="font-mono">{{ folder }}/</span></span>
