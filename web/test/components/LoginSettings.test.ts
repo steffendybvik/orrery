@@ -88,4 +88,22 @@ describe('Signed in', () => {
         expect(wrapper.text()).toContain('Only the owner ends logins')
         expect((await mount([])).text()).toContain('Nothing is signed in')
     })
+
+    it('shows the latest five, newest first, with the rest behind Show all (ORR-1261)', async () => {
+        const day = (n: number) => `2026-11-${String(n).padStart(2, '0')}T00:00:00Z`
+        const wrapper = await mount([
+            ...[1, 2, 3, 4, 5, 6, 7].map(n => login({id: `l${n}`, name: `Login ${n}`, created_at: day(n)})),
+            login({id: 'me', current: true, created_at: day(1)}),
+        ])
+        const names = () => wrapper.findAll('ul[aria-label="Logins"] > li').map(row => row.text())
+        expect(names()).toHaveLength(5)
+        expect(names()[0]).toContain('this browser')
+        expect(names().slice(1).map(text => text.match(/Login \d/)![0])).toEqual(['Login 7', 'Login 6', 'Login 5', 'Login 4'])
+        await button(wrapper, 'Show all 8')!.trigger('click')
+        expect(names()).toHaveLength(8)
+        expect(names()[7]).toContain('Login 1')
+        await button(wrapper, 'Show the latest')!.trigger('click')
+        expect(names()).toHaveLength(5)
+        expect(button((await mount([login({id: 'me', current: true}), login({id: 'a'})])), 'Show all 2')).toBeUndefined()
+    })
 })

@@ -10,6 +10,14 @@ const loaded = ref(false)
 const busy = ref(false)
 const failed = ref('')
 const others = computed(() => logins.value.filter(login => !login.current))
+// The latest few, newest first by last use (else sign-in), with the rest behind Show all (ORR-1261): every sign-in stays until it ends or expires,
+// so the list grows. This browser always leads, as the one to recognise.
+const LATEST = 5
+const all = ref(false)
+const stamp = (login: LoginRecord) => login.last_used_at ?? login.created_at ?? ''
+const ordered = computed(() => [...logins.value].sort((a, b) =>
+    Number(!!b.current) - Number(!!a.current) || stamp(b).localeCompare(stamp(a))))
+const shown = computed(() => all.value ? ordered.value : ordered.value.slice(0, LATEST))
 
 const headers = async () => ({'Orrery-Actor': await load()})
 async function refresh() {
@@ -38,7 +46,7 @@ const when = (stamp: string) => new Date(stamp).toLocaleString()
 <template>
   <div class="flex flex-col gap-3">
     <ul v-if="logins.length" class="flex flex-col gap-1" aria-label="Logins">
-      <li v-for="login in logins" :key="login.id" class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-1.5 py-1 text-xs text-fg">
+      <li v-for="login in shown" :key="login.id" class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-1.5 py-1 text-xs text-fg">
         <span class="font-medium">{{ login.name ?? 'Browser' }}</span>
         <span v-if="login.current" class="text-muted">this browser</span>
         <span class="text-muted">{{ login.person }}</span>
@@ -48,6 +56,9 @@ const when = (stamp: string) => new Date(stamp).toLocaleString()
       </li>
     </ul>
     <p v-else-if="loaded" class="text-xs text-muted">Nothing is signed in: no browser or phone has a login.</p>
+    <div v-if="logins.length > LATEST">
+      <UiButton variant="ghost" size="xs" :aria-expanded="all" @click="all = !all">{{ all ? 'Show the latest' : `Show all ${logins.length}` }}</UiButton>
+    </div>
     <div v-if="others.length > 1">
       <UiButton variant="danger-ghost" size="md" :disabled="busy" @click="endOthers">End every other login</UiButton>
     </div>
