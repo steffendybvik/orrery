@@ -23,7 +23,7 @@ export abstract class ImportStore extends BulkStore {
             await this.run(`INSERT INTO issues (project, id, title, status, priority, assignee, labels, notes, parent, milestone, position,
                                           created_by, owned, created_at, updated_at)
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                project, task.id, task.title, await this.resolveStatus(legacyStatus(task.status, task.plan)), task.priority ?? null, task.assignee ?? null, JSON.stringify(task.labels),
+                project, task.id, task.title, await this.resolveStatus(legacyStatus(task.status, task.plan), undefined, project), task.priority ?? null, task.assignee ?? null, JSON.stringify(task.labels),
                 task.notes ?? null, parent, milestone, position++, actor.name, Number(actor.owner), now, now)
             for (const sub of task.tasks) await insert(sub, task.id, null)
         }

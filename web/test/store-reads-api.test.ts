@@ -210,6 +210,14 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         await expect(store.focusMilestone('css', 'all', {status: 'work-done'}, {name: 'owner', owner: true})).rejects.toThrow(/not an open status \(work-todo\)/)
     })
 
+    it("resolves a kind to a status of its board's workspace, and the default's with no board (ORR-1251)", async () => {
+        replies['/api/projects/css/row'] = {id: 'css', name: 'CSS', key: 'CSS', workspace: 'work', instructions: '[]', muted: '[]'}
+        replies['/api/statuses'] = [{id: 'todo', name: 'Todo', kind: 'todo', color: null, position: 0}]
+        replies['/api/statuses@work'] = [{id: 'work-todo', name: 'Todo', kind: 'todo', color: null, position: 0}]
+        expect(await store.resolveStatus('todo', undefined, 'css')).toBe('work-todo')
+        expect(await store.resolveStatus('todo')).toBe('todo')
+    })
+
     it("resolves an issue's id from the API for the store's helpers (ORR-1174)", async () => {
         replies['/api/projects/shed/issues/OLD-1/id'] = {id: 'SHE-1'}
         replies['/api/projects/shed/issues/SHE-1/row'] = {project: 'shed', id: 'SHE-1', title: 'Oil the hinges', labels: '[]', assignee: null}

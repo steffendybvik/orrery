@@ -137,8 +137,8 @@ export abstract class StatusStore extends StoreBase {
 
     /** The status an issue gets from what was sent: a status's id, a kind (its first status), or the words
      * from before statuses (`doing`; `todo` with a `plan`). */
-    async resolveStatus(status: Input[string], plan?: Input[string]): Promise<string> {
-        return resolveIn(await this.statuses(), status, plan)
+    async resolveStatus(status: Input[string], plan?: Input[string], project?: string): Promise<string> {
+        return resolveIn(project ? await this.statusesOf(project) : await this.statuses(), status, plan)
     }
 
     /** What a status filter or focus means: the status ids it covers (an id, a kind, or an old word). */

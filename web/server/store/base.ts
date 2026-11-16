@@ -169,7 +169,7 @@ export abstract class StoreBase {
     // Reading
 
     protected async projectOf(row: ProjectRow): Promise<Project> {
-        const statuses = await this.statuses()
+        const statuses = await this.statusesOf(row.id)
         const board = await readBoard(this.db, row.id, statuses)
         return {
             id: row.id,
@@ -202,7 +202,7 @@ export abstract class StoreBase {
      * there isn't. */
     protected async boardOf(project: string): Promise<Board> {
         await this.projectRow(project)
-        return await readBoard(this.db, project, await this.statuses())
+        return await readBoard(this.db, project, await this.statusesOf(project))
     }
 
     /** The issue's id, from its id, an id it had before (an alias), or the full form of either on this board. */
