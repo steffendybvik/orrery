@@ -382,6 +382,21 @@ export const ASK_TOOLS = [
     },
 ]
 
+/** A working session's releases, made and changed at once (ORR-2), as the permissions table lets a session write them
+ * (`docs.write`); named as the chat's requests, which ask the owner instead. Removing one stays the owner's. */
+export const RELEASE_TOOLS = [
+    {
+        name: 'create_release',
+        description: 'Makes a release in this project, at once. Give its version (1.0.0-rc.2) and, by convention, its branch v<version>.',
+        inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS}},
+    },
+    {
+        name: 'update_release',
+        description: "Changes one of this project's releases, by its version (the releases tool lists them), at once: send only what changes. Its version can't change; removing one is the owner's, on the Releases page.",
+        inputSchema: {type: 'object', required: ['version'], properties: {version: {type: 'string'}, ...RELEASE_FIELDS}},
+    },
+]
+
 /** What an untrusted schedule's session and the owner's chat have besides: reading the repo's GitHub issues. Neither has
  * Bash, so gh is run here, on the repo its folder's git remote names, with only these fields: it can't be pointed at
  * another host and send what the session read there (ORR-415, ORR-748). */
@@ -420,6 +435,7 @@ export const ON_DEMAND = {
     debug: ['events', 'resolve_event'],
     review: ['rate_pull'],
     epics: ['epics', 'create_epic', 'update_epic', 'comment_epic'],
+    releases: ['create_release', 'update_release'],
     folder: ['link_folder'],
 }
 
@@ -440,6 +456,7 @@ const GROUPS_SAID = {
     debug: "debug (orrery's event log)",
     review: 'review (rate each PR you open)',
     epics: 'epics (work across projects)',
+    releases: 'releases (make and change them)',
     folder: "folder (link this session's folder to a project)",
 }
 
@@ -531,7 +548,7 @@ const LOGIN = /^[\w-]+$/
 const pullOf = p => ({number: p.number, state: p.state, base: p.base, url: p.url, ...p.merged_at ? {merged_at: p.merged_at} : {}, ...LOGIN.test(p.author ?? '') ? {author: p.author} : {}})
 
 /** The tools that work on one project, which take `project` when the server serves several. */
-export const SCOPED = ['issues', 'create_issue', 'milestones', 'create_milestone', 'update_milestone', 'releases', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'link_folder']
+export const SCOPED = ['issues', 'create_issue', 'milestones', 'create_milestone', 'update_milestone', 'releases', 'create_release', 'update_release', 'docs', 'doc', 'write_doc', 'presets', 'preset', 'schedules', 'sessions', 'link_folder']
 
 /** The tools as a server serving `projects` lists them: with several, each project-scoped one takes which. A chat's
  * (`chat`) are its own; a work session's leave out the chat's reads and ask the owner on its issue (`ASK_TOOLS`), with
@@ -541,7 +558,7 @@ export function toolsFor(projects, {chat = false, untrusted = false, loaded = []
     const work = TOOLS.filter(t => !CHAT_READS.includes(t.name))
     const all = chat ? [...TOOLS.filter(t => !NOT_FOR_CHAT.includes(t.name)), ...CHAT_TOOLS, ...GITHUB_TOOLS, GITHUB_PULLS]
         : untrusted ? [...work.filter(t => !NOT_FOR_UNTRUSTED.includes(t.name)), ...GITHUB_TOOLS]
-            : [...work, ...ASK_TOOLS]
+            : [...work, ...ASK_TOOLS, ...RELEASE_TOOLS]
     const groups = split === 'served' ? SERVED_ON_DEMAND : ON_DEMAND
     const later = Object.entries(groups).filter(([group]) => !loaded.includes(group)).flatMap(([, names]) => names)
     const gated = tools => chat || untrusted ? tools : [...tools.filter(t => !later.includes(t.name)), ...later.length ? [split === 'served' ? SERVED_MORE_TOOLS : MORE_TOOLS] : []]
@@ -903,10 +920,18 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
         async create_release({why, project, ...release}) {
+            if (!chat) {
+                const made = await call('POST', '/releases', pick(release, ['version', ...Object.keys(RELEASE_FIELDS)]), at(await projectOf({project})))
+                return `Made release ${made.version}${made.branch ? ` on ${made.branch}` : ''}. Put issues in it with edit_issue (release: "${made.version}").`
+            }
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {release, ...await on({project}), ...why ? {why} : {}}, root)
             return "Asked: the owner sees the release with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
         async update_release({version, why, project, ...release}) {
+            if (!chat) {
+                const changed = await call('PATCH', `/releases/${encodeURIComponent(version)}`, pick(release, Object.keys(RELEASE_FIELDS)), at(await projectOf({project})))
+                return `Changed release ${changed.version}${changed.branch ? ` on ${changed.branch}` : ''}${changed.shipped_on ? `, shipped ${changed.shipped_on}` : changed.frozen_on ? `, frozen since ${changed.frozen_on}` : ''}.`
+            }
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {version, release, ...await on({project}), ...why ? {why} : {}}, root)
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
@@ -1007,7 +1032,8 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             report(name, text)
             return {content: [{type: 'text', text}]}
         }
-        const asks = ASK_TOOLS.some(t => t.name === name)
+        // A work session's own, named as the chat's requests (ORR-458, ORR-2).
+        const asks = [...ASK_TOOLS, ...RELEASE_TOOLS].some(t => t.name === name)
         const chatOnly = !asks && [...CHAT_TOOLS, ...CHAT_REQUESTS].some(t => t.name === name) || CHAT_READS.includes(name)
         const github = GITHUB_TOOLS.some(t => t.name === name)
         const chatsGithub = name === GITHUB_PULLS.name

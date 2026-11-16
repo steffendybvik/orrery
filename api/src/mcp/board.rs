@@ -423,6 +423,27 @@ impl Api<'_> {
         Ok(if lines.is_empty() { "No releases yet.".into() } else { lines.join("\n") })
     }
 
+    /// A working session's release, made at once (ORR-2), as the channel's `create_release` does without a chat.
+    async fn create_release(&self, args: &Value) -> Said {
+        let made = self
+            .call(Method::POST, &format!("{}/releases", self.at(&self.project_of(args)?)), Some(pick(args, &[&["version"][..], &RELEASE_FIELDS[..]].concat())))
+            .await?;
+        let version = text(&made["version"]);
+        Ok(format!("Made release {version}{}. Put issues in it with edit_issue (release: \"{version}\").", on_branch(&made)))
+    }
+
+    /// One of its releases changed at once, by version (ORR-2).
+    async fn update_release(&self, args: &Value) -> Said {
+        let path = format!("{}/releases/{}", self.at(&self.project_of(args)?), enc(&text(&args["version"])));
+        let changed = self.call(Method::PATCH, &path, Some(pick(args, &RELEASE_FIELDS))).await?;
+        let when = match (changed["shipped_on"].as_str().filter(|s| !s.is_empty()), changed["frozen_on"].as_str().filter(|f| !f.is_empty())) {
+            (Some(on), _) => format!(", shipped {on}"),
+            (None, Some(frozen)) => format!(", frozen since {frozen}"),
+            _ => String::new(),
+        };
+        Ok(format!("Changed release {}{}{when}.", text(&changed["version"]), on_branch(&changed)))
+    }
+
     async fn create_milestone(&self, args: &Value) -> Said {
         let made =
             self.call(Method::POST, &format!("{}/milestones", self.at(&self.project_of(args)?)), Some(pick(args, &["title", "summary", "priority"]))).await?;
@@ -497,6 +518,8 @@ impl Api<'_> {
             "preset" => self.preset(args).await,
             "milestones" => self.milestones(args).await,
             "releases" => self.releases(args).await,
+            "create_release" => self.create_release(args).await,
+            "update_release" => self.update_release(args).await,
             "create_milestone" => self.create_milestone(args).await,
             "update_milestone" => self.update_milestone(args).await,
             "epics" => self.epics().await,
@@ -571,6 +594,14 @@ fn pick(args: &Value, keys: &[&str]) -> Value {
         }
     }
     Value::Object(picked)
+}
+
+/// What of a release a session sets, as the channel's `RELEASE_FIELDS`.
+const RELEASE_FIELDS: [&str; 5] = ["branch", "notes", "position", "frozen_on", "shipped_on"];
+
+/// ` on <branch>`, when the release has one.
+fn on_branch(release: &Value) -> String {
+    release["branch"].as_str().filter(|b| !b.is_empty()).map(|b| format!(" on {b}")).unwrap_or_default()
 }
 
 fn whose(preset: &Value) -> String {

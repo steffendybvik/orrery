@@ -618,6 +618,100 @@
      }
     }
    }
+  },
+  {
+   "name": "create_release",
+   "description": "Makes a release in this project, at once. Give its version (1.0.0-rc.2) and, by convention, its branch v<version>.",
+   "inputSchema": {
+    "type": "object",
+    "required": [
+     "version"
+    ],
+    "properties": {
+     "version": {
+      "type": "string"
+     },
+     "branch": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The branch its work gathers on, by convention v<version>: v1.0.0-rc.2"
+     },
+     "notes": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "What it's about, in Markdown"
+     },
+     "position": {
+      "type": "number",
+      "description": "Its place among the releases, 0 at the top (where a new one goes when left out)"
+     },
+     "frozen_on": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The day its features froze, YYYY-MM-DD; null thaws it"
+     },
+     "shipped_on": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The day it shipped, YYYY-MM-DD; null marks it not shipped yet"
+     }
+    }
+   }
+  },
+  {
+   "name": "update_release",
+   "description": "Changes one of this project's releases, by its version (the releases tool lists them), at once: send only what changes. Its version can't change; removing one is the owner's, on the Releases page.",
+   "inputSchema": {
+    "type": "object",
+    "required": [
+     "version"
+    ],
+    "properties": {
+     "version": {
+      "type": "string"
+     },
+     "branch": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The branch its work gathers on, by convention v<version>: v1.0.0-rc.2"
+     },
+     "notes": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "What it's about, in Markdown"
+     },
+     "position": {
+      "type": "number",
+      "description": "Its place among the releases, 0 at the top (where a new one goes when left out)"
+     },
+     "frozen_on": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The day its features froze, YYYY-MM-DD; null thaws it"
+     },
+     "shipped_on": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The day it shipped, YYYY-MM-DD; null marks it not shipped yet"
+     }
+    }
+   }
   }
  ],
  "chat": [
@@ -1643,7 +1737,7 @@
  ],
  "more_tools": {
   "name": "more_tools",
-  "description": "Adds tools: schedules (ask the owner on your issue for one), secrets (the keys egress can use, by name), debug (orrery's event log), review (rate each PR you open), epics (work across projects).",
+  "description": "Adds tools: schedules (ask the owner on your issue for one), secrets (the keys egress can use, by name), debug (orrery's event log), review (rate each PR you open), epics (work across projects), releases (make and change them).",
   "inputSchema": {
    "type": "object",
    "required": [
@@ -1657,7 +1751,8 @@
       "secrets",
       "debug",
       "review",
-      "epics"
+      "epics",
+      "releases"
      ]
     }
    }
@@ -1683,6 +1778,10 @@
    "create_epic",
    "update_epic",
    "comment_epic"
+  ],
+  "releases": [
+   "create_release",
+   "update_release"
   ]
  },
  "scoped": [
@@ -1692,6 +1791,8 @@
   "create_milestone",
   "update_milestone",
   "releases",
+  "create_release",
+  "update_release",
   "docs",
   "doc",
   "write_doc",
