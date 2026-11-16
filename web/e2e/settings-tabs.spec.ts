@@ -1,4 +1,5 @@
 import {expect, test} from './test'
+import {OWNER} from './support'
 
 // App settings by what they reach (ORR-285): You, and the Workspace (ORR-1108: its name and colour, projects, how issues
 // work, people and secrets), each tab saying so; a link to a section opens its tab, an old tab's link too. Which
@@ -30,3 +31,39 @@ test('splits App settings into tabs by what they reach, and a link opens the rig
     await expect(page.getByRole('heading', {name: 'Watching sessions'})).toBeVisible()
     await expect(page.locator('[data-picker="Terminal app"]')).toBeVisible()
 })
+
+// The tint takes to the page's background and the sidebar framing it, and nothing on them: cards, inputs, menus and
+// dialogs keep their colours (ORR-1252).
+for (const colorScheme of ['light', 'dark'] as const) {
+    test(`a tint colours the page's background and the sidebar, not what's on them (ORR-1252, ${colorScheme})`, async ({page, request}) => {
+        await page.emulateMedia({colorScheme})
+        const colours = async () => {
+            await page.goto('/settings')
+            await expect(page.getByRole('heading', {name: 'Your name'})).toBeVisible()
+            return page.evaluate(() => {
+                const of = (el: Element) => getComputedStyle(el).backgroundColor
+                const probe = (cls: string) => {
+                    const el = document.body.appendChild(document.createElement('div'))
+                    el.className = cls
+                    const colour = of(el)
+                    el.remove()
+                    return colour
+                }
+                return {page: of(document.body), frame: probe('bg-frame'), panel: probe('bg-panel'), raised: probe('bg-raised')}
+            })
+        }
+        try {
+            await request.patch('/api/settings', {data: {tint: null}, headers: OWNER})
+            const plain = await colours()
+            await request.patch('/api/settings', {data: {tint: 'teal'}, headers: OWNER})
+            const tinted = await colours()
+            await expect(page.locator('html[data-tint]')).toHaveCount(1)
+            expect(tinted.page).not.toBe(plain.page)
+            expect(tinted.frame).not.toBe(plain.frame)
+            expect(tinted.panel).toBe(plain.panel)
+            expect(tinted.raised).toBe(plain.raised)
+        } finally {
+            await request.patch('/api/settings', {data: {tint: null}, headers: OWNER})
+        }
+    })
+}
