@@ -41,6 +41,7 @@ const TABS: {value: Tab, label: string, scope: string, sections: Heading[]}[] = 
         {id: 'statuses', text: 'Issue statuses', level: 2},
         {id: 'people', text: 'People', level: 2},
         {id: 'secrets', text: 'Secrets', level: 2},
+        {id: 'move', text: 'Move to another orrery', level: 2},
     ]},
     // Usage has a tab of its own (ORR-900): counting what you use is your choice, not a tool for looking into problems.
     {value: 'usage', label: 'Usage', scope: 'What you use on this orrery, counted only while you let it, to find what could go.', sections: [
@@ -508,6 +509,17 @@ async function pick(tint: string | null) {
           </p>
         </header>
         <SecretSettings />
+      </section>
+
+      <section v-if="tab === 'workspace'" id="move" class="scroll-mt-6 flex flex-col gap-3">
+        <header class="flex flex-col gap-0.5">
+          <h2 class="text-[15px] font-semibold text-fg">{{ title.move }}</h2>
+          <p class="text-xs text-muted">
+            Send this workspace, its boards with their issues, comments, docs, schedules and epics, to another orrery of yours,
+            or bring one of another's in here. Preview what goes first; nothing is written until you move it.
+          </p>
+        </header>
+        <OrreryMove />
       </section>
 
       <section v-if="tab === 'advanced'" id="advanced" class="scroll-mt-6 flex flex-col gap-3">

@@ -551,6 +551,15 @@ export const PERMISSIONS: Permission[] = [
         member: onTheirBoards,
     },
     {
+        id: 'orrery.move', area: 'This orrery', action: 'Move a workspace to another orrery, or bring one in',
+        why: 'It takes a key to another orrery and writes a whole workspace, so only the owner starts one, from their page.',
+        routes: ['POST /api/orrery-moves', 'POST /api/orrery-moves/workspaces'],
+        session: refused,
+        chat: refused,
+        untrusted: refused,
+        member: ownerAlone,
+    },
+    {
         id: 'projects.delete', area: 'Roadmap', action: 'Delete a project',
         why: 'It takes everything on the board with it.',
         routes: ['DELETE /api/projects/:project'],

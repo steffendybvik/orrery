@@ -121,7 +121,10 @@ describe('importOrrery', () => {
     it('plans on a dry run and writes nothing to either', async () => {
         const from = source()
         const to = target()
-        const report = await importOrrery({source: from, target: to, name: 'Work', dryRun: true})
+        const steps: unknown[] = []
+        const report = await importOrrery({source: from, target: to, name: 'Work', dryRun: true, progress: (p: unknown) => steps.push(p)})
+        // How far it's got, for App settings to show (ORR-1249): each board read, and nothing uploaded on a dry run.
+        expect(steps).toEqual([{step: 'reading', project: 'hub', done: 0, total: 2}, {step: 'reading', project: 'orrery', done: 1, total: 2}])
         expect(from.writes).toEqual([])
         expect(to.writes).toEqual([])
         expect(report.projects.map((p: {id: string}) => p.id)).toEqual(['hub', 'orrery-2'])

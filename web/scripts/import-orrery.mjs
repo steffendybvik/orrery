@@ -267,7 +267,7 @@ export function client(base, {key, person, fetch: fetching = globalThis.fetch} =
 }
 
 /** The whole import, as `main` runs it; every request goes through the two clients, so a test hands it fakes. */
-export async function importOrrery({source, target, name, color, fromWorkspace = 'default', add = false, dryRun = false, enableSchedules = false, log = () => {}}) {
+export async function importOrrery({source, target, name, color, fromWorkspace = 'default', add = false, dryRun = false, enableSchedules = false, log = () => {}, progress = () => {}}) {
     const from = {workspace: fromWorkspace}
     const report = {from: source.url, to: target.url, dryRun, notes: []}
 
@@ -296,8 +296,10 @@ export async function importOrrery({source, target, name, color, fromWorkspace =
 
     // Each board's file, read once.
     const files = new Map()
+    const moving = plan.filter(p => !p.skipped)
     for (const p of plan) {
         if (p.skipped) continue
+        progress({step: 'reading', project: p.from, done: files.size, total: moving.length})
         const file = await source.get(`/projects/${encodeURIComponent(p.from)}/export?uploads=1`, from)
         files.set(p.from, file)
         const t = file.tables ?? {}
@@ -387,8 +389,10 @@ export async function importOrrery({source, target, name, color, fromWorkspace =
     log(`Presets: ${made} made, ${shipped} of orrery's own`)
 
     // The boards, one by one.
+    let uploaded = 0
     for (const p of plan) {
         if (p.skipped) continue
+        progress({step: 'uploading', project: p.id, done: uploaded++, total: moving.length})
         const file = prepareFile(files.get(p.from), renames, sourceStatuses)
         const query = new URLSearchParams({id: p.id, key: p.key, own: '1'})
         try {
@@ -399,6 +403,7 @@ export async function importOrrery({source, target, name, color, fromWorkspace =
             log(`Couldn't upload ${p.from}: ${error.message}`)
         }
     }
+    progress({step: 'finishing', done: moving.length, total: moving.length})
     const landed = plan.filter(p => !p.skipped && !p.error)
     const landedPlan = plan.filter(p => p.skipped || !p.error)
     // Each board's schedules here, by their id in its file: an upload makes them in the file's order.
