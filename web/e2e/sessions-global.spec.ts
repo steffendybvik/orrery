@@ -79,6 +79,8 @@ test('lists a global session under Global, and starts one with no project ticked
         // Caught here rather than sent: one on its way would take a place under the limit the specs beside this one share.
         const sent: unknown[] = []
         await page.route(/\/api\/projects\/pantry\/launches$/, route => {
+            // Only the start: the page polls the same address with GETs.
+            if (route.request().method() !== 'POST') return route.fallback()
             sent.push(route.request().postDataJSON())
             return route.fulfill({status: 201, json: {id: 'e2e1079e2e11', project: 'pantry', after: 0, tmux: 'orrery-pantry-e2e1079e2e11', global: true}})
         })
