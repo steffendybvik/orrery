@@ -68,7 +68,8 @@ export function connectPieces(target: ConnectTarget): ConnectPieces {
             ORRERY_PERSON: '${ORRERY_PERSON:-}',
         }}},
     }, null, 2)
-    const command = `ORRERY_PROJECT=${id} ORRERY_URL=${origin}${target.orrery ? ` ORRERY_ID=${target.orrery.id}` : ''} node "$HOME/.orrery/bootstrap.mjs" hook`
+    // The project is a default (ORR-1258): a session orrery started for another project the repo serves says its own.
+    const command = `ORRERY_PROJECT=\${ORRERY_PROJECT:-${id}} ORRERY_URL=${origin}${target.orrery ? ` ORRERY_ID=${target.orrery.id}` : ''} node "$HOME/.orrery/bootstrap.mjs" hook`
     const hook = (event: string) => [{hooks: [{type: 'command', command, timeout: 5, ...ASYNC_EVENTS.includes(event) ? {async: true} : {}}]}]
     const settingsJson = JSON.stringify({hooks: Object.fromEntries(HOOK_EVENTS.map(event => [event, hook(event)]))}, null, 2)
     const launch = `${session ? `ORRERY_SESSION=${session} ` : ''}claude --dangerously-load-development-channels server:${server}`

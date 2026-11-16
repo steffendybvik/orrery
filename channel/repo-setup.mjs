@@ -77,16 +77,19 @@ function hookProject(config, url, id) {
     for (const groups of Object.values(config.hooks ?? {})) {
         for (const group of Array.isArray(groups) ? groups : []) {
             for (const {command} of group.hooks ?? []) {
-                if (isOrreryHook(command) && hookIsFor(command, url, id)) return /ORRERY_PROJECT=([^\s]+)/.exec(command)?.[1]
+                if (!isOrreryHook(command) || !hookIsFor(command, url, id)) continue
+                const found = /ORRERY_PROJECT=(?:\$\{ORRERY_PROJECT:-([^}\s]+)\}|([^\s$]+))/.exec(command)
+                if (found) return found[1] ?? found[2]
             }
         }
     }
 }
 
 /** `.claude/settings.json` with orrery's hook on each event: where it was for this orrery, else added. Other hooks, and
- * this repo's hooks for another orrery, stay as they are. */
+ * this repo's hooks for another orrery, stay as they are. The project is a default (ORR-1258): a session orrery started
+ * for another of the repo's projects has it in ORRERY_PROJECT, and is filed under that one. */
 function mergedSettings(config, {url, orrery, project}) {
-    const command = `ORRERY_PROJECT=${project} ORRERY_URL=${url} ORRERY_ID=${orrery.id} node "$HOME/.orrery/bootstrap.mjs" hook`
+    const command = `ORRERY_PROJECT=\${ORRERY_PROJECT:-${project}} ORRERY_URL=${url} ORRERY_ID=${orrery.id} node "$HOME/.orrery/bootstrap.mjs" hook`
     const hooks = {...config.hooks}
     for (const event of HOOK_EVENTS) {
         const hook = {type: 'command', command, timeout: 5, ...ASYNC_EVENTS.includes(event) ? {async: true} : {}}

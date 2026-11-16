@@ -1,3 +1,4 @@
+import {execFileSync} from 'node:child_process'
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -63,7 +64,7 @@ describe('setting a repo up', () => {
         const settings = json(dir, '.claude/settings.json')
         expect(settings.model).toBe('opus')
         expect(settings.hooks.Stop[0]).toEqual({matcher: 'x', hooks: [{type: 'command', command: 'say done'}]})
-        expect(settings.hooks.Stop[1].hooks[0].command).toContain('ORRERY_PROJECT=shop')
+        expect(settings.hooks.Stop[1].hooks[0].command).toContain('ORRERY_PROJECT=${ORRERY_PROJECT:-shop} ')
         expect(read(dir, 'CLAUDE.md')).toMatch(/^# Shop\n\nRead this first\.\n\n## Roadmap\n/)
     })
 
@@ -80,7 +81,7 @@ describe('setting a repo up', () => {
         expect(Object.keys(json(dir, '.mcp.json').mcpServers)).toEqual(['mine'])
         expect(json(dir, '.mcp.json').mcpServers.mine.env.ORRERY_PROJECTS).toBe('shop,cart')
         expect(json(dir, '.claude/settings.json').hooks.Stop).toHaveLength(1)
-        expect(json(dir, '.claude/settings.json').hooks.Stop[0].hooks[0].command).toContain('ORRERY_PROJECT=shop ')
+        expect(json(dir, '.claude/settings.json').hooks.Stop[0].hooks[0].command).toContain('ORRERY_PROJECT=${ORRERY_PROJECT:-shop} ')
         expect(read(dir, 'CLAUDE.md')).toContain('`shop` (issue ids `SHO-n`), `cart` (issue ids `CAR-n`)')
         expect(read(dir, 'CLAUDE.md').match(/## Roadmap/g)).toHaveLength(1)
     })
@@ -101,7 +102,20 @@ describe('setting a repo up', () => {
         expect(mcpServers[server].env.ORRERY_PROJECT).toBeUndefined()
         const stop = json(dir, '.claude/settings.json').hooks.Stop
         expect(stop).toHaveLength(1)
-        expect(stop[0].hooks[0].command).toBe(`ORRERY_PROJECT=hub ORRERY_URL=${URL} ORRERY_ID=${ORRERY.id} node "$HOME/.orrery/bootstrap.mjs" hook`)
+        expect(stop[0].hooks[0].command).toBe(`ORRERY_PROJECT=\${ORRERY_PROJECT:-hub} ORRERY_URL=${URL} ORRERY_ID=${ORRERY.id} node "$HOME/.orrery/bootstrap.mjs" hook`)
+    })
+
+    it("files a session orrery started under the project it was started for, not the hook's first (ORR-1258)", () => {
+        const dir = repo()
+        setUp(dir, [SHOP, CART])
+        // Run again, it reads the project back from the hook it wrote.
+        setUp(dir, [SHOP, CART])
+        const command: string = json(dir, '.claude/settings.json').hooks.Stop[0].hooks[0].command
+        expect(command).toContain('ORRERY_PROJECT=${ORRERY_PROJECT:-shop} ')
+        // The shell's view of it: the launcher's ORRERY_PROJECT wins, and the repo's first project stands in without one.
+        const project = (env: Record<string, string>) => execFileSync('sh', ['-c', command.replace(/node .*$/, `sh -c 'printf %s "$ORRERY_PROJECT"'`)], {env: {PATH: process.env.PATH, ...env}, encoding: 'utf8'})
+        expect(project({ORRERY_PROJECT: 'cart'})).toBe('cart')
+        expect(project({})).toBe('shop')
     })
 
     it("leaves another orrery's channel and hooks alone", () => {
