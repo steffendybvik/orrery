@@ -61,6 +61,11 @@ test("shows a listening session on the Sessions page, and sends it a message onl
         await expect(card).toContainText('kitchen shelves')
         await expect.poll(() => asked).toContain('/api/sessions/work')
         expect(asked.filter(path => path !== '/api/sessions/work')).toEqual([])
+        // Its message box is under Details, which its name opens (ORR-1220).
+        const details = card.getByRole('button', {name: 'Details for kitchen shelves'})
+        await expect(details).toHaveAttribute('aria-expanded', 'false')
+        await expect(card.getByLabel('Message kitchen shelves')).toBeHidden()
+        await details.click()
         await card.getByLabel('Message kitchen shelves').fill('Use the oak hinges, not pine.')
         await card.getByRole('button', {name: 'Send'}).click()
         await expect.poll(() => channel.said.text).toContain('ada_lovelace (to you): Use the oak hinges, not pine.')
@@ -79,6 +84,7 @@ test("shows a listening session on the Sessions page, and sends it a message onl
         await expect.poll(() => channel.said.text).toContain('(to you): Palette says hello.')
         await expect(dialog).toBeHidden()
         await page.goto('/sessions')
+        await details.click()
         // ⌘/Ctrl-Enter sends as well, and Shift-Enter is a new line (ORR-514).
         const box = card.getByLabel('Message kitchen shelves')
         await box.fill('Sand first.')
@@ -507,7 +513,7 @@ test("keeps a session's state that changes as the page opens, over the older rea
     }
 })
 
-test('a session orrery started has Stop out front, which stops it on the first press (ORR-971)', async ({page, request, baseURL}) => {
+test('a session orrery started has Stop under ⋯, which stops it on the first press (ORR-971, ORR-1220)', async ({page, request, baseURL}) => {
     const launcher = hold(baseURL!, '/api/projects/kitchen/launches/stream')
     let stream: ReturnType<typeof hold> | undefined
     try {
@@ -526,8 +532,13 @@ test('a session orrery started has Stop out front, which stops it on the first p
         await row.getByRole('link', {name: 'e2e-started'}).click()
         await expect(page).toHaveURL(/\/sessions#session-e2e-s$/)
         const card = page.locator('#session-e2e-s')
-        await expect(card.getByRole('button', {name: 'Watch'})).toBeVisible()
-        await card.getByRole('button', {name: 'Stop', exact: true}).click()
+        // One main action out front; Watch and Stop are under ⋯, Stop not red.
+        await expect(card.getByRole('button', {name: 'Show screen'})).toBeVisible()
+        await expect(card.getByRole('button', {name: 'Watch'})).toHaveCount(0)
+        await expect(card.getByRole('button', {name: 'Stop', exact: true})).toHaveCount(0)
+        await card.getByRole('button', {name: 'More for e2e-started'}).click()
+        await expect(page.getByRole('menuitem', {name: /Watch/})).toBeVisible()
+        await page.getByRole('menuitem', {name: 'Stop', exact: true}).click()
         await expect.poll(() => launcher.said.text).toContain('event: stop')
     } finally {
         stream?.stop()
@@ -580,19 +591,24 @@ test('on a phone a started session keeps its name whole, with Watch and Stop und
         await expect(name).toBeVisible()
         // The name isn't cut: it's as wide as it needs to be.
         expect(await name.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
-        // Show screen stays out, on a row under the name; Watch and Stop are under ⋯.
+        // Show screen stays out, beside the name; Watch and Stop are under ⋯ (ORR-1220).
         const show = card.getByRole('button', {name: 'Show screen'})
         await expect(show).toBeVisible()
-        expect((await show.boundingBox())!.y).toBeGreaterThan((await name.boundingBox())!.y + 10)
         await expect(card.getByRole('button', {name: 'Watch', exact: true})).toHaveCount(0)
         await expect(card.getByRole('button', {name: 'Stop', exact: true})).toHaveCount(0)
-        // The meta line wraps as text, not a line per item: fewer lines than its items. How many lines it takes depends on
-        // its words ("just now" or "1 min ago"), so it isn't held to two (ORR-912).
-        const meta = card.locator('p').first()
-        const items = (await meta.innerText()).split('·').length
-        const lineHeight = await meta.evaluate(el => parseFloat(getComputedStyle(el).lineHeight))
-        expect(items).toBeGreaterThan(3)
-        expect(Math.round((await meta.boundingBox())!.height / lineHeight)).toBeLessThan(items)
+        // What it's doing takes one row of its own under the name.
+        const summary = card.getByTestId('session-summary')
+        expect((await summary.boundingBox())!.y).toBeGreaterThan((await name.boundingBox())!.y + 10)
+        const lineHeight = await summary.evaluate(el => parseFloat(getComputedStyle(el).lineHeight))
+        expect(Math.round((await summary.boundingBox())!.height / lineHeight)).toBe(1)
+        // The header has Start session as its one button; Message sessions and Close all are under its ⋯.
+        await expect(page.getByRole('button', {name: 'Message sessions', exact: true})).toBeHidden()
+        await expect(page.getByRole('button', {name: 'Close all', exact: true})).toBeHidden()
+        await page.getByRole('button', {name: 'More for sessions'}).click()
+        await expect(page.getByRole('menuitem', {name: 'Message sessions'})).toBeVisible()
+        await page.getByRole('menuitem', {name: 'Close all'}).click()
+        await expect(page.getByText(/^Close \d+ sessions?(, \d+ working)?\?$/)).toBeVisible()
+        await page.getByRole('button', {name: 'Cancel', exact: true}).click()
         await card.getByRole('button', {name: 'More for e2e-on-a-phone'}).click()
         await expect(page.getByRole('menuitem', {name: /Watch · opens on its launcher's machine/})).toBeVisible()
         // ⋯'s list stays on the screen, not cut off past its left edge (ORR-1083).
@@ -774,15 +790,15 @@ test('marks a session cut off by a usage limit until its next turn gets going', 
     }
 })
 
-test('a session opened in a terminal has Stop, which ends it through its channel on the first press (ORR-971)', async ({page, baseURL}) => {
+test('a session opened in a terminal has Stop under ⋯, which ends it through its channel on the first press (ORR-971, ORR-1220)', async ({page, baseURL}) => {
     const channel = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-terminal&name=e2e-terminal&stops=yes')
     try {
         await page.goto('/sessions')
         const card = page.locator('#session-e2e-terminal')
-        const stop = card.getByRole('button', {name: 'Stop', exact: true})
-        await expect(stop).toBeVisible()
+        await expect(card.getByRole('button', {name: 'Stop', exact: true})).toHaveCount(0)
         await expect(card.getByRole('button', {name: 'Show screen'})).toHaveCount(0)
-        await stop.click()
+        await card.getByRole('button', {name: 'More for e2e-terminal'}).click()
+        await page.getByRole('menuitem', {name: 'Stop', exact: true}).click()
         await expect.poll(() => channel.said.text).toContain('event: stop')
     } finally {
         channel.stop()

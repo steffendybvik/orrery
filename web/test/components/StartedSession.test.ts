@@ -7,8 +7,8 @@ import {getRouterParam, readBody, setResponseStatus} from 'h3'
 import type {Session} from '#shared/roadmap'
 import StartedSession from '~/components/StartedSession.vue'
 
-// A session orrery started, on its card (ORR-866): Watch, Show screen and Stop out front, Stop on the first press, and
-// under ⋯ the tmux command to copy and +30 minutes for one with a time. On a phone, Watch and Stop fold into ⋯ (ORR-828).
+// A session orrery started, on its card (ORR-866): Show screen out front, and under ⋯ at every width (ORR-1220) Watch,
+// +30 minutes for one with a time, the tmux command to copy, and Stop, on the first press.
 let sent: {what: string, body: unknown}[] = []
 let failing = false
 registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Sköll', named: true}))
@@ -42,11 +42,7 @@ const settle = async () => {
     await flushPromises()
 }
 
-/** Mounted wide, or as on a phone, which the component reads from a media query once mounted. */
-async function mount(started?: Partial<Session['started']>, {phone = false} = {}) {
-    vi.spyOn(window, 'matchMedia').mockImplementation(query => ({
-        matches: phone, media: query, addEventListener: () => {}, removeEventListener: () => {},
-    }) as unknown as MediaQueryList)
+async function mount(started?: Partial<Session['started']>) {
     const wrapper = await mountSuspended(StartedSession, {props: {session: session(started)}, attachTo: document.body})
     mounted.push(wrapper as VueWrapper)
     await settle()
@@ -59,15 +55,24 @@ async function mount(started?: Partial<Session['started']>, {phone = false} = {}
 }
 
 describe('StartedSession', () => {
-    it('opens a terminal on it with Watch', async () => {
+    it('has only Show screen out front, Watch and Stop under ⋯', async () => {
         const {button} = await mount()
+        expect(button('Watch')).toBeUndefined()
+        expect(button('Stop')).toBeUndefined()
+        expect(button('Show screen')).toBeDefined()
+    })
+
+    it('opens a terminal on it with Watch', async () => {
+        const {button, more} = await mount()
+        await more()
         await button('Watch')!.trigger('click')
         await settle()
         expect(sent).toEqual([{what: 'watch', body: {}}])
     })
 
     it('stops it on the first press, with no asking again (ORR-971)', async () => {
-        const {wrapper, button} = await mount()
+        const {wrapper, button, more} = await mount()
+        await more()
         await button('Stop')!.trigger('click')
         await settle()
         expect(sent).toEqual([{what: 'stop', body: {}}])
@@ -103,23 +108,10 @@ describe('StartedSession', () => {
         expect(button('Copy')).toBeDefined()
     })
 
-    it('folds Watch and Stop into ⋯ on a phone', async () => {
-        const {wrapper, button, more} = await mount({}, {phone: true})
-        expect(button('Watch')).toBeUndefined()
-        expect(wrapper.findAll('button').filter(b => b.text() === 'Stop')).toHaveLength(0)
-        await more()
-        await button('Watch')!.trigger('click')
-        await settle()
-        expect(sent).toEqual([{what: 'watch', body: {}}])
-        await more()
-        await button('Stop')!.trigger('click')
-        await settle()
-        expect(sent).toEqual([{what: 'watch', body: {}}, {what: 'stop', body: {}}])
-    })
-
     it('says why its launcher refused', async () => {
         failing = true
-        const {wrapper, button} = await mount()
+        const {wrapper, button, more} = await mount()
+        await more()
         await button('Watch')!.trigger('click')
         await settle()
         expect(wrapper.text()).toContain('Its launcher is offline')
