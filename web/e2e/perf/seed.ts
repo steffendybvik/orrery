@@ -43,7 +43,7 @@ const AGENT: Actor = 'claude'
 export type Call = <T = {id: string}>(method: 'POST' | 'PUT' | 'PATCH', path: string, body: object, actor?: Actor) => Promise<T>
 
 /** Runs `jobs` a few at a time. */
-async function pool(jobs: (() => Promise<unknown>)[], width = 8) {
+async function pool(jobs: (() => Promise<unknown>)[], width = 16) {
     let next = 0
     await Promise.all(Array.from({length: width}, async () => {
         while (next < jobs.length) await jobs[next++]!()
@@ -120,7 +120,7 @@ export async function seed(call: Call, db: Rows, sizes: Sizes = SIZES, log: (lin
 
     // Issues: roots in a milestone or none, a third with sub-issues, some of those nested again (three deep at most).
     const issueSplit = split(sizes.issues - sizes.proposals, projects.length, 0.4)
-    const make = async (project: typeof projects[number], parent: string | null, depth: number): Promise<number> => {
+    const make = async (r: ReturnType<typeof random>, project: typeof projects[number], parent: string | null, depth: number): Promise<number> => {
         const status = r.pick(STATUSES)
         const issue = await call('POST', `${projectsPath(project.id)}/issues`, {
             title: `${r.words(4)} (${project.issues.length + 1})`,
@@ -133,14 +133,16 @@ export async function seed(call: Call, db: Rows, sizes: Sizes = SIZES, log: (lin
         project.issues.push(issue.id)
         let made = 1
         if (depth < 3 && r.next() < (depth === 1 ? 0.33 : 0.4)) {
-            for (let n = 1 + r.int(3); n > 0; n--) made += await make(project, issue.id, depth + 1)
+            for (let n = 1 + r.int(3); n > 0; n--) made += await make(r, project, issue.id, depth + 1)
         }
         return made
     }
-    for (const [i, project] of projects.entries()) {
-        for (let made = 0; made < issueSplit[i]!;) made += await make(project, null, 1)
+    // The projects side by side, each with a generator of its own, so each gets the same issues every run.
+    await Promise.all(projects.map(async (project, i) => {
+        const own = random(1000 + i)
+        for (let made = 0; made < issueSplit[i]!;) made += await make(own, project, null, 1)
         log(`${project.id}: ${project.issues.length} issues`)
-    }
+    }))
 
     // Agents' proposals waiting on the owner, a few with choices.
     for (let p = 0; p < sizes.proposals; p++) {

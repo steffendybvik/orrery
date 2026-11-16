@@ -257,10 +257,13 @@ stops and starts the server itself, to check what outlives a restart (the owner'
 `pnpm images:readme` takes the README's images into `docs/images`, all 1440×900, from the playground's demo on an orrery of
 its own with a fresh `web/.data/readme.db`. It's a script rather than a test, so it isn't part of `pnpm test:e2e`. It rewrites only the images that differ by more than a run's own noise. A machine that isn't Linux renders every image differently, so the real ones come from the **Images** workflow, in CI's Playwright image: `gh workflow run images.yml --ref v<version>`, on a release branch. Any that changed go on `images/v<version>`, as one commit on that branch's tip, and the run's summary links the pull request to open. Actions can't open it here, and its checks wouldn't start if it did. Someone looks at the images, so it doesn't merge itself. A later run updates an open one and starts its checks again.
 
-`pnpm test:e2e:perf` times the pages on a big orrery. `e2e/perf/seed.ts` fills a fresh `web/.data/perf.db` (or, with
-`E2E_POSTGRES_URL`, that Postgres) through the store: 20 projects, about 3,000 issues, 20,000 comments, 50,000
-history rows, plus proposals, events, docs and schedules. The `PERF_*` variables change the sizes (`PERF_ISSUES=10000`).
-Then it builds the app and runs it on a port of the checkout's own (3400–3599), and `e2e/perf/perf.spec.ts` opens each page fresh: the first load,
+`pnpm test:e2e:perf` times the pages on a big orrery. It builds the app and runs it on a fresh `web/.data/perf.db` (or,
+with `E2E_POSTGRES_URL`, that Postgres), with the Rust API beside it (`NUXT_API_BIN`, else the repo's debug build, built
+first), on a port of the checkout's own (3400–3599). Then its `seed` project (`e2e/perf/seed.setup.ts`) fills it over
+HTTP, as the board's data is the API's alone (ORR-1240): 20 projects, about 3,000 issues, 20,000 comments, 50,000
+history rows, plus proposals, events, docs and schedules, the history, events and schedules' runs written straight
+into the database as rows. The `PERF_*` variables change the sizes (`PERF_ISSUES=10000`). Then `e2e/perf/perf.spec.ts`
+opens each page fresh: the first load,
 a big project's list, board and roadmap, an issue with a long thread, My issues, the bell, Notifications, Events,
 Sessions, Releases, the search, a dropped stream reconnecting, and a change arriving live. Each one has a budget in
 milliseconds, and a page over its budget fails the run. `web/perf-report/report.md` (and `report.json`) gives each
