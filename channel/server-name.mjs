@@ -1,6 +1,6 @@
 // The channel's server name, in a repo's .mcp.json and in the agent's user config (ORR-1193): always `orrery`, as the
 // owner asked, now that one orrery holds several workspaces and the environment name (personal, work) is gone. A
-// machine on two orreries still needs two names: the second takes its host (`orrery-orrery-dybben-com`) rather than
+// machine on two orreries still needs two names: the second takes its host (`orrery-orrery-example-com`) rather than
 // replacing the first. `environment` is ignored, kept for callers from before.
 const slug = text => String(text ?? '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '')
 

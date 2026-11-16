@@ -36,7 +36,7 @@ async fn lists_the_owner_first_then_people_in_the_order_they_were_added_the_remo
     sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'ada'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
     let listed = api.get("/api/people").send().await;
     assert_eq!(listed.status, 200);
-    assert_eq!(ids(&listed.body), ["steffen", "ada", "bo"]);
+    assert_eq!(ids(&listed.body), ["sam", "ada", "bo"]);
     assert_eq!(listed.body[0]["role"], "owner");
     assert!(listed.body[1]["removed_at"].is_string(), "{}", listed.body);
     assert!(listed.body[2].get("removed_at").is_none(), "{}", listed.body);
@@ -53,7 +53,7 @@ async fn adds_a_member_whose_id_is_their_name_in_snake_case() {
         (Some("ada_lovelace"), Some("Ada Lovelace"), Some("member"))
     );
     assert!(added.body["created_at"].is_string());
-    assert_eq!(ids(&api.get("/api/people").send().await.body), ["steffen", "ada_lovelace"]);
+    assert_eq!(ids(&api.get("/api/people").send().await.body), ["sam", "ada_lovelace"]);
     // A member of the one workspace there is so far (ORR-1106).
     let role: Option<String> = sqlx::query_scalar(&crate::db::sql("SELECT role FROM workspace_members WHERE workspace = 'default' AND person = ?"))
         .bind("ada_lovelace")
@@ -72,7 +72,7 @@ async fn a_second_person_is_refused_until_someone_could_log_in() {
     assert_eq!(api.count("SELECT count(*) FROM people").await, 1);
     // ORRERY_AUTH=off, a provider, or the owner's person key each make a way in.
     assert_eq!(api.post("/api/people", json!({"name": "Ada"})).header("orrery-login-ways", "off").send().await.status, 201);
-    let key = api.post("/api/keys", json!({"kind": "person", "name": "laptop"})).header("orrery-actor-name", "Steffen").send().await;
+    let key = api.post("/api/keys", json!({"kind": "person", "name": "laptop"})).header("orrery-actor-name", "Sam").send().await;
     assert_eq!(key.status, 201, "{}", key.body);
     assert_eq!(api.post("/api/people", json!({"name": "Bo"})).send().await.status, 201);
 }
@@ -81,12 +81,12 @@ async fn a_second_person_is_refused_until_someone_could_log_in() {
 async fn an_agent_key_or_a_revoked_person_key_is_no_way_in() {
     let api = TestApi::new().await;
     api.owner().await;
-    let agent = api.post("/api/keys", json!({"kind": "agent", "name": "box"})).header("orrery-actor-name", "Steffen").send().await;
+    let agent = api.post("/api/keys", json!({"kind": "agent", "name": "box"})).header("orrery-actor-name", "Sam").send().await;
     assert_eq!(agent.status, 201);
     assert_eq!(api.post("/api/people", json!({"name": "Ada"})).send().await.status, 409);
-    let person = api.post("/api/keys", json!({"kind": "person", "name": "laptop"})).header("orrery-actor-name", "Steffen").send().await;
+    let person = api.post("/api/keys", json!({"kind": "person", "name": "laptop"})).header("orrery-actor-name", "Sam").send().await;
     let id = person.body["id"].as_str().unwrap();
-    assert_eq!(api.delete(&format!("/api/keys/{id}")).header("orrery-actor-name", "Steffen").send().await.status, 204);
+    assert_eq!(api.delete(&format!("/api/keys/{id}")).header("orrery-actor-name", "Sam").send().await.status, 204);
     assert_eq!(api.post("/api/people", json!({"name": "Ada"})).send().await.status, 409);
 }
 
@@ -116,7 +116,7 @@ async fn an_id_taken_by_someone_here_or_someone_removed_stays_theirs() {
     api.member("ada", "Ada").await;
     api.member("bo", "Bo").await;
     sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'bo'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
-    for name in ["ADA", "Bo", "Steffen"] {
+    for name in ["ADA", "Bo", "Sam"] {
         let refused = api.post("/api/people", json!({"name": name})).header("orrery-login-ways", "off").send().await;
         assert_eq!(refused.status, 409, "{name}: {}", refused.body);
     }
@@ -184,14 +184,14 @@ async fn with_login_on_only_the_owner_in_their_own_browser_manages_people() {
     api.owner().await;
     api.member("ada", "Ada").await;
     // The owner's agent key, or a member's browser, even with an actor that claims to be the owner.
-    let as_owners_agent = api.delete("/api/people/ada").agent_key("steffen", true).send().await;
+    let as_owners_agent = api.delete("/api/people/ada").agent_key("sam", true).send().await;
     assert_eq!(as_owners_agent.status, 403, "{}", as_owners_agent.body);
     let as_member = api.delete("/api/people/ada").browser("ada", false).send().await;
     assert_eq!(as_member.status, 403, "{}", as_member.body);
     let adds = api.post("/api/people", json!({"name": "Bo"})).browser("ada", false).header("orrery-login-ways", "provider").send().await;
     assert_eq!(adds.status, 403);
     assert_eq!(api.count("SELECT count(*) FROM people WHERE removed_at IS NULL").await, 2);
-    let as_owner = api.delete("/api/people/ada").browser("steffen", true).send().await;
+    let as_owner = api.delete("/api/people/ada").browser("sam", true).send().await;
     assert_eq!(as_owner.status, 204, "{}", as_owner.body);
 }
 
@@ -213,12 +213,12 @@ async fn renaming_refuses_the_owner_someone_removed_someone_unknown_and_a_bad_na
     api.member("ada", "Ada").await;
     api.member("bo", "Bo").await;
     sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'bo'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
-    assert_eq!(api.patch("/api/people/steffen", json!({"name": "S"})).send().await.status, 400);
+    assert_eq!(api.patch("/api/people/sam", json!({"name": "S"})).send().await.status, 400);
     assert_eq!(api.patch("/api/people/bo", json!({"name": "Bob"})).send().await.status, 409);
     assert_eq!(api.patch("/api/people/nobody", json!({"name": "N"})).send().await.status, 404);
     assert_eq!(api.patch("/api/people/ada", json!({"name": ""})).send().await.status, 400);
     let names: Vec<String> = sqlx::query("SELECT name FROM people ORDER BY id").fetch_all(&api.app.pool).await.unwrap().iter().map(|r| r.get("name")).collect();
-    assert_eq!(names, ["Ada", "Bo", "Steffen"]);
+    assert_eq!(names, ["Ada", "Bo", "Sam"]);
 }
 
 #[tokio::test]
@@ -226,17 +226,17 @@ async fn removing_a_person_revokes_their_keys_and_ends_their_logins_and_invites(
     let api = TestApi::new().await;
     api.owner().await;
     api.member("ada", "Ada").await;
-    let key = api.post("/api/keys", json!({"person": "ada", "kind": "agent", "name": "box"})).header("orrery-actor-name", "Steffen").send().await;
+    let key = api.post("/api/keys", json!({"person": "ada", "kind": "agent", "name": "box"})).header("orrery-actor-name", "Sam").send().await;
     assert_eq!(key.status, 201, "{}", key.body);
     login(&api, &hashed('a'), "ada", None, &later()).await;
-    login(&api, &hashed('b'), "steffen", None, &later()).await;
+    login(&api, &hashed('b'), "sam", None, &later()).await;
     let invite = api.post("/api/invites", json!({"person": "ada"})).header("orrery-login-ways", "provider").send().await;
     assert_eq!(invite.status, 201, "{}", invite.body);
     let removed = api.delete("/api/people/ada").send().await;
     assert_eq!(removed.status, 204, "{}", removed.body);
     assert_eq!(api.count("SELECT count(*) FROM keys WHERE person = 'ada' AND revoked_at IS NULL").await, 0);
     assert_eq!(api.count("SELECT count(*) FROM logins WHERE person = 'ada'").await, 0);
-    assert_eq!(api.count("SELECT count(*) FROM logins WHERE person = 'steffen'").await, 1, "the owner's login stays");
+    assert_eq!(api.count("SELECT count(*) FROM logins WHERE person = 'sam'").await, 1, "the owner's login stays");
     assert_eq!(api.count("SELECT count(*) FROM invites").await, 0);
     let listed = api.get("/api/people").send().await;
     assert!(listed.body[1]["removed_at"].is_string(), "{}", listed.body);
@@ -250,7 +250,7 @@ async fn removing_a_person_hands_their_boards_to_the_owner() {
     let shared = api.project("Shared").await;
     let held = api.project("Held").await;
     sqlx::query("DELETE FROM project_members").execute(&api.app.pool).await.unwrap();
-    for (project, person, role) in [(&shared, "ada", "member"), (&shared, "steffen", "owner"), (&held, "ada", "owner")] {
+    for (project, person, role) in [(&shared, "ada", "member"), (&shared, "sam", "owner"), (&held, "ada", "owner")] {
         sqlx::query(&crate::db::sql("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, ?, ?)"))
             .bind(project)
             .bind(person)
@@ -268,7 +268,7 @@ async fn removing_a_person_hands_their_boards_to_the_owner() {
         .iter()
         .map(|r| (r.get("project"), r.get("person"), r.get("role")))
         .collect();
-    let mut expected = vec![(held.clone(), "steffen".to_string(), "owner".to_string()), (shared.clone(), "steffen".to_string(), "owner".to_string())];
+    let mut expected = vec![(held.clone(), "sam".to_string(), "owner".to_string()), (shared.clone(), "sam".to_string(), "owner".to_string())];
     expected.sort();
     assert_eq!(rows, expected);
 }
@@ -339,7 +339,7 @@ async fn removing_someone_already_removed_changes_nothing() {
 async fn the_owner_cant_be_removed_and_an_unknown_person_isnt_found() {
     let api = TestApi::new().await;
     api.owner().await;
-    assert_eq!(api.delete("/api/people/steffen").send().await.status, 400);
+    assert_eq!(api.delete("/api/people/sam").send().await.status, 400);
     assert_eq!(api.delete("/api/people/nobody").send().await.status, 404);
     assert_eq!(api.count("SELECT count(*) FROM people WHERE removed_at IS NULL").await, 1);
 }
@@ -389,15 +389,15 @@ async fn an_invite_needs_a_provider_and_someone_here_to_invite() {
 async fn makes_a_key_shown_this_once_with_its_kind_in_its_prefix() {
     let api = TestApi::new().await;
     api.owner().await;
-    let made = api.post("/api/keys", json!({"kind": "agent", "name": "  the build box  "})).header("orrery-actor-name", "Steffen").send().await;
+    let made = api.post("/api/keys", json!({"kind": "agent", "name": "  the build box  "})).header("orrery-actor-name", "Sam").send().await;
     assert_eq!(made.status, 201, "{}", made.body);
     let key = made.body["key"].as_str().unwrap();
     assert!(key.starts_with("orrery_agent_") && key.len() > 50, "{key}");
-    assert_eq!((made.body["person"].as_str(), made.body["kind"].as_str(), made.body["name"].as_str()), (Some("steffen"), Some("agent"), Some("the build box")));
-    let person = api.post("/api/keys", json!({"kind": "person", "name": "laptop"})).header("orrery-actor-name", "Steffen").send().await;
+    assert_eq!((made.body["person"].as_str(), made.body["kind"].as_str(), made.body["name"].as_str()), (Some("sam"), Some("agent"), Some("the build box")));
+    let person = api.post("/api/keys", json!({"kind": "person", "name": "laptop"})).header("orrery-actor-name", "Sam").send().await;
     assert!(person.body["key"].as_str().unwrap().starts_with("orrery_person_"));
     // Listed, the newest first, never with the key or its hash.
-    let listed = api.get("/api/keys").header("orrery-actor-name", "Steffen").send().await;
+    let listed = api.get("/api/keys").header("orrery-actor-name", "Sam").send().await;
     assert_eq!(listed.status, 200);
     assert_eq!(ids(&listed.body), [person.body["id"].as_str().unwrap(), made.body["id"].as_str().unwrap()]);
     let text = listed.body.to_string();
@@ -413,7 +413,7 @@ async fn a_key_needs_a_kind_and_a_name_and_someone_here() {
     api.owner().await;
     api.member("bo", "Bo").await;
     sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'bo'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
-    let make = |body: Value| api.post("/api/keys", body).header("orrery-actor-name", "Steffen");
+    let make = |body: Value| api.post("/api/keys", body).header("orrery-actor-name", "Sam");
     assert_eq!(make(json!({"name": "box"})).send().await.status, 400);
     assert_eq!(make(json!({"kind": "owner", "name": "box"})).send().await.status, 400);
     assert_eq!(make(json!({"kind": "agent"})).send().await.status, 400);
@@ -434,14 +434,14 @@ async fn a_person_makes_their_own_keys_but_never_one_for_someone_else() {
     let own = api.post("/api/keys", json!({"kind": "agent", "name": "box"})).member_browser("ada").send().await;
     assert_eq!(own.status, 201, "{}", own.body);
     assert_eq!(own.body["person"], "ada");
-    for whose in ["bo", "steffen"] {
+    for whose in ["bo", "sam"] {
         let refused = api.post("/api/keys", json!({"kind": "person", "name": "x", "person": whose})).member_browser("ada").send().await;
         assert_eq!(refused.status, 403, "{whose}: {}", refused.body);
         assert_eq!(refused.body["data"]["permission"], "keys.write");
     }
     assert_eq!(api.count("SELECT count(*) FROM keys WHERE person <> 'ada'").await, 0);
     // The owner hands one to anyone.
-    let given = api.post("/api/keys", json!({"kind": "person", "name": "x", "person": "bo"})).browser("steffen", true).send().await;
+    let given = api.post("/api/keys", json!({"kind": "person", "name": "x", "person": "bo"})).browser("sam", true).send().await;
     assert_eq!(given.status, 201, "{}", given.body);
     assert_eq!(given.body["person"], "bo");
 }
@@ -450,7 +450,7 @@ async fn a_person_makes_their_own_keys_but_never_one_for_someone_else() {
 async fn a_session_never_lists_makes_or_revokes_a_key_whatever_key_it_has() {
     let api = TestApi::new().await;
     api.owner().await;
-    let made = api.post("/api/keys", json!({"kind": "agent", "name": "box"})).header("orrery-actor-name", "Steffen").send().await;
+    let made = api.post("/api/keys", json!({"kind": "agent", "name": "box"})).header("orrery-actor-name", "Sam").send().await;
     let id = made.body["id"].as_str().unwrap().to_string();
     let path = format!("/api/keys/{id}");
     // A session with login off, and the owner's own agent key with login on, which claims the owner.
@@ -460,9 +460,9 @@ async fn a_session_never_lists_makes_or_revokes_a_key_whatever_key_it_has() {
         api.delete(&path).by_agent("claude"),
     ];
     let as_agent_key = [
-        api.get("/api/keys").agent_key("steffen", true),
-        api.post("/api/keys", json!({"kind": "person", "name": "x"})).agent_key("steffen", true),
-        api.delete(&path).agent_key("steffen", true),
+        api.get("/api/keys").agent_key("sam", true),
+        api.post("/api/keys", json!({"kind": "person", "name": "x"})).agent_key("sam", true),
+        api.delete(&path).agent_key("sam", true),
     ];
     for req in as_session.into_iter().chain(as_agent_key) {
         let refused = req.send().await;
@@ -477,15 +477,15 @@ async fn a_person_lists_their_own_keys_and_the_owner_everyones() {
     let api = TestApi::new().await;
     api.owner().await;
     api.member("ada", "Ada").await;
-    for person in ["ada", "steffen"] {
-        let made = api.post("/api/keys", json!({"kind": "agent", "name": "box", "person": person})).header("orrery-actor-name", "Steffen").send().await;
+    for person in ["ada", "sam"] {
+        let made = api.post("/api/keys", json!({"kind": "agent", "name": "box", "person": person})).header("orrery-actor-name", "Sam").send().await;
         assert_eq!(made.status, 201);
     }
     let ada = api.get("/api/keys").member_browser("ada").send().await;
     assert_eq!(ada.status, 200);
     assert_eq!(ada.body.as_array().unwrap().len(), 1);
     assert_eq!(ada.body[0]["person"], "ada");
-    let everyone = api.get("/api/keys").browser("steffen", true).send().await;
+    let everyone = api.get("/api/keys").browser("sam", true).send().await;
     assert_eq!(everyone.body.as_array().unwrap().len(), 2);
 }
 
@@ -525,7 +525,7 @@ async fn revoking_a_key_ends_its_persons_logins_from_before_orrery_kept_which_ke
         .execute(&api.app.pool)
         .await
         .unwrap();
-    login(&api, &hashed('d'), "steffen", None, &later()).await;
+    login(&api, &hashed('d'), "sam", None, &later()).await;
     sqlx::query(&crate::db::sql("UPDATE logins SET known = 0 WHERE id = ?")).bind(hashed('d')).execute(&api.app.pool).await.unwrap();
     assert_eq!(api.delete(&format!("/api/keys/{}", made.body["id"].as_str().unwrap())).member_browser("ada").send().await.status, 204);
     let ids: Vec<String> = sqlx::query("SELECT id FROM logins").fetch_all(&api.app.pool).await.unwrap().iter().map(|r| r.get("id")).collect();
@@ -538,14 +538,14 @@ async fn a_person_cant_revoke_someone_elses_key_which_isnt_found_for_them() {
     api.owner().await;
     api.member("ada", "Ada").await;
     api.member("bo", "Bo").await;
-    let bos = api.post("/api/keys", json!({"kind": "agent", "name": "box", "person": "bo"})).header("orrery-actor-name", "Steffen").send().await;
+    let bos = api.post("/api/keys", json!({"kind": "agent", "name": "box", "person": "bo"})).header("orrery-actor-name", "Sam").send().await;
     let id = bos.body["id"].as_str().unwrap();
     let refused = api.delete(&format!("/api/keys/{id}")).member_browser("ada").send().await;
     assert_eq!(refused.status, 404, "{}", refused.body);
     assert_eq!(api.count("SELECT count(*) FROM keys WHERE revoked_at IS NULL").await, 1);
     assert_eq!(api.delete("/api/keys/nope").member_browser("ada").send().await.status, 404);
     // The owner revokes anyone's.
-    assert_eq!(api.delete(&format!("/api/keys/{id}")).browser("steffen", true).send().await.status, 204);
+    assert_eq!(api.delete(&format!("/api/keys/{id}")).browser("sam", true).send().await.status, 204);
     assert_eq!(api.count("SELECT count(*) FROM keys WHERE revoked_at IS NULL").await, 0);
 }
 
@@ -556,7 +556,7 @@ async fn lists_a_persons_live_logins_marking_the_one_asking_and_never_a_whole_ha
     api.member("ada", "Ada").await;
     login(&api, &hashed('a'), "ada", None, &later()).await;
     login(&api, &hashed('b'), "ada", None, "2000-01-01T00:00:00.000Z").await;
-    login(&api, &hashed('c'), "steffen", None, &later()).await;
+    login(&api, &hashed('c'), "sam", None, &later()).await;
     let listed = api.get("/api/logins").member_browser("ada").header("orrery-login", &hashed('a')).send().await;
     assert_eq!(listed.status, 200, "{}", listed.body);
     let logins = listed.body.as_array().unwrap();
@@ -564,7 +564,7 @@ async fn lists_a_persons_live_logins_marking_the_one_asking_and_never_a_whole_ha
     assert_eq!(logins[0]["id"].as_str().unwrap(), &hashed('a')[..16]);
     assert_eq!(logins[0]["current"], true);
     assert!(!listed.body.to_string().contains(&hashed('a')));
-    let everyone = api.get("/api/logins").browser("steffen", true).header("orrery-login", &hashed('c')).send().await;
+    let everyone = api.get("/api/logins").browser("sam", true).header("orrery-login", &hashed('c')).send().await;
     let logins = everyone.body.as_array().unwrap();
     assert_eq!(logins.len(), 2);
     assert_eq!(logins.iter().filter(|l| l["current"] == true).count(), 1);
@@ -575,15 +575,15 @@ async fn lists_a_persons_live_logins_marking_the_one_asking_and_never_a_whole_ha
 async fn a_session_has_no_business_with_logins() {
     let api = TestApi::new().await;
     api.owner().await;
-    login(&api, &hashed('a'), "steffen", None, &later()).await;
+    login(&api, &hashed('a'), "sam", None, &later()).await;
     let path = format!("/api/logins/{}", &hashed('a')[..16]);
     let tries = [
         api.get("/api/logins").by_agent("claude"),
         api.delete("/api/logins").by_agent("claude"),
         api.delete(&path).by_agent("claude"),
-        api.get("/api/logins").agent_key("steffen", true),
-        api.delete("/api/logins").agent_key("steffen", true),
-        api.delete(&path).agent_key("steffen", true),
+        api.get("/api/logins").agent_key("sam", true),
+        api.delete("/api/logins").agent_key("sam", true),
+        api.delete(&path).agent_key("sam", true),
     ];
     for req in tries {
         let refused = req.send().await;
@@ -613,13 +613,13 @@ async fn a_person_cant_end_someone_elses_login_but_the_owner_can() {
     api.member("ada", "Ada").await;
     api.member("bo", "Bo").await;
     login(&api, &hashed('b'), "bo", None, &later()).await;
-    login(&api, &hashed('e'), "steffen", None, &later()).await;
+    login(&api, &hashed('e'), "sam", None, &later()).await;
     for id in [hashed('b'), hashed('e')] {
         let refused = api.delete(&format!("/api/logins/{}", &id[..16])).member_browser("ada").send().await;
         assert_eq!(refused.status, 404, "{}", refused.body);
     }
     assert_eq!(api.count("SELECT count(*) FROM logins").await, 2);
-    assert_eq!(api.delete(&format!("/api/logins/{}", &hashed('b')[..16])).browser("steffen", true).send().await.status, 204);
+    assert_eq!(api.delete(&format!("/api/logins/{}", &hashed('b')[..16])).browser("sam", true).send().await.status, 204);
     assert_eq!(api.count("SELECT count(*) FROM logins WHERE person = 'bo'").await, 0);
 }
 
@@ -627,10 +627,10 @@ async fn a_person_cant_end_someone_elses_login_but_the_owner_can() {
 async fn a_login_is_ended_only_by_its_sixteen_digit_reference() {
     let api = TestApi::new().await;
     api.owner().await;
-    login(&api, &hashed('a'), "steffen", None, &later()).await;
+    login(&api, &hashed('a'), "sam", None, &later()).await;
     // The whole hash, a shorter prefix, or a pattern: none of them names it.
     for reference in [hashed('a'), "aaaa".into(), "%".into(), "AAAAAAAAAAAAAAAA".into(), "aaaaaaaaaaaaaaa_".into()] {
-        let refused = api.delete(&format!("/api/logins/{reference}")).header("orrery-actor-name", "Steffen").send().await;
+        let refused = api.delete(&format!("/api/logins/{reference}")).header("orrery-actor-name", "Sam").send().await;
         assert_eq!(refused.status, 404, "{reference}: {}", refused.body);
     }
     assert_eq!(api.count("SELECT count(*) FROM logins").await, 1);
@@ -643,7 +643,7 @@ async fn ends_every_other_login_of_the_person_asking_but_their_own() {
     api.member("ada", "Ada").await;
     login(&api, &hashed('a'), "ada", None, &later()).await;
     login(&api, &hashed('b'), "ada", None, &later()).await;
-    login(&api, &hashed('c'), "steffen", None, &later()).await;
+    login(&api, &hashed('c'), "sam", None, &later()).await;
     let ended = api.delete("/api/logins").member_browser("ada").header("orrery-login", &hashed('a')).send().await;
     assert_eq!(ended.status, 200, "{}", ended.body);
     assert_eq!(ended.body, json!({"ended": 1}));
@@ -658,12 +658,12 @@ async fn the_owner_ends_everyones_logins_but_their_own_and_with_login_off_every_
     api.owner().await;
     api.member("ada", "Ada").await;
     login(&api, &hashed('a'), "ada", None, &later()).await;
-    login(&api, &hashed('c'), "steffen", None, &later()).await;
-    let ended = api.delete("/api/logins").browser("steffen", true).header("orrery-login", &hashed('c')).send().await;
+    login(&api, &hashed('c'), "sam", None, &later()).await;
+    let ended = api.delete("/api/logins").browser("sam", true).header("orrery-login", &hashed('c')).send().await;
     assert_eq!(ended.body, json!({"ended": 1}));
     assert_eq!(api.count("SELECT count(*) FROM logins").await, 1);
     login(&api, &hashed('a'), "ada", None, &later()).await;
-    let off = api.delete("/api/logins").header("orrery-actor-name", "Steffen").send().await;
+    let off = api.delete("/api/logins").header("orrery-actor-name", "Sam").send().await;
     assert_eq!(off.body, json!({"ended": 2}));
     assert_eq!(api.count("SELECT count(*) FROM logins").await, 0);
 }
@@ -674,7 +674,7 @@ async fn a_boards_holder_or_the_owner_says_whos_on_it_and_its_holder_stays() {
     api.team().await;
     let project = api.project("Primes").await;
     api.run(
-        "INSERT INTO project_members (project, person, role, created_at) VALUES (?, 'steffen', 'owner', ?) ON CONFLICT (project, person) DO NOTHING",
+        "INSERT INTO project_members (project, person, role, created_at) VALUES (?, 'sam', 'owner', ?) ON CONFLICT (project, person) DO NOTHING",
         &[&project, &stamp()],
     )
     .await;
@@ -683,7 +683,7 @@ async fn a_boards_holder_or_the_owner_says_whos_on_it_and_its_holder_stays() {
     assert_eq!(members.status, 200);
     assert_eq!(
         members.body.as_array().unwrap().iter().map(|m| (m["person"].clone(), m["role"].clone())).collect::<Vec<_>>(),
-        vec![(json!("steffen"), json!("owner"))]
+        vec![(json!("sam"), json!("owner"))]
     );
     let added = api.post(&format!("/api/projects/{project}/members"), json!({"person": "Ana"})).send().await;
     assert_eq!(added.status, 201, "{}", added.body);
@@ -696,9 +696,9 @@ async fn a_boards_holder_or_the_owner_says_whos_on_it_and_its_holder_stays() {
     let by_ana = api.post(&format!("/api/projects/{project}/members"), json!({"person": "bo"})).person("ana").send().await;
     assert_eq!(by_ana.status, 403, "{}", by_ana.body);
     // Its holder stays on it; anyone else comes off.
-    let holder = api.delete(&format!("/api/projects/{project}/members/steffen")).send().await;
+    let holder = api.delete(&format!("/api/projects/{project}/members/sam")).send().await;
     assert_eq!(holder.status, 400);
-    assert_eq!(holder.body["message"], format!("steffen holds {project}, so they stay on it"));
+    assert_eq!(holder.body["message"], format!("sam holds {project}, so they stay on it"));
     assert_eq!(api.delete(&format!("/api/projects/{project}/members/ana")).send().await.status, 204);
     assert_eq!(api.count(&format!("SELECT count(*) FROM project_members WHERE project = '{project}'")).await, 1);
 }
@@ -740,17 +740,17 @@ async fn naming_the_owner_moves_what_was_theirs_to_the_new_id_and_refuses_reserv
     api.owner().await;
     api.member("ada", "Ada").await;
     let project = api.project("Primes").await;
-    let issue = api.issue(&project, json!({"title": "Sieve", "assignee": "steffen"})).await;
+    let issue = api.issue(&project, json!({"title": "Sieve", "assignee": "sam"})).await;
     for (name, status) in [("Claude", 400), ("agent", 400), ("Ada", 409), ("!!", 400)] {
-        let reply = api.put("/api/owner", json!({"name": name})).header("orrery-actor-name", "steffen").send().await;
+        let reply = api.put("/api/owner", json!({"name": name})).header("orrery-actor-name", "sam").send().await;
         assert_eq!(reply.status, status, "{name}: {}", reply.body);
     }
-    let renamed = api.put("/api/owner", json!({"name": "Stef"})).header("orrery-actor-name", "steffen").send().await;
+    let renamed = api.put("/api/owner", json!({"name": "Stef"})).header("orrery-actor-name", "sam").send().await;
     assert_eq!(renamed.status, 200, "{}", renamed.body);
     assert_eq!(renamed.body["name"], "stef");
     assert_eq!(api.count(&format!("SELECT count(*) AS n FROM issues WHERE id = '{issue}' AND assignee = 'stef'")).await, 1);
     assert_eq!(api.count("SELECT count(*) AS n FROM project_members WHERE person = 'stef' AND role = 'owner'").await, 1);
-    assert_eq!(api.count("SELECT count(*) AS n FROM people WHERE id = 'steffen'").await, 0);
+    assert_eq!(api.count("SELECT count(*) AS n FROM people WHERE id = 'sam'").await, 0);
     assert!(api.outbox().await.iter().any(|c| c.line().contains("settings")), "the page hears the settings changed");
 }
 
@@ -760,7 +760,7 @@ async fn an_invite_lands_its_person_in_its_workspace() {
     let api = TestApi::new().await;
     api.owner().await;
     api.member("ada", "Ada").await;
-    api.acme(&["steffen"]).await;
+    api.acme(&["sam"]).await;
     let invite = api.post("/api/invites", json!({"person": "ada", "workspace": "acme"})).header("orrery-login-ways", "provider").send().await;
     assert_eq!(invite.status, 201, "{}", invite.body);
     let secret = invite.body["url"].as_str().unwrap().rsplit("invite=").next().unwrap().to_string();
@@ -782,6 +782,6 @@ async fn a_member_sees_the_people_they_share_a_workspace_with() {
     let ids = |list: &Value| list.as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap().to_string()).collect::<Vec<_>>();
     let bo = api.signed(api.get("/api/people"), "bo").await.send().await;
     assert_eq!(ids(&bo.body), ["bo"], "{}", bo.body);
-    let owner = api.signed(api.get("/api/people"), "steffen").await.send().await;
+    let owner = api.signed(api.get("/api/people"), "sam").await.send().await;
     assert_eq!(ids(&owner.body).len(), 3, "{}", owner.body);
 }

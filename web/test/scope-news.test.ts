@@ -8,7 +8,7 @@ let workers: Record<string, string>
 let persons: Record<string, string>
 let sent: {session: string, text: string}[]
 
-const owner = {name: 'steffen', owner: true}
+const owner = {name: 'sam', owner: true}
 const event = (type: string, subject: string, more: Record<string, unknown> = {}) => ({event: {type, project: 'orrery', subject, by: owner, ...more}})
 
 beforeEach(async () => {
@@ -28,7 +28,7 @@ beforeEach(async () => {
         epics: async () => [{id: 3, title: 'Checkout'}],
         workerOf: async (_project: string, id: string) => workers[id] ?? null,
         sessionPerson: (session: string) => persons[session],
-        ownerOf: async () => ({name: 'steffen'}),
+        ownerOf: async () => ({name: 'sam'}),
         messageSession: async (_project: string, session: string, text: string) => void sent.push({session, text}),
     }))
     vi.resetModules()
@@ -80,7 +80,7 @@ describe('telling sessions what their issues sit under (ORR-984)', () => {
     })
 
     it("tells a member's change only to their own sessions (ORR-658)", async () => {
-        persons = {a: 'hati', b: 'steffen'}
+        persons = {a: 'hati', b: 'sam'}
         await hear(event('milestone.changed', '7', {by: {name: 'hati', owner: false, person: 'hati'}}))
         expect(sent.map(s => s.session)).toEqual(['a'])
     })

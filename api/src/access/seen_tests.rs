@@ -1,5 +1,5 @@
 // The lists and feeds across projects keep only the asker's workspaces (ORR-1106): ana is in `default` alone, bo in
-// `default` and Acme, and the owner, steffen, in `default` alone, so neither ana nor the owner sees Acme's Rockets.
+// `default` and Acme, and the owner, sam, in `default` alone, so neither ana nor the owner sees Acme's Rockets.
 use super::*;
 use crate::testing::{from_outside, ids, TestApi};
 use serde_json::json;
@@ -38,7 +38,7 @@ async fn the_projects_list_holds_only_the_askers_workspaces() {
     let api = TestApi::new().await;
     let (primes, rockets) = two_workspaces(&api).await;
     assert_eq!(ids(&as_person(&api, "/api/projects", "ana").await), std::slice::from_ref(&primes));
-    assert_eq!(ids(&as_person(&api, "/api/projects", "steffen").await), std::slice::from_ref(&primes));
+    assert_eq!(ids(&as_person(&api, "/api/projects", "sam").await), std::slice::from_ref(&primes));
     let mut bos = ids(&as_person(&api, "/api/projects", "bo").await);
     bos.sort();
     assert_eq!(bos, [primes.clone(), rockets.clone()]);
@@ -146,13 +146,13 @@ async fn the_bell_holds_only_the_askers_workspaces() {
         let made = api.post(&format!("/api/projects/{project}/issues"), json!({"title": "Maybe", "proposal": "pending"})).by_agent("claude").send().await;
         assert_eq!(made.status, 201, "{}", made.body);
     }
-    let all = projects_of(&api.get("/api/notices").browser("steffen", true).send().await.body);
+    let all = projects_of(&api.get("/api/notices").browser("sam", true).send().await.body);
     assert!(all.contains(&rockets), "the Nuxt server's own work sees every workspace: {all:?}");
-    let owners = from_outside(api.get("/api/notices").header("orrery-actor-owner", "1").header("orrery-actor-name", "steffen")).send().await;
+    let owners = from_outside(api.get("/api/notices").header("orrery-actor-owner", "1").header("orrery-actor-name", "sam")).send().await;
     assert_eq!(owners.status, 200, "{}", owners.body);
     assert_eq!(projects_of(&owners.body), std::slice::from_ref(&primes));
     let changes =
-        from_outside(api.get("/api/notices/changes?since=2026-01-01T00:00:00.000Z").header("orrery-actor-owner", "1").header("orrery-actor-name", "steffen"))
+        from_outside(api.get("/api/notices/changes?since=2026-01-01T00:00:00.000Z").header("orrery-actor-owner", "1").header("orrery-actor-name", "sam"))
             .send()
             .await;
     assert_eq!(changes.status, 200, "{}", changes.body);
@@ -482,7 +482,7 @@ async fn no_route_of_a_board_reads_or_writes_for_a_member_off_it() {
     }
     assert!(leaks.is_empty(), "reached a board ana isn't on:\n{}", leaks.join("\n"));
     // bo, on it, and the owner, on every board, aren't held: the 404s above are the board's.
-    for person in ["bo", "steffen"] {
+    for person in ["bo", "sam"] {
         let read = api.signed(api.get(&format!("/api/projects/{quarry}/issues")), person).await.send().await;
         assert_eq!(read.status, 200, "{person}: {}", read.body);
     }
@@ -497,7 +497,7 @@ async fn a_members_lists_and_feeds_keep_to_the_boards_theyre_on() {
     api.issue(&quarry, json!({"title": "Blast"})).await;
     api.issue(&primes, json!({"title": "Sieve"})).await;
     assert_eq!(ids(&as_person(&api, "/api/projects", "ana").await), std::slice::from_ref(&primes));
-    let mut owners = ids(&as_person(&api, "/api/projects", "steffen").await);
+    let mut owners = ids(&as_person(&api, "/api/projects", "sam").await);
     owners.sort();
     assert_eq!(owners, [primes.clone(), quarry.clone()]);
     let feed = projects_of(&as_person(&api, "/api/changes", "ana").await["changes"]);

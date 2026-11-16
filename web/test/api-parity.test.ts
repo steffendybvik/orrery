@@ -53,7 +53,7 @@ interface Outcome {status: number, body: unknown, changed: string[], told: strin
 
 const AGENT: Actor = {name: 'agent', owner: false}
 const SESSION: Actor = {name: 'agent', owner: false, session: 'orrery · Njord'}
-const OWNER: Actor = {name: 'steffen', owner: true}
+const OWNER: Actor = {name: 'sam', owner: true}
 
 let store: Store
 let api: ChildProcess
@@ -511,7 +511,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             await store.createComment(p, sand, {body: 'The sandpaper was too coarse for the oak.'})
             await store.createComment(p, brass, {body: 'Brass would tarnish near the coarse salt air.'})
             await store.db.run('INSERT INTO issue_aliases (project, alias, issue) VALUES (?, ?, ?)', p, `${p === 'through-store' ? 'STO' : 'API'}-77`, lid)
-            await store.db.run('UPDATE issues SET claimed_by = ?, claimed_at = ? WHERE project = ? AND id = ?', 'steffen', new Date().toISOString(), p, paint)
+            await store.db.run('UPDATE issues SET claimed_by = ?, claimed_at = ? WHERE project = ? AND id = ?', 'sam', new Date().toISOString(), p, paint)
             for (const [number, risk, by] of [[1, 'low', 'session'], [2, 'high', 'owner'], [3, 'high', 'session']] as const) {
                 await store.db.run(`INSERT INTO issue_pulls (project, issue, repo, number, title, url, branch, base, author, state, created_at, updated_at, risk, risk_why, risk_by)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, p, lid, `ada/${p}`, number, 'Hinges', 'https://github.com/ada/box/pull/1', 'feat/hinge', 'main', 'ada', 'open',
@@ -651,11 +651,11 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const write = (p: string, fields: SignalFields) => (store as unknown as {writeSignal: (p: string, f: SignalFields) => Promise<unknown>}).writeSignal(p, fields)
         const ids: Record<string, string> = {}
         for (const p of ['through-store', 'through-api']) ids[p] = (await store.createIssue(p, {title: 'Signal it'}, OWNER)).id
-        const focus = (p: string): SignalFields => ({issue: ids[p], kind: 'focus', note: 'Go', target: 's-old', person: 'steffen', instructions: ['Be brief'], model: 'opus', created_by: 'steffen', owned: true})
+        const focus = (p: string): SignalFields => ({issue: ids[p], kind: 'focus', note: 'Go', target: 's-old', person: 'sam', instructions: ['Be brief'], model: 'opus', created_by: 'sam', owned: true})
         await both('a focus on an issue', p => viaStore(() => write(p, focus(p)), 201), () => viaApi('POST', '/signals', focus('through-api'), ORRERY))
         const milestone: SignalFields = {milestone: 'all', status: 'todo,in-progress', epic: 3, kind: 'focus', created_by: 'claude', owned: false}
         await both('a focus on every milestone', p => viaStore(() => write(p, milestone), 201), () => viaApi('POST', '/signals', milestone, ORRERY))
-        const message: SignalFields = {kind: 'message', note: 'Look', preset: 'Review', via: 'chat', target: 's-old', created_by: 'steffen', owned: true}
+        const message: SignalFields = {kind: 'message', note: 'Look', preset: 'Review', via: 'chat', target: 's-old', created_by: 'sam', owned: true}
         await both('a message', p => viaStore(() => write(p, message), 201), () => viaApi('POST', '/signals', message, ORRERY))
         const first = async (p: string) => (await store.listSignals(p))[0]!.id
         await both('heard', async p => viaStore(async () => store.delivered(p, await first(p), 'orrery · Frøy')), async () => viaApi('POST', `/signals/${await first('through-api')}/receipts`, {to: 'orrery · Frøy'}, ORRERY))
@@ -1736,7 +1736,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             expect(byApi.heard.shown.at(-1)).toMatchObject({deleted: true, ended: true})
             expect(byApi.row).toMatchObject({ended: true, project: 'chat-through-api'})
             expect(byApi.heard.sent.length).toBeGreaterThan(0)
-            expect(byApi.heard.noted).toContain('chat.answered: steffen allowed the chat\'s request to make the milestone "Joints"')
+            expect(byApi.heard.noted).toContain('chat.answered: sam allowed the chat\'s request to make the milestone "Joints"')
             expect(byApi.board).toMatchObject({joints: 'A hinge turns, and squeaks.', issues: [{title: 'Fit the hinge', status: 'in-progress'}, {title: 'Oil the hinge', status: 'backlog'}]})
         } finally {
             router.apiStarted(null)
@@ -1746,13 +1746,13 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
     })
 
     it('lists people, and makes, lists and revokes keys and ends logins alike (ORR-928)', async () => {
-        await store.nameOwner({name: 'Steffen'})
+        await store.nameOwner({name: 'Sam'})
         await store.addPerson({name: 'Ada'})
         await store.addPerson({name: 'Bob'})
         // Naming the owner changed every project, so the first step mustn't hear that.
         await quiet()
         const ada = whoHeaders({person: 'ada', owner: false, via: 'browser'}, undefined)
-        const owner = whoHeaders({person: 'steffen', owner: true, via: 'browser'}, undefined)
+        const owner = whoHeaders({person: 'sam', owner: true, via: 'browser'}, undefined)
         /** A key's secret and id, and a login's listed id, are bound to differ between the two sides. */
         const shape = (outcome: Outcome): Outcome => JSON.parse(JSON.stringify(outcome, (_key, value: unknown) => typeof value === 'string'
             ? value.replace(/^orrery_(agent|person)_[\w-]{43}$/, 'orrery_$1_<secret>').replace(/^[0-9a-f]{12}$/, '<key id>').replace(/^[0-9a-f]{16}$/, '<login id>')
@@ -1795,7 +1795,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await store.keys('ada')).find(k => k.id === byKey!.id)?.revoked_at).toBeDefined()
         // Only a person handles keys and logins, never a session, whatever key it has: in the table's words.
         const session = (id: string) => ({message: refused(permission(id), 'session').message, data: {permission: id}})
-        const agent = whoHeaders({person: 'steffen', owner: true, via: 'agent'}, undefined)
+        const agent = whoHeaders({person: 'sam', owner: true, via: 'agent'}, undefined)
         for (const [method, path] of [['GET', '/api/keys'], ['POST', '/api/keys'], ['DELETE', '/api/keys/x']] as const) {
             const body = method === 'POST' ? {kind: 'agent', name: 'x'} : undefined
             expect((await viaApi(method, path, body, SESSION)).body, `${method} ${path}`).toEqual(session('keys.write'))
@@ -1870,10 +1870,10 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(servedByApi('GET', '/api/workspaces')).toBe(true)
         // The account and deleting a workspace are a person's signed in through a browser (ORR-1203). The owner's account
         // isn't deleted here, as the steps after need them: a wrong name is refused, and nothing goes.
-        const signed = whoHeaders({person: 'steffen', owner: true, via: 'browser'}, undefined)
+        const signed = whoHeaders({person: 'sam', owner: true, via: 'browser'}, undefined)
         expect(await viaApi('DELETE', '/api/workspaces/parity-works', {confirm: 'Parity'}, OWNER, '', signed)).toMatchObject({status: 204})
         expect((await viaApi('GET', '/api/workspaces', undefined, OWNER)).body as {id: string}[]).not.toContainEqual(expect.objectContaining({id: 'parity-works'}))
-        expect(await viaApi('GET', '/api/me', undefined, OWNER, '', signed)).toMatchObject({status: 200, body: {id: 'steffen', role: 'owner'}})
+        expect(await viaApi('GET', '/api/me', undefined, OWNER, '', signed)).toMatchObject({status: 200, body: {id: 'sam', role: 'owner'}})
         expect(await viaApi('DELETE', '/api/me', {confirm: 'someone else'}, OWNER, '', signed)).toMatchObject({status: 400})
         expect(await viaApi('GET', '/api/me', undefined, OWNER)).toMatchObject({status: 401})
     })
@@ -1886,7 +1886,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         })
         const status = async (came: Parameters<typeof cameHeaders>[0], host = 'localhost:9000', ways: {provider: boolean, off: boolean, on?: boolean} = {provider: false, off: false}, extra: Record<string, string> = {}) =>
             (await call('GET', '/api/auth/status', undefined, {...cameHeaders(came, host), ...loginHeaders(ways, 'http://x'), ...extra})).json() as Promise<Record<string, unknown>>
-        if (!(await store.ownerOf()).named) await store.nameOwner({name: 'Steffen'})
+        if (!(await store.ownerOf()).named) await store.nameOwner({name: 'Sam'})
         const none = {loopback: false, proxied: false, phone: false, https: false}
         const loopback = {...none, loopback: true}
         const stays = await store.authStaysOn()
@@ -2133,7 +2133,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await inTurn('an empty name', () => viaStore(() => store.addPerson({name: '  '})), () => viaApi('POST', '/api/people', {name: '  '}, OWNER, '', off))
         await inTurn('no body', () => viaStore(() => store.addPerson(undefined)), () => viaApi('POST', '/api/people', undefined, OWNER, '', off))
         await inTurn('renamed', () => viaStore(() => store.renamePerson('ada', {name: ' Ada L. '})), () => viaApi('PATCH', '/api/people/ada', {name: ' Ada L. '}, OWNER))
-        await inTurn('the owner renamed', () => viaStore(() => store.renamePerson('steffen', {name: 'S'})), () => viaApi('PATCH', '/api/people/steffen', {name: 'S'}, OWNER))
+        await inTurn('the owner renamed', () => viaStore(() => store.renamePerson('sam', {name: 'S'})), () => viaApi('PATCH', '/api/people/sam', {name: 'S'}, OWNER))
         await inTurn('nobody renamed', () => viaStore(() => store.renamePerson('nobody', {name: 'S'})), () => viaApi('PATCH', '/api/people/nobody', {name: 'S'}, OWNER))
         await inTurn('renamed to nothing', () => viaStore(() => store.renamePerson('ada', {name: null})), () => viaApi('PATCH', '/api/people/ada', {name: null}, OWNER))
         const removed = await viaApi('PATCH', '/api/people/gone', {name: 'Back'}, OWNER)
@@ -2148,7 +2148,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await viaApi('POST', '/api/people', {name: 'Eve'}, OWNER, '', whoHeaders({person: 'ada', owner: false, via: 'browser'}, undefined))).body).toEqual(session)
         expect(await viaApi('POST', '/api/people', {name: 'Eve'}, OWNER)).toMatchObject({status: 409, body: {message: expect.stringMatching(/^A second person turns login on/)}})
         expect(await viaApi('POST', '/api/people', {name: 'Eve'}, OWNER, '', loginHeaders({provider: true, off: false}, ''))).toMatchObject({status: 201, body: {id: 'eve'}})
-        const key = await store.makeKey('steffen', {kind: 'person', name: 'Mac'})
+        const key = await store.makeKey('sam', {kind: 'person', name: 'Mac'})
         expect(await viaApi('POST', '/api/people', {name: 'Fay'}, OWNER)).toMatchObject({status: 201, body: {id: 'fay'}})
         await store.revokeKey(key.id)
         // Invites: only with a provider, for someone here, with a link at the request's own address that logs them in.
@@ -2172,7 +2172,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         await both('nobody', p => viaStore(() => store.addMember(p, {person: 'nobody'}, OWNER), 201), () => viaApi('POST', '/members', {person: 'nobody'}, OWNER))
         await both('not a person', p => viaStore(() => store.addMember(p, {who: 4, person: null}, OWNER), 201), () => viaApi('POST', '/members', {who: 4, person: null}, OWNER))
         // The boards here were made before anyone held them: the owner holds both for these steps.
-        const holder = 'steffen'
+        const holder = 'sam'
         for (const p of ['through-store', 'through-api']) await store.db.run("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'owner', ?) ON CONFLICT (project, person) DO UPDATE SET role = 'owner'", p, holder, new Date().toISOString())
         await both('its holder taken off', p => viaStore(() => store.removeMember(p, holder, OWNER)), () => viaApi('DELETE', `/members/${holder}`, undefined, OWNER))
         await both('Ada taken off', p => viaStore(() => store.removeMember(p, 'ada', OWNER)), () => viaApi('DELETE', '/members/ada', undefined, OWNER))
@@ -2190,7 +2190,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
     it('gives a new project to whoever asks alike, as the route here works it out (ORR-1002)', async () => {
         // The store is handed who holds it (`personOf`, by the route); the API works it out from the headers.
         const cases: [string, Actor, string | undefined, Record<string, string>?][] = [
-            ['the owner', OWNER, 'steffen'],
+            ['the owner', OWNER, 'sam'],
             ['a session naming its person', {name: 'agent', owner: false, named: 'Ada', asked: true}, 'ada'],
             ['an agent with its person\'s key', {name: 'agent', owner: false, named: 'bob', asked: true}, 'bob', whoHeaders({person: 'bob', owner: false, via: 'agent'}, undefined)],
         ]
@@ -2206,7 +2206,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         // With more than one person here, the rails refuse the rest at the door, as the middleware here does (ORR-1059).
         const refused: [string, Actor, number][] = [
             ['a session naming nobody', {...AGENT, asked: true}, 409],
-            ['the owner\'s chat', {name: 'steffen', owner: false, chat: true}, 403],
+            ['the owner\'s chat', {name: 'sam', owner: false, chat: true}, 403],
             ['an untrusted session', {name: 'agent', owner: false, untrusted: true, asked: true}, 403],
         ]
         for (const [name, actor, status] of refused) {
@@ -2246,7 +2246,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const HAL: Actor = {name: 'hal', owner: false, person: 'hal', asked: true}
         const NAMELESS: Actor = {name: 'agent', owner: false, session: 'orrery · Zed', asked: true, named: 'zed'}
         for (const p of ['through-store', 'through-api']) {
-            ids[p] = {...ids[p], owners: await make(p, 'Polish the brass', 'steffen'), hals: await make(p, 'Count the teeth', 'hal'), open: await make(p, 'Sweep up')}
+            ids[p] = {...ids[p], owners: await make(p, 'Polish the brass', 'sam'), hals: await make(p, 'Count the teeth', 'hal'), open: await make(p, 'Sweep up')}
         }
         for (const [name, ts, rs] of [
             claim('the owner\'s, by Hal\'s agent', 'owners', HALS),
@@ -2372,14 +2372,14 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
 
     it('reads and names the owner alike, refusing what it refuses (ORR-1036)', async () => {
         // The database is shared, so the owner keeps their id here: naming them anew is rust/people_tests.rs's.
-        if (!(await store.ownerOf()).named) await store.nameOwner({name: 'Steffen'})
+        if (!(await store.ownerOf()).named) await store.nameOwner({name: 'Sam'})
         const steps: [string, () => Promise<unknown>, string, unknown, Actor, number?][] = [
             ['read', () => store.ownerOf(), 'GET', undefined, AGENT],
-            ['named again, the same', () => store.nameOwner({name: ' Steffen '}, OWNER), 'PUT', {name: ' Steffen '}, OWNER],
+            ['named again, the same', () => store.nameOwner({name: ' Sam '}, OWNER), 'PUT', {name: ' Sam '}, OWNER],
             ['by anyone but the owner', () => store.nameOwner({name: 'Mallory'}, AGENT), 'PUT', {name: 'Mallory'}, AGENT],
             ['as claude', () => store.nameOwner({name: 'Claude'}, OWNER), 'PUT', {name: 'Claude'}, OWNER],
             ['with no letter', () => store.nameOwner({name: '!!'}, OWNER), 'PUT', {name: '!!'}, OWNER],
-            ['with a field it doesn\'t take', () => store.nameOwner({name: 'Steffen', nope: 1}, OWNER), 'PUT', {name: 'Steffen', nope: 1}, OWNER],
+            ['with a field it doesn\'t take', () => store.nameOwner({name: 'Sam', nope: 1}, OWNER), 'PUT', {name: 'Sam', nope: 1}, OWNER],
         ]
         for (const [name, step, method, body, actor] of steps) await both(name, () => viaStore(step), () => viaApi(method, '/api/owner', body, actor))
     })
@@ -2841,7 +2841,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
     it('changes an issue\'s status and assignee alike, ending a claim, with the rails between people, and pushes a P0 opened again (ORR-927)', async () => {
         const start = (await store.db.get<{n: number | null}>('SELECT max(id) AS n FROM changes'))?.n ?? 0
         const ids: Record<string, Record<string, string>> = {}
-        const claimed = async (p: string, id: string) => store.db.run("UPDATE issues SET claimed_by = 'steffen', claimed_at = ? WHERE project = ? AND id = ?", new Date().toISOString(), p, id)
+        const claimed = async (p: string, id: string) => store.db.run("UPDATE issues SET claimed_by = 'sam', claimed_at = ? WHERE project = ? AND id = ?", new Date().toISOString(), p, id)
         for (const p of ['through-store', 'through-api']) {
             const make = async (title: string, more: Record<string, unknown> = {}, actor: Actor = OWNER) => (await store.createIssue(p, {title, ...more}, actor)).id
             ids[p] = {
@@ -2879,7 +2879,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             edit('let go of with null', 'gear', {assignee: null}),
             edit('a held one closed, by an agent', 'held', {status: 'done'}, AGENT),
             read('held'),
-            edit('a held one reassigned', 'kept', {assignee: 'steffen'}),
+            edit('a held one reassigned', 'kept', {assignee: 'sam'}),
             read('kept'),
             edit('a closed P0 opened again', 'hot', {status: 'todo'}),
             edit('a waiting proposal started, by an agent', 'idea', {status: 'started'}, AGENT),
@@ -3019,7 +3019,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(b.outcome).toMatchObject({status: 204, changed: expect.arrayContaining(['through-api']), told: [expect.stringMatching(/^issue\.assignee API-\d+$/)]})
         expect(b.left).toMatchObject({removed: true, keys: [true], logins: 0, assignees: [null, 'hal']})
         // The owner, nobody, and a session are refused alike.
-        await both('the owner', () => viaStore(() => store.removePerson('steffen', OWNER)), () => viaApi('DELETE', '/api/people/steffen', undefined, OWNER))
+        await both('the owner', () => viaStore(() => store.removePerson('sam', OWNER)), () => viaApi('DELETE', '/api/people/sam', undefined, OWNER))
         await both('nobody', () => viaStore(() => store.removePerson('nobody', OWNER)), () => viaApi('DELETE', '/api/people/nobody', undefined, OWNER))
         expect((await viaApi('DELETE', '/api/people/ada', undefined, SESSION)).body).toEqual({message: refused(permission('people.write'), 'session').message, data: {permission: 'people.write'}})
         expect((await store.people()).find(person => person.id === 'ada')?.removed_at).toBeUndefined()
@@ -3262,7 +3262,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
 
     it('reads one pull request alike, without what an outsider wrote for anyone but the owner (ORR-952)', async () => {
         const pulls = new Pulls(store, async () => { throw new Error('no GitHub here') })
-        const CHAT: Actor = {name: 'steffen', owner: true, chat: true}
+        const CHAT: Actor = {name: 'sam', owner: true, chat: true}
         const now = new Date().toISOString()
         const keep = (p: string, issue: string, number: number, pull: {author?: string, state?: string, merged_at?: string | null, risk?: [string, string, string]}) =>
             store.db.run(`INSERT INTO issue_pulls (project, issue, repo, number, title, url, branch, base, author, state, merged_at, created_at, updated_at, risk, risk_why, risk_by)
@@ -3355,7 +3355,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const steps: Step[] = [
             read,
             step('changed by a session', {tint: 'blue'}, SESSION),
-            step('a tint, prompts and a handle', {tint: '#AABBCC', focus_prompt: '  Work on {id}  ', milestone_prompt: '   ', handle: 'Steffen.D'}),
+            step('a tint, prompts and a handle', {tint: '#AABBCC', focus_prompt: '  Work on {id}  ', milestone_prompt: '   ', handle: 'Sam.R'}),
             step('the machine\'s own', {terminal: 'ghostty', agent: 'other', advanced: false, restrict_proposals: false, count_use: true}),
             step('instructions, a tracker and the sidebar', {instructions: [{id: 'a1', text: ' Be brief ', on: false}, {id: 'b2', text: 'Test first'}], tracker: 'https://t.example/i/{id}', starred: [' api ', 'web', 'api', 'gone'], hidden: ['gone']}),
             step('starts', {starts: {limit: 3, min: 1, minutes: 60, idle_minutes: 30, on_signal: false}}),
@@ -3508,7 +3508,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const older = latest[2]!.id
         // Whose bell each asker gets: the route works it out (`personOf`), the API from the headers.
         const askers: [string, Actor, string | undefined][] = [
-            ['the owner', OWNER, 'steffen'],
+            ['the owner', OWNER, 'sam'],
             ['a session naming Ada', ADAS, await store.personFor('ada')],
             ['Ada herself', {name: 'ada', owner: false, person: 'ada', asked: true}, 'ada'],
             ['an untrusted session', {name: 'agent', owner: false, untrusted: true, asked: true}, undefined],
@@ -3550,7 +3550,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             return [name, ts, () => viaApi('POST', `/api/notices/${route}`, body, actor)]
         }
         const look = (name: string, actor: Actor = OWNER, list?: 'cleared'): Step => [name,
-            () => viaStore(() => store.notices({list, person: actor.person ?? 'steffen'})), () => viaApi('GET', `/api/notices${list ? `?list=${list}` : ''}`, undefined, actor)]
+            () => viaStore(() => store.notices({list, person: actor.person ?? 'sam'})), () => viaApi('GET', `/api/notices${list ? `?list=${list}` : ''}`, undefined, actor)]
         const steps: Step[] = [
             write('read by the owner', 'read', {ids: [told, question]}),
             write('read again', 'read', {ids: [told]}),
@@ -3561,7 +3561,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             look('the owner\'s bell, read'),
             look('Ada\'s bell, read', ADA),
             write('cleared by a session', 'clear', {ids: [told]}, SESSION),
-            write('read by the chat', 'read', {ids: [told]}, {name: 'steffen', owner: false, chat: true}),
+            write('read by the chat', 'read', {ids: [told]}, {name: 'sam', owner: false, chat: true}),
             write('cleared by id and a proposal', 'clear', {ids: [told], proposals: [{project: gear.project, issue: gear.issue}, {project: 'through-api', issue: 'nope'}]}),
             write('null ids with a proposal', 'clear', {ids: null, proposals: [{project: gear.project, issue: gear.issue}]}),
             write('a proposal that isn\'t one', 'clear', {proposals: [{project: 1}]}),
@@ -3845,7 +3845,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(await ask({'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...OWN_WORK})).toBe(200)
         // From outside, with people here, it checks a login itself (ORR-1038), whatever the router says of who it is.
         const outside = {'Orrery-Api-Token': TOKEN, 'Orrery-Database': databaseMark(setting), ...cameHeaders({loopback: true, proxied: false, phone: false, https: false}, 'localhost')}
-        expect([401, 503]).toContain(await ask({...outside, ...whoHeaders({person: 'steffen', owner: true, via: 'browser'}, undefined)}))
+        expect([401, 503]).toContain(await ask({...outside, ...whoHeaders({person: 'sam', owner: true, via: 'browser'}, undefined)}))
         await store.addPerson({name: 'Gate'}).catch(() => undefined)
         // On the board, as a member reads only the boards they're on (ORR-985).
         await store.addMember('through-api', {person: 'gate'}, OWNER).catch(() => undefined)
@@ -3861,7 +3861,7 @@ describe('the router', () => {
             'Orrery-Actor-Name': 'Ana%20Lu', 'Orrery-Actor-Owner': '0', 'Orrery-Actor-Kind': 'session', 'Orrery-Actor-Session': 'orrery%20%C2%B7%20Ty',
             'Orrery-Actor-Person': 'ana', 'Orrery-Actor-Named': 'Ana', 'Orrery-Actor-Asked': '1',
         })
-        expect(actorHeaders({name: 'steffen', owner: true})).toEqual({'Orrery-Actor-Name': 'steffen', 'Orrery-Actor-Owner': '1', 'Orrery-Actor-Kind': 'owner'})
+        expect(actorHeaders({name: 'sam', owner: true})).toEqual({'Orrery-Actor-Name': 'sam', 'Orrery-Actor-Owner': '1', 'Orrery-Actor-Kind': 'owner'})
     })
 
     it('sends the docs domain and the statuses to the API, and keeps an artifact\'s page and everything else here', () => {
@@ -3990,8 +3990,8 @@ describe('the router', () => {
         expect(toldOf('doc.created orrery how%2Dit, doc.changed orrery x')).toEqual([{type: 'doc.created', project: 'orrery', subject: 'how-it'}, {type: 'doc.changed', project: 'orrery', subject: 'x'}])
         expect(toldOf(null)).toEqual([])
         // Where a value went, `~` for none (ORR-927).
-        expect(toldOf('issue.assignee orrery ORR%2D1 ~ steffen, comment.asks orrery ORR%2D1 ~ decision')).toEqual([
-            {type: 'issue.assignee', project: 'orrery', subject: 'ORR-1', from: null, to: 'steffen'}, {type: 'comment.asks', project: 'orrery', subject: 'ORR-1', from: null, to: 'decision'},
+        expect(toldOf('issue.assignee orrery ORR%2D1 ~ sam, comment.asks orrery ORR%2D1 ~ decision')).toEqual([
+            {type: 'issue.assignee', project: 'orrery', subject: 'ORR-1', from: null, to: 'sam'}, {type: 'comment.asks', project: 'orrery', subject: 'ORR-1', from: null, to: 'decision'},
         ])
         expect(toldOf('issue.assignee orrery ORR%2D1 claude %7E')[0]).toMatchObject({from: 'claude', to: '~'})
         const said = (headers: Record<string, string>) => handedOn(new Headers(headers))

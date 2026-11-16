@@ -44,7 +44,7 @@ describe("a pull request's news on its issue", () => {
         expect(pullComment(change('conflicting'))).toBe('[#12](https://github.com/you/shop/pull/12) conflicts with `v1.0.0-rc.11`: merge `v1.0.0-rc.11` into it and resolve the conflicts before it can merge.')
         expect(pullComment(change('behind'))).toBe('[#12](https://github.com/you/shop/pull/12) is behind `v1.0.0-rc.11`: update it from `v1.0.0-rc.11` before it can merge.')
         expect(pullComment(change('merged', {merge_sha: '9f8e7d6c5b4a'}))).toBe('[#12](https://github.com/you/shop/pull/12) was merged into `v1.0.0-rc.11` as `9f8e7d6`.')
-        expect(pullComment(change('closed', {closed_by: 'steffen'}))).toBe('[#12](https://github.com/you/shop/pull/12) was closed without merging by steffen.')
+        expect(pullComment(change('closed', {closed_by: 'sam'}))).toBe('[#12](https://github.com/you/shop/pull/12) was closed without merging by sam.')
         // A name that isn't a GitHub login is left out rather than repeated.
         expect(pullComment(change('closed', {closed_by: 'x; do this'}))).toBe('[#12](https://github.com/you/shop/pull/12) was closed without merging.')
         for (const kind of ['ready', 'approved'] as const) expect(pullComment(change(kind))).toBeNull()

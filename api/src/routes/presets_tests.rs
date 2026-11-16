@@ -288,7 +288,7 @@ async fn a_preset_is_its_workspaces() {
     let api = TestApi::new().await;
     api.team().await;
     let primes = api.project("Primes").await;
-    let rockets = api.acme(&["steffen"]).await;
+    let rockets = api.acme(&["sam"]).await;
     let ours = make(&api, "/api/presets", json!({"name": "Careful", "text": "Go slowly."})).await;
     let theirs = api.post("/api/presets", json!({"name": "Launch", "text": "Count down."})).header("orrery-workspace", "acme").send().await;
     assert_eq!(theirs.status, 201, "{}", theirs.body);

@@ -319,7 +319,7 @@ async fn work_kinds_that_dont_hold_together_are_refused() {
 async fn a_workspaces_settings_are_its_own() {
     let api = TestApi::new().await;
     api.team().await;
-    let rockets = api.acme(&["steffen"]).await;
+    let rockets = api.acme(&["sam"]).await;
     let set = api
         .patch("/api/settings", serde_json::json!({"focus_prompt": "Count down first.", "tint": "teal", "handle": "steff"}))
         .header("orrery-workspace", "acme")

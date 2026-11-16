@@ -117,7 +117,7 @@ async fn an_approved_proposals_choices_are_what_was_picked() {
         {"key": "when", "question": "When?", "options": [{"key": "now", "title": "Now"}]},
     ]);
     api.run(
-        "UPDATE issues SET choices = ?, picks = ?, decided_by = 'steffen' WHERE id = ?",
+        "UPDATE issues SET choices = ?, picks = ?, decided_by = 'sam' WHERE id = ?",
         &[&choices.to_string(), &json!({"how": ["b", "gone"]}).to_string(), &id],
     )
     .await;

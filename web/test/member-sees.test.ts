@@ -17,7 +17,7 @@ afterEach(() => vi.unstubAllGlobals())
 describe('memberSees', () => {
     it('holds nobody back for the owner or with login off, and asks nothing', async () => {
         expect(await memberSees(eventOf())).toBeUndefined()
-        expect(await memberSees(eventOf({person: 'steffen', owner: true, via: 'browser'}))).toBeUndefined()
+        expect(await memberSees(eventOf({person: 'sam', owner: true, via: 'browser'}))).toBeUndefined()
         expect(asked).not.toHaveBeenCalled()
     })
 

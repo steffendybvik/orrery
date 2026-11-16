@@ -44,7 +44,7 @@ let api: Server
 let url = ''
 let asked: Asked[] = []
 let answer: {status: number, headers?: Record<string, string>, body?: string} = {status: 200, body: '{}'}
-let actor: {name: string, owner: boolean, session?: string} = {name: 'steffen', owner: true}
+let actor: {name: string, owner: boolean, session?: string} = {name: 'sam', owner: true}
 let chat = false
 let untrusted = false
 let session: string | undefined
@@ -95,7 +95,7 @@ beforeEach(() => {
     apiStarted({url, token: 't'.repeat(24)})
     asked = []
     answer = {status: 200, body: '{}'}
-    actor = {name: 'steffen', owner: true}
+    actor = {name: 'sam', owner: true}
     chat = false
     untrusted = false
     session = undefined
@@ -138,9 +138,9 @@ describe('a write the API answers, while this server follows no outbox', () => {
         expect(asked).toEqual([{method: 'PATCH', url: '/api/settings', body: '{"model":"x"}'}])
         expect(calls).toEqual(['settings', 'epics', 'schedules p', 'schedules q r'])
         expect(noted).toEqual([
-            {level: 'info', kind: 'settings.changed', message: 'steffen changed the settings: model, theme', details: {by: 'steffen', keys: ['model', 'theme']}},
-            {level: 'info', kind: 'schedule.asked', project: 'p', message: 'steffen asked on P-1 to move it to done', details: {issue: 'P-1', schedule: 3, fields: ['column', 'when']}},
-            {level: 'info', kind: 'schedule.answered', project: 'p', message: 'steffen denied the request on P-2 to wake it at 9', details: {issue: 'P-2', schedule: null, fields: [], allowed: false}},
+            {level: 'info', kind: 'settings.changed', message: 'sam changed the settings: model, theme', details: {by: 'sam', keys: ['model', 'theme']}},
+            {level: 'info', kind: 'schedule.asked', project: 'p', message: 'sam asked on P-1 to move it to done', details: {issue: 'P-1', schedule: 3, fields: ['column', 'when']}},
+            {level: 'info', kind: 'schedule.answered', project: 'p', message: 'sam denied the request on P-2 to wake it at 9', details: {issue: 'P-2', schedule: null, fields: [], allowed: false}},
         ])
         expect(outbox.caughtUp).toBe(0)
     })

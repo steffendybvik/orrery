@@ -10,16 +10,16 @@ async fn exported(api: &TestApi, project: &str) -> Value {
     reply.body
 }
 
-/// What the local app sends for `file`, to be board `id` with key `key`, held by steffen.
+/// What the local app sends for `file`, to be board `id` with key `key`, held by sam.
 fn sent(file: &Value, id: &str, key: &str) -> Value {
-    json!({"id": id, "key": key, "holder": "steffen", "project": file["project"], "exported_at": file["exported_at"],
+    json!({"id": id, "key": key, "holder": "sam", "project": file["project"], "exported_at": file["exported_at"],
         "statuses": file["statuses"], "people": file["people"], "uploads": file["uploads"], "tables": file["tables"]})
 }
 
 async fn primes(api: &TestApi) -> (String, Value) {
     api.owner().await;
     let project = api.project("Primes").await;
-    let top = api.issue(&project, json!({"title": "Sieve", "assignee": "steffen"})).await;
+    let top = api.issue(&project, json!({"title": "Sieve", "assignee": "sam"})).await;
     api.issue(&project, json!({"title": "Bitmap", "parent": top})).await;
     let said = api.post(&format!("/api/projects/{project}/issues/{top}/comments"), json!({"body": "Halfway"})).send().await;
     assert_eq!(said.status, 201, "{}", said.body);
@@ -40,8 +40,8 @@ async fn a_boards_file_comes_in_as_a_new_board_held_by_its_uploader() {
         1,
         "the sub-issue keeps its parent"
     );
-    assert_eq!(api.count("SELECT count(*) FROM issues WHERE project = 'copy' AND assignee = 'steffen'").await, 1, "a person here by name keeps theirs");
-    assert_eq!(api.count("SELECT count(*) FROM project_members WHERE project = 'copy' AND person = 'steffen' AND role = 'owner'").await, 1);
+    assert_eq!(api.count("SELECT count(*) FROM issues WHERE project = 'copy' AND assignee = 'sam'").await, 1, "a person here by name keeps theirs");
+    assert_eq!(api.count("SELECT count(*) FROM project_members WHERE project = 'copy' AND person = 'sam' AND role = 'owner'").await, 1);
     // The file's comments are the file's, asking nothing of anyone, and numbered here.
     assert_eq!(api.count("SELECT count(*) FROM comments WHERE project = 'copy' AND created_by LIKE '% (from a file)' AND cleared = 1").await, 1);
     assert_eq!(api.count("SELECT count(*) FROM comments").await, 2);
@@ -117,7 +117,7 @@ async fn an_image_that_isnt_one_is_refused() {
 async fn a_board_comes_into_its_uploaders_workspace() {
     let api = TestApi::new().await;
     let (_, file) = primes(&api).await;
-    api.acme(&["steffen"]).await;
+    api.acme(&["sam"]).await;
     let mut body = sent(&file, "copy", "CPY");
     let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
     body["uploads"] = json!([{"id": "0123456789abcdef01234567", "data": png, "name": "dot.png"}]);
@@ -127,7 +127,7 @@ async fn a_board_comes_into_its_uploaders_workspace() {
     assert_eq!(api.count("SELECT count(*) FROM uploads WHERE id = '0123456789abcdef01234567' AND workspace = 'acme'").await, 1);
     sqlx::query("DELETE FROM workspace_members WHERE workspace = 'acme'").execute(&api.app.pool).await.unwrap();
     let refused = api.post("/api/boards", sent(&file, "other", "OTH")).header("orrery-workspace", "acme").send().await;
-    assert_eq!(refused.status, 404, "steffen isn't in Acme now: {}", refused.body);
+    assert_eq!(refused.status, 404, "sam isn't in Acme now: {}", refused.body);
 }
 
 /// Into another workspace, a board takes that workspace's statuses alone (ORR-1110): by id, else by name, else by kind.
@@ -135,7 +135,7 @@ async fn a_board_comes_into_its_uploaders_workspace() {
 async fn a_board_in_another_workspace_takes_its_statuses_by_name_then_kind() {
     let api = TestApi::new().await;
     let (_, mut file) = primes(&api).await;
-    api.acme(&["steffen"]).await;
+    api.acme(&["sam"]).await;
     for (id, name, kind, position) in
         [("acme-todo", "To do", "todo", "0"), ("acme-review", "In review", "started", "1"), ("acme-doing", "Doing", "started", "2")]
     {
@@ -170,7 +170,7 @@ async fn the_owners_own_board_keeps_who_said_what_and_its_prompts() {
     let file = exported(&api, &project).await;
     let mut body = sent(&file, "copy", "CPY");
     body["own"] = json!(true);
-    let refused = api.post("/api/boards", body.clone()).by_agent("steffen").send().await;
+    let refused = api.post("/api/boards", body.clone()).by_agent("sam").send().await;
     assert_eq!(refused.status, 403, "{}", refused.body);
     let reply = api.post("/api/boards", body).send().await;
     assert_eq!(reply.status, 201, "{}", reply.body);

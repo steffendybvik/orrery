@@ -65,7 +65,7 @@ beforeEach(async () => {
         listIssues: async () => issues,
         lastWorked: async () => lastWorked,
         focus: async (...args: unknown[]) => void carried.push(args),
-        ownerOf: async () => ({name: 'steffen'}),
+        ownerOf: async () => ({name: 'sam'}),
     }))
     vi.resetModules()
     clearing = await import('../server/utils/clearing')
@@ -186,7 +186,7 @@ describe('a session orrery started, gone idle', () => {
 })
 
 describe("a session's run", () => {
-    const signal = (more: object) => ({id: 1, project: 'orrery', kind: 'focus', delivered_to: [], instructions: [], created_by: 'steffen', protected: true, created_at: '', ...more}) as never
+    const signal = (more: object) => ({id: 1, project: 'orrery', kind: 'focus', delivered_to: [], instructions: [], created_by: 'sam', protected: true, created_at: '', ...more}) as never
 
     it('is the last milestone or scope focus it was handed, found by any id it has had', () => {
         clearing.startRun('w-before', signal({milestone: 'all', status: 'todo'}))
@@ -213,7 +213,7 @@ describe("a session's run", () => {
         left = [{id: 'ORR-2'}]
         expect(await clearing.resumeRun('elsewhere', 'w')).toBe(false)
         expect(await clearing.resumeRun('orrery', 'w')).toBe(true)
-        expect(focused).toEqual([['orrery', 'all', {session: 'w', status: 'todo,started', release: '1.2', note: "Carry on with what's left of it after the clear."}, {name: 'steffen', owner: true}]])
+        expect(focused).toEqual([['orrery', 'all', {session: 'w', status: 'todo,started', release: '1.2', note: "Carry on with what's left of it after the clear."}, {name: 'sam', owner: true}]])
         // Nothing left has changed since: it isn't sent again, so a session that won't take it isn't kept going round.
         expect(await clearing.resumeRun('orrery', 'w')).toBe(false)
         left = [{id: 'ORR-2', updated_at: 'later'}]
@@ -230,7 +230,7 @@ describe("a session's run", () => {
 
 describe('a session gone idle on an issue with sub-issues to do', () => {
     const sub = (id: string, more: object = {}) => ({id, parent: 'ORR-1', kind: 'todo', column: 'todo', labels: [], updated_at: 't1', ...more})
-    const owners = (id: string) => ['orrery', id, {session: 'w', note: clearing.CARRY_ON}, {name: 'steffen', owner: true}]
+    const owners = (id: string) => ['orrery', id, {session: 'w', note: clearing.CARRY_ON}, {name: 'sam', owner: true}]
 
     beforeEach(() => {
         working = ['ORR-1']
@@ -314,7 +314,7 @@ describe('a session gone idle on an issue with sub-issues to do', () => {
 
 describe('a session orrery started, gone idle after closing a sub-issue (ORR-903)', () => {
     const sub = (id: string, more: object = {}) => ({id, parent: 'ORR-1', kind: 'todo', column: 'todo', labels: [], updated_at: 't1', ...more})
-    const owners = (id: string) => ['orrery', id, {session: 'w', note: clearing.CARRY_ON}, {name: 'steffen', owner: true}]
+    const owners = (id: string) => ['orrery', id, {session: 'w', note: clearing.CARRY_ON}, {name: 'sam', owner: true}]
     const idle = async (at: number) => {
         session = {...session!, idleAt: at}
         clearing.considerClear('orrery', 'w')
@@ -501,7 +501,7 @@ describe('a session orrery started, gone idle on the issue it carried another\'s
         expect(sent).toEqual([{type: 'clear', project: 'orrery', id: 'l1'}])
         expect(carried).toEqual([])
         expect(clearing.clearDone('w')).toBe(true)
-        expect(carried).toEqual([['orrery', 'ORR-2', {session: 'w', note: clearing.AFTER_CLEAR}, {name: 'steffen', owner: true}]])
+        expect(carried).toEqual([['orrery', 'ORR-2', {session: 'w', note: clearing.AFTER_CLEAR}, {name: 'sam', owner: true}]])
         // The focus back doesn't end a run it was working through.
         clearing.startRun('w', {kind: 'focus', project: 'orrery', milestone: '1'} as never)
         clearing.startRun('w', {kind: 'focus', project: 'orrery', issue: 'ORR-2', note: clearing.AFTER_CLEAR} as never)

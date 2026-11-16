@@ -926,7 +926,7 @@ async fn an_approved_proposal_goes_to_the_person_whose_agent_proposed_it() {
     let board = Board::new(&api).await;
     let reply = api.post(&board.issues(), json!({"title": "Sieve", "proposal": "pending"})).agent_of("ana").send().await;
     assert_eq!(reply.status, 201, "{}", reply.body);
-    assert_eq!(reply.body["assignee"], json!("steffen"), "it waits on the owner");
+    assert_eq!(reply.body["assignee"], json!("sam"), "it waits on the owner");
     let id = reply.body["id"].as_str().unwrap().to_string();
     // Its agent's to edit while it waits, though it's the owner's; another person's agent's not.
     let reply = api.patch(&board.at(&id), json!({"title": "Segmented sieve"})).agent_of("ana").send().await;
@@ -1062,13 +1062,13 @@ async fn the_owner_takes_up_an_issue_and_lets_it_go_and_it_stays_theirs() {
     let claim = format!("{}/claim", board.at(&id));
     let reply = api.post(&claim, json!({})).send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
-    assert_eq!((&reply.body["assignee"], &reply.body["claimed_by"]), (&json!("steffen"), &json!("steffen")));
+    assert_eq!((&reply.body["assignee"], &reply.body["claimed_by"]), (&json!("sam"), &json!("sam")));
     assert!(reply.body["claimed_at"].is_string());
-    assert_eq!(reply.told(), ["issue.assignee primes PRI-1 ~ steffen", "issue.claim primes PRI-1 ~ steffen"]);
+    assert_eq!(reply.told(), ["issue.assignee primes PRI-1 ~ sam", "issue.claim primes PRI-1 ~ sam"]);
     let reply = api.delete(&claim).send().await;
     assert_eq!(reply.status, 200);
-    assert_eq!((&reply.body["assignee"], reply.body.get("claimed_by")), (&json!("steffen"), None));
-    assert_eq!(reply.told(), ["issue.claim primes PRI-1 steffen ~"]);
+    assert_eq!((&reply.body["assignee"], reply.body.get("claimed_by")), (&json!("sam"), None));
+    assert_eq!(reply.told(), ["issue.claim primes PRI-1 sam ~"]);
     // Letting go of what nobody holds changes nothing.
     let reply = api.delete(&claim).send().await;
     assert_eq!((reply.status.as_u16(), reply.header("orrery-told")), (200, None));
@@ -1192,8 +1192,8 @@ async fn the_owner_takes_over_anothers_claim() {
     api.post(&claim, json!({})).agent_of("bo").send().await;
     let reply = api.post(&claim, json!({})).send().await;
     assert_eq!(reply.status, 200);
-    assert_eq!((&reply.body["assignee"], &reply.body["claimed_by"]), (&json!("steffen"), &json!("steffen")));
-    assert_eq!(reply.told(), ["issue.assignee primes PRI-1 bo steffen", "issue.claim primes PRI-1 bo steffen"]);
+    assert_eq!((&reply.body["assignee"], &reply.body["claimed_by"]), (&json!("sam"), &json!("sam")));
+    assert_eq!(reply.told(), ["issue.assignee primes PRI-1 bo sam", "issue.claim primes PRI-1 bo sam"]);
 }
 
 // The rails on changing an issue.
@@ -1211,7 +1211,7 @@ async fn an_agent_cant_change_another_persons_issue() {
     // `claude` counts as the owner's, and one who isn't a person as nobody.
     let claudes = board.assigned("Wheel", "claude").await;
     let reply = api.patch(&board.at(&claudes), json!({"priority": "P1"})).agent_of("ana").send().await;
-    assert!(message(&reply).starts_with("PRI-2 is assigned to steffen"), "{}", reply.body);
+    assert!(message(&reply).starts_with("PRI-2 is assigned to sam"), "{}", reply.body);
     let strangers = board.assigned("Gap", "zed").await;
     let reply = api.patch(&board.at(&strangers), json!({"priority": "P1"})).agent_of("ana").send().await;
     assert!(message(&reply).starts_with("PRI-3 is assigned to nobody"), "{}", reply.body);
@@ -1270,7 +1270,7 @@ async fn an_agent_hands_its_issue_back_to_the_owner_but_never_to_someone_else() 
     api.post(&format!("{}/claim", board.at(&id)), json!({})).agent_of("ana").send().await;
     let reply = api.patch(&board.at(&id), json!({"assignee": "owner"})).agent_of("ana").send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
-    assert_eq!((&reply.body["assignee"], reply.body.get("claimed_by")), (&json!("steffen"), None), "handed on, the claim ends");
+    assert_eq!((&reply.body["assignee"], reply.body.get("claimed_by")), (&json!("sam"), None), "handed on, the claim ends");
 }
 
 #[tokio::test]
@@ -1342,7 +1342,7 @@ async fn an_agents_new_issue_at_the_top_stays_nobodys() {
     let reply = api.post(&board.issues(), json!({"title": "Sieve", "assignee": "ana"})).agent_of("ana").send().await;
     assert_eq!((reply.status.as_u16(), message(&reply)), (409, "Only people assign: a new issue stays unassigned until one does"), "nor to its own person");
     let reply = api.post(&board.issues(), json!({"title": "Sieve", "assignee": "owner"})).agent_of("ana").send().await;
-    assert_eq!((reply.status.as_u16(), &reply.body["assignee"]), (201, &json!("steffen")), "it can ask for the owner");
+    assert_eq!((reply.status.as_u16(), &reply.body["assignee"]), (201, &json!("sam")), "it can ask for the owner");
     for status in ["in-progress", "done"] {
         let reply = api.post(&board.issues(), json!({"title": "Sieve", "status": status})).agent_of("ana").send().await;
         assert_eq!(reply.status, 409);
@@ -1364,7 +1364,7 @@ async fn an_agents_sub_issue_under_its_persons_issue_is_theirs_and_started_is_ta
     assert_eq!(reply.status, 201, "{}", reply.body);
     assert_eq!((&reply.body["assignee"], &reply.body["claimed_by"]), (&json!("ana"), &json!("ana")));
     let reply = api.post(&board.issues(), json!({"title": "Idea", "parent": anas, "proposal": "pending"})).agent_of("ana").send().await;
-    assert_eq!(reply.body["assignee"], json!("steffen"), "a proposal waits on the owner");
+    assert_eq!(reply.body["assignee"], json!("sam"), "a proposal waits on the owner");
     let reply = api.post(&board.issues(), json!({"title": "Sieve", "parent": bos})).agent_of("ana").send().await;
     assert_eq!(reply.status, 409);
     assert!(message(&reply).ends_with("so it can't file a sub-issue under it; comment on it instead, or pick another issue"), "{}", reply.body);

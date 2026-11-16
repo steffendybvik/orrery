@@ -24,9 +24,9 @@ async fn each_person_lists_the_workspaces_they_are_in() {
     assert_eq!(bo.body[0]["role"], "member");
     assert_eq!(bo.body[1], json!({"id": "acme", "name": "Acme", "color": null, "role": "member"}));
 
-    let steffen = as_person(&api, api.get("/api/workspaces"), "steffen").await;
-    assert_eq!(ids(&steffen.body), vec!["default"], "owning the server gives no way into Acme");
-    assert_eq!(steffen.body[0]["role"], "owner");
+    let sam = as_person(&api, api.get("/api/workspaces"), "sam").await;
+    assert_eq!(ids(&sam.body), vec!["default"], "owning the server gives no way into Acme");
+    assert_eq!(sam.body[0]["role"], "owner");
 
     let all = api.get("/api/workspaces").send().await;
     assert_eq!(ids(&all.body), vec!["default", "acme"], "the Nuxt server's own work reaches every one");
@@ -90,8 +90,8 @@ async fn only_its_owners_change_a_workspace() {
 
     let ana = as_person(&api, api.patch("/api/workspaces/acme", json!({"name": "Mine"})), "ana").await;
     assert_eq!(ana.status, 403, "a member: {}", ana.body);
-    let steffen = as_person(&api, api.patch("/api/workspaces/acme", json!({"name": "Mine"})), "steffen").await;
-    assert_eq!(steffen.status, 404, "not in it: {}", steffen.body);
+    let sam = as_person(&api, api.patch("/api/workspaces/acme", json!({"name": "Mine"})), "sam").await;
+    assert_eq!(sam.status, 404, "not in it: {}", sam.body);
     let none = as_person(&api, api.patch("/api/workspaces/nowhere", json!({"name": "Mine"})), "bo").await;
     assert_eq!(none.status, 404, "{}", none.body);
 }
