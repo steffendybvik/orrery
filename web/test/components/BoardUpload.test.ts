@@ -5,10 +5,11 @@ import {mountSuspended, registerEndpoint} from '@nuxt/test-utils/runtime'
 import {getQuery, readRawBody, setResponseStatus} from 'h3'
 import BoardUpload from '~/components/BoardUpload.vue'
 
-// A board's file brought in as a new board from a project's Settings (ORR-747, ORR-866): it uploads as soon as it's
-// picked, and an id or key already taken keeps the file waiting while the owner picks others, or cancels.
+// A board's file brought in as a new board from App settings (ORR-747, ORR-866, ORR-1248): it uploads as soon as it's
+// picked, and an id or key already taken keeps the file waiting while the owner picks others, or cancels. Its images
+// can be left out, which is the way through when a proxy refuses the file as too big.
 const sent: {query: Record<string, unknown>, body: string | undefined}[] = []
-let answers: ('taken' | 'broken' | 'made')[] = []
+let answers: ('taken' | 'broken' | 'big' | 'made')[] = []
 // A write goes as the owner, who the page asks for first.
 registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Sköll', named: true}))
 registerEndpoint('/api/projects/upload', {method: 'POST', handler: async event => {
@@ -21,6 +22,7 @@ registerEndpoint('/api/projects/upload', {method: 'POST', handler: async event =
     }
     if (answer === 'taken') return refused(409, 'A project with the id shop already exists')
     if (answer === 'broken') return refused(400, 'That file is not a board export')
+    if (answer === 'big') return refused(413, 'Payload Too Large')
     return {id: 'shop-2', name: 'Shop'}
 }})
 
@@ -91,5 +93,25 @@ describe('uploading a board', () => {
         await pick(wrapper, 'nope')
         expect(wrapper.text()).toContain('not a board export')
         expect(wrapper.find('form').exists()).toBe(false)
+    })
+
+    it('leaves the images out of what it sends, when asked to', async () => {
+        answers = ['made']
+        const wrapper = await mountUpload()
+        await wrapper.find('input[type="checkbox"]').setValue(true)
+        await pick(wrapper, '{"project":"shop","uploads":[{"id":"a","data":"AQID"}],"tables":{}}')
+        expect(JSON.parse(sent[0]!.body!)).toEqual({project: 'shop', uploads: [], tables: {}})
+    })
+
+    it('says plainly when the file is refused as too big, and sends it again without its images', async () => {
+        answers = ['big', 'made']
+        const wrapper = await mountUpload()
+        await pick(wrapper, '{"project":"shop","uploads":[{"id":"a","data":"AQID"}],"tables":{}}')
+        expect(wrapper.text()).toContain('caps what one request can carry')
+        expect(JSON.parse(sent[0]!.body!).uploads).toHaveLength(1)
+        await wrapper.findAll('button').find(b => b.text() === 'Upload it without images')!.trigger('click')
+        await settle()
+        expect(JSON.parse(sent[1]!.body!).uploads).toEqual([])
+        await vi.waitFor(() => expect(useRouter().currentRoute.value.path).toBe('/p/shop-2'), {timeout: 5000})
     })
 })

@@ -134,7 +134,7 @@ test('copied without its key, the secrets won\'t open and say to set them again'
 
 test('brings a board into a fresh orrery from its file, with its comments, pictures and docs', async ({page}) => {
     await start('mac')
-    const file = await (await call('/api/projects/observatory/export')).text()
+    const file = await (await call('/api/projects/observatory/export?uploads=1')).text()
     await stop()
 
     await start('fresh')
