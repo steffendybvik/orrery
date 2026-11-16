@@ -572,6 +572,7 @@ const workspaceEdge = computed(() => workspaceColor(workspaceHere.value?.color))
         <span><KeyHint>g</KeyHint> <KeyHint>m</KeyHint> home</span>
       </div>
       <ActingAs />
+      <SignedIn />
       <NewVersionNotice />
       <p class="mt-1.5 px-2 font-mono text-[10px] text-faint">
         <a v-if="!dev" :href="`https://github.com/steffendybvik/orrery/blob/v${version}/CHANGELOG.md`" target="_blank" rel="noopener" class="hover:text-fg hover:underline" title="What's in this version">v{{ version }}</a>
