@@ -1,7 +1,7 @@
 # Tests, typecheck and the production image, on every push and pull request; also the gate a release
-# tag has to pass before `release.yml` publishes anything. The e2e flows and the performance run, on SQLite and on Postgres,
-# run on a pull request into `main` that isn't a draft, on a release tag, and by hand (Run workflow); any other pull request runs the unit tests alone.
-# The flows also run on Safari's engine and Firefox then, on SQLite. Every job runs with the Rust API in front, as it's
+# tag has to pass before `release.yml` publishes anything. The e2e flows in Chrome on SQLite, and the performance run on SQLite
+# and on Postgres, run on a pull request into `main` that isn't a draft, on a release tag, and by hand (Run workflow); any
+# other pull request runs the unit tests alone. Safari's engine and Firefox run a smaller set of the flows then (ORR-1269). Every job runs with the Rust API in front, as it's
 # no longer opt-in (ORR-1091).
 name: CI
 
@@ -208,9 +208,12 @@ jobs:
       - id: version
         run: echo "version=$(jq -r '.devDependencies["@playwright/test"]' web/package.json)" >> "$GITHUB_OUTPUT"
 
-  # Once on SQLite and once on Postgres: the service only starts for the Postgres run (no image, no service). Each in
-  # three shards side by side, each its own server and database with a share of the specs (web/e2e-shards.ts, ORR-920):
-  # whole, a suite took 15 to 25 minutes, and a flaky one run again took a release past 40.
+  # In Chrome on SQLite, in three shards side by side, each its own server and database with a share of the specs
+  # (web/e2e-shards.ts, ORR-920): whole, a suite took 15 to 25 minutes, and a flaky one run again took a release past 40.
+  # Not on Postgres: the browser can't tell which database is behind the Rust API, and the api job runs parity and the
+  # migrations on Postgres; the perf job still runs on both (ORR-1269).
+  # WebKit and Firefox run the specs where an engine differs (CROSS_BROWSER in web/playwright.config.ts), one job each:
+  # the whole suite in them took nine jobs and failed most on timing, not on what the engine did (ORR-1269).
   e2e:
     # The Rust API serves the board's data, its Nuxt routes gone (ORR-1041), so the server starts the api job's binary.
     needs: [playwright, api]
@@ -220,34 +223,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        database: [sqlite, postgres]
         browser: [chromium]
-        shard: [1, 2, 3]
+        shard: ['1', '2', '3']
         include:
-          - {database: sqlite, browser: webkit, shard: 1}
-          - {database: sqlite, browser: webkit, shard: 2}
-          - {database: sqlite, browser: webkit, shard: 3}
-          - {database: sqlite, browser: firefox, shard: 1}
-          - {database: sqlite, browser: firefox, shard: 2}
-          - {database: sqlite, browser: firefox, shard: 3}
+          - {browser: webkit, shard: cross}
+          - {browser: firefox, shard: cross}
     # Playwright's own image has the browser and the system libraries it needs. Installing those with apt on
     # every run took from 10 seconds to 11 minutes, as Ubuntu's mirror allowed.
     container:
       image: mcr.microsoft.com/playwright:v${{ needs.playwright.outputs.version }}-noble
       options: --ipc=host
-    services:
-      postgres:
-        image: ${{ matrix.database == 'postgres' && 'postgres:17-alpine' || '' }}
-        env:
-          POSTGRES_USER: orrery
-          POSTGRES_PASSWORD: orrery
-          POSTGRES_DB: orrery_e2e
-        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      # The job runs in a container, so the service is reached by its name.
-      E2E_POSTGRES_URL: ${{ matrix.database == 'postgres' && 'postgres://orrery:orrery@postgres:5432/orrery_e2e' || '' }}
       E2E_BROWSER: ${{ matrix.browser }}
-      E2E_SHARD: ${{ matrix.shard }}/3
+      E2E_SHARD: ${{ matrix.shard != 'cross' && format('{0}/3', matrix.shard) || '' }}
+      E2E_CROSS_BROWSER: ${{ matrix.shard == 'cross' && '1' || '' }}
       NUXT_API_BIN: ${{ github.workspace }}/.api/orrery-api
     steps:
       - uses: actions/checkout@v7
@@ -268,19 +257,19 @@ jobs:
         env:
           # The image runs as root, and Firefox won't start with a home folder that's another user's.
           HOME: /root
-          NODE_V8_COVERAGE: ${{ matrix.database == 'sqlite' && matrix.browser == 'chromium' && format('{0}/.v8-e2e', github.workspace) || '' }}
+          NODE_V8_COVERAGE: ${{ matrix.browser == 'chromium' && format('{0}/.v8-e2e', github.workspace) || '' }}
           # What the page's own code ran in Chrome (ORR-784) is off for now: with it, pages took past 5s to load early in the
           # run, so specs failed from the first minute and the job ran out of time (ORR-912). `pnpm test:e2e` with
           # E2E_PAGE_COVERAGE set still collects it.
           E2E_PAGE_COVERAGE: ''
       - run: node web/scripts/coverage-lines.mjs --v8 .v8-e2e --pages .page-e2e --out web/e2e-lines.json
-        if: ${{ !cancelled() && matrix.database == 'sqlite' && matrix.browser == 'chromium' }}
+        if: ${{ !cancelled() && matrix.browser == 'chromium' }}
         continue-on-error: true
       - run: pnpm test:e2e:login
-        if: matrix.database == 'sqlite' && matrix.browser == 'chromium' && matrix.shard == 1
+        if: matrix.browser == 'chromium' && matrix.shard == '1'
       # This shard's results and lines, which e2e-report puts together with the other shards'; a failed shard's too.
       - uses: actions/upload-artifact@v7
-        if: ${{ !cancelled() && matrix.database == 'sqlite' && matrix.browser == 'chromium' }}
+        if: ${{ !cancelled() && matrix.browser == 'chromium' }}
         with:
           name: e2e-shard-${{ matrix.shard }}
           path: |
@@ -292,7 +281,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: failure() || cancelled()
         with:
-          name: playwright-report-${{ matrix.database }}-${{ matrix.browser }}-${{ matrix.shard }}
+          name: playwright-report-${{ matrix.browser }}-${{ matrix.shard }}
           path: web/playwright-report/
           retention-days: 7
 

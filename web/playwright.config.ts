@@ -1,7 +1,8 @@
 // The main flows in a real browser (`pnpm test:e2e`): `nuxt dev` on a port of its own (one per checkout, e2e-port.ts),
 // with a database made fresh for each run, so the tests start from an empty orrery whose owner has no name yet. A SQLite
 // file by default; with E2E_POSTGRES_URL (a database named for it, `orrery_e2e`), that Postgres, emptied first.
-// Chrome by default; E2E_BROWSER=webkit or firefox runs them in that one. One at a time, as each needs an orrery of its own.
+// Chrome by default; E2E_BROWSER=webkit or firefox runs them in that one, and E2E_CROSS_BROWSER=1 only the specs CI runs
+// there. One at a time, as each needs an orrery of its own.
 import {readdirSync, readFileSync} from 'node:fs'
 import {defineConfig, devices} from '@playwright/test'
 import {e2ePort} from './e2e-port'
@@ -33,6 +34,12 @@ const beforeLast = ['free', 'sessions', 'settings']
 const shard = whole ? shardSetting(process.env.E2E_SHARD) : null
 // The page walks, which load every page in turn: no two in one shard where it can be helped.
 const WALKS = specs(['navigation', 'a11y', 'wcag-light', 'wcag-dark'])
+// What WebKit and Firefox run on CI (`E2E_CROSS_BROWSER=1`, ORR-1269): the specs where one engine differs from another
+// (drag and drop, the keyboard, selection, text and markdown, small screens, uploads), not the whole suite, which Chrome
+// runs. Only free specs, so they run side by side with no group to take turns with.
+const CROSS_BROWSER = specs(['board-drag', 'board-upload', 'comments', 'docs', 'image-view', 'issues', 'keyboard', 'markdown',
+    'mobile', 'phone', 'roadmap', 'selection', 'theme'])
+const cross = whole && process.env.E2E_CROSS_BROWSER
 const groupOf = (file: string): Group => {
     const name = file.replace(/\.spec\.ts$/, '')
     return SESSIONS.includes(name) ? 'sessions' : SETTINGS.includes(name) ? 'settings' : ALONE.includes(name) ? 'alone' : 'free'
@@ -65,7 +72,9 @@ export default defineConfig({
     use: {baseURL: `http://localhost:${port}`, trace: 'retain-on-failure'},
     projects: [
         {name: 'first-run', testMatch: 'first-run.spec.ts', use: chrome},
-        ...whole
+        ...cross
+            ? [{name: 'cross-browser', testMatch: CROSS_BROWSER, dependencies: ['first-run'], use: chrome}]
+            : whole
             ? [
                 mine
                     ? {name: 'free', testMatch: share('free', []), dependencies: ['first-run'], use: chrome}

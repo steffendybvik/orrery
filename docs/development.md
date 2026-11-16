@@ -232,14 +232,16 @@ touched, on a port of the checkout's own (3100–3299, from its path, `web/e2e-p
 sessions running it from their own worktrees at once don't share a server (`pnpm worktrees` tidies up those left behind). The first time, and after `@playwright/test` is bumped, get its browser with `pnpm exec playwright install
 chromium`. With `E2E_POSTGRES_URL` set it runs on that Postgres instead, emptied first, so its database's name
 has to say e2e (`postgres://orrery:orrery@localhost:5432/orrery_e2e`). `E2E_BROWSER=webkit` or `firefox` runs it in that browser
-instead of Chrome. `E2E_SHARD=2/3` runs one shard of the whole suite (ORR-920): first-run, then its share of each group's
+instead of Chrome, and with `E2E_CROSS_BROWSER=1` only the specs where one engine differs from another (`CROSS_BROWSER` in
+`playwright.config.ts`: drag and drop, the keyboard, selection, markdown, small screens, uploads; ORR-1269). `E2E_SHARD=2/3` runs one shard of the whole suite (ORR-920): first-run, then its share of each group's
 specs, as the whole suite runs them, on a server of its own. `web/e2e-shards.ts` shares them out by how long each took
 (`e2e/durations.json`; a spec it doesn't list counts as a middling one), and `test/e2e-shards.test.ts` checks every spec
 lands in one shard. When the shards drift apart, refresh the times from a run's report with
 `node scripts/e2e-durations.mjs e2e-results.json`. Playwright's own `--shard` doesn't do here: the last group depends on
-the others, so it would run them whole in every shard. CI runs it in Playwright's own image of that version, once on
-each database, then on SQLite in each of those two, each as three shards at once, and its `e2e-report` job merges the
-SQLite and Chrome shards' results and coverage into the one `test-results-e2e` artifact. A failed run leaves a trace to replay with `pnpm exec playwright show-trace test-results/…/trace.zip`.
+the others, so it would run them whole in every shard. CI runs it in Playwright's own image of that version, in Chrome on
+SQLite as three shards at once, and the cross-browser specs in WebKit and in Firefox, a job each; its `e2e-report` job
+merges the Chrome shards' results and coverage into the one `test-results-e2e` artifact. Not on Postgres: the browser
+can't tell which database is behind the Rust API, and the `api` job runs parity and the migrations there (ORR-1269). A failed run leaves a trace to replay with `pnpm exec playwright show-trace test-results/…/trace.zip`.
 
 `e2e/visual.spec.ts` compares the board, the list and an issue's page to stored images. They're Linux's, so off
 Linux the spec skips; `pnpm test:e2e:visual` (in `web/`) runs it in CI's Playwright image through Docker, and
