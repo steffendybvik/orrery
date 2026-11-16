@@ -102,8 +102,10 @@ export const DOMAINS: readonly {domain: string, paths: RegExp, methods?: readonl
     {domain: 'keys', paths: /^keys(\/[^/]+)?$/},
     {domain: 'logins', paths: /^logins(\/[^/]+)?$/},
     // An image kept for Markdown, read (ORR-927), and kept, compressed in Rust as compress.ts does here (ORR-1058).
-    {domain: 'uploads, reading', paths: /^uploads\/[^/]+$/, methods: ['GET']},
+    // The workspace's images listed, and those nothing shows removed, one or all at once (ORR-1250).
+    {domain: 'uploads, reading', paths: /^uploads(\/[^/]+)?$/, methods: ['GET']},
     {domain: 'an upload, kept', paths: /^uploads$/, methods: ['POST']},
+    {domain: 'uploads, removed', paths: /^uploads(\/[^/]+)?$/, methods: ['DELETE']},
     // The orrery's presets and a project's own (ORR-949). Seeding the ones orrery ships (`presets/seed`, ORR-1136) is
     // this server's own call to the API as it starts, so it isn't sent on from outside.
     {domain: 'presets', paths: /^(presets(\/(?!seed$)[^/]+(\/reset)?)?|projects\/[^/]+\/presets)$/},

@@ -201,3 +201,112 @@ async fn an_upload_is_its_workspaces_alone() {
         .unwrap();
     assert_eq!(workspace.0, "default");
 }
+
+/// Keeps an image made at `at`, in `workspace`, straight into the table.
+async fn keep_at(api: &TestApi, id: &str, size: usize, at: &str, workspace: &str) {
+    sqlx::query(&crate::db::sql(
+        "INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at, workspace) VALUES (?, 'image/png', NULL, ?, ?, 'claude', 0, ?, ?)",
+    ))
+    .bind(id)
+    .bind(size as i64)
+    .bind(vec![0_u8; size])
+    .bind(at)
+    .bind(workspace)
+    .execute(&api.app.pool)
+    .await
+    .unwrap();
+}
+
+const SHOWN: &str = "aaaaaaaaaaaaaaaaaaaaaaaa";
+const OLD: &str = "bbbbbbbbbbbbbbbbbbbbbbbb";
+const YOUNG: &str = "cccccccccccccccccccccccc";
+const IN_DOC: &str = "dddddddddddddddddddddddd";
+
+/// Four images: one an issue shows, one a doc's old revision shows, one nothing shows from last week, and one nothing
+/// shows yet that came a minute ago.
+async fn four(api: &TestApi) -> String {
+    let project = api.project("Lid").await;
+    for id in [SHOWN, OLD, IN_DOC] {
+        keep_at(api, id, 100, "2026-11-01T00:00:00.000Z", "default").await;
+    }
+    keep_at(api, YOUNG, 7, &crate::write::stamp(), "default").await;
+    let made = api
+        .post(&format!("/api/projects/{project}/issues"), json!({"title": "Varnish the lid", "notes": format!("![lid](/api/uploads/{SHOWN})")}))
+        .send()
+        .await;
+    assert_eq!(made.status, 201, "{}", made.body);
+    let doc = api
+        .post(
+            &format!("/api/projects/{project}/docs"),
+            json!({"id": "lid", "title": "Lid", "body": format!("![lid](https://orrery.example/api/uploads/{IN_DOC})")}),
+        )
+        .send()
+        .await;
+    assert!(doc.status.is_success(), "{}", doc.body);
+    project
+}
+
+#[tokio::test]
+async fn lists_the_workspaces_images_and_which_nothing_shows() {
+    let api = TestApi::new().await;
+    four(&api).await;
+    let all = api.get("/api/uploads").send().await;
+    assert_eq!(all.status, 200, "{}", all.body);
+    assert_eq!(all.body["count"], 4);
+    let by_id = |id: &str| all.body["uploads"].as_array().unwrap().iter().find(|u| u["id"] == id).cloned().unwrap();
+    assert_eq!((by_id(SHOWN)["used"].clone(), by_id(SHOWN)["unused"].clone()), (json!(true), json!(false)));
+    assert_eq!(by_id(IN_DOC)["used"], true, "a doc shows it, by its whole address too");
+    assert_eq!((by_id(OLD)["used"].clone(), by_id(OLD)["unused"].clone()), (json!(false), json!(true)));
+    assert_eq!((by_id(YOUNG)["used"].clone(), by_id(YOUNG)["unused"].clone()), (json!(false), json!(false)), "a day's grace, for one being written in");
+    assert_eq!(by_id(OLD)["created_by"], "claude");
+
+    let unused = api.get("/api/uploads?unused=1").send().await;
+    assert_eq!(unused.body["count"], 1);
+    assert_eq!(unused.body["size"], 100);
+    assert_eq!(unused.body["uploads"][0]["id"], OLD);
+}
+
+#[tokio::test]
+async fn the_owner_removes_an_image_nothing_shows_and_never_one_that_is_shown() {
+    let api = TestApi::new().await;
+    four(&api).await;
+    let shown = api.delete(&format!("/api/uploads/{SHOWN}")).send().await;
+    assert_eq!(shown.status, 409, "{}", shown.body);
+    assert_eq!(api.get(&format!("/api/uploads/{SHOWN}")).send().await.status, 200, "still there");
+    assert_eq!(api.delete(&format!("/api/uploads/{OLD}")).by_agent("claude").send().await.status, 403, "the owner's alone");
+    assert_eq!(api.delete(&format!("/api/uploads/{OLD}")).send().await.status, 204);
+    assert_eq!(api.get(&format!("/api/uploads/{OLD}")).send().await.status, 404);
+    assert_eq!(api.delete(&format!("/api/uploads/{OLD}")).send().await.status, 404, "gone");
+    assert_eq!(api.delete("/api/uploads/nope").send().await.status, 404);
+}
+
+#[tokio::test]
+async fn sweeping_removes_every_unused_image_at_once() {
+    let api = TestApi::new().await;
+    four(&api).await;
+    keep_at(&api, ID, 50, "2026-11-02T00:00:00.000Z", "default").await;
+    assert_eq!(api.delete("/api/uploads").send().await.status, 400, "only with ?unused=1");
+    assert_eq!(api.delete("/api/uploads?unused=1").by_agent("claude").send().await.status, 403);
+    let swept = api.delete("/api/uploads?unused=1").send().await;
+    assert_eq!(swept.status, 200, "{}", swept.body);
+    assert_eq!(swept.body, json!({"count": 2, "size": 150, "compacted": false}), "150 bytes free is too little to compact for");
+    let left = api.get("/api/uploads").send().await;
+    let mut ids: Vec<&str> = left.body["uploads"].as_array().unwrap().iter().map(|u| u["id"].as_str().unwrap()).collect();
+    ids.sort();
+    assert_eq!(ids, vec![SHOWN, YOUNG, IN_DOC], "what's shown, and the one still in its day's grace");
+}
+
+#[tokio::test]
+async fn images_are_listed_and_swept_in_their_own_workspace_alone() {
+    let api = TestApi::new().await;
+    api.team().await;
+    api.acme(&["bo"]).await;
+    keep_at(&api, OLD, 100, "2026-11-01T00:00:00.000Z", "acme").await;
+    let theirs = api.signed(api.get("/api/uploads?unused=1").header("orrery-workspace", "acme"), "bo").await.send().await;
+    assert_eq!(theirs.body["count"], 1, "{}", theirs.body);
+    let ana = api.signed(api.get("/api/uploads?unused=1"), "ana").await.send().await;
+    assert_eq!(ana.body["count"], 0, "Ana isn't in Acme: {}", ana.body);
+    let swept = api.delete("/api/uploads?unused=1").send().await;
+    assert_eq!(swept.body["count"], 0, "default's sweep leaves Acme's");
+    assert_eq!(api.delete(&format!("/api/uploads/{OLD}")).send().await.status, 404, "not default's");
+}

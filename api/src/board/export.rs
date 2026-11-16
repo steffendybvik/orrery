@@ -39,7 +39,7 @@ const EXPORTED: [(&str, &str); 18] = [
     ("presets", OF_PROJECT),
 ];
 
-static UPLOAD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"/api/uploads/([0-9a-f]{24})").unwrap());
+pub(crate) static UPLOAD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"/api/uploads/([0-9a-f]{24})").unwrap());
 
 /// One column of a row as the Nuxt server's drivers give it: a number, text, null, or (an upload's `data`) bytes, kept
 /// as an array here until it's put in base64. A whole REAL is written as JavaScript writes it, with no `.0`.
