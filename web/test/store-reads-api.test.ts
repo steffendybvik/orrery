@@ -11,9 +11,10 @@ let writes: Record<string, unknown> = {}
 /** What went to the API's writes with no fallback, and with what. */
 const sent: {path: string, body: unknown}[] = []
 vi.mock('../server/utils/api-router', () => ({
-    readFromApi: async (path: string) => {
+    // A read in a workspace (`Orrery-Workspace`) gets the reply set up for `path@workspace`, else the plain one.
+    readFromApi: async (path: string, {workspace}: {workspace?: string} = {}) => {
         asked.push(path)
-        return replies[path]
+        return workspace && `${path}@${workspace}` in replies ? replies[`${path}@${workspace}`] : replies[path]
     },
     writeToApi: async (_method: string, path: string) => path in writes ? {reply: writes[path]} : undefined,
     // The reads and writes with no fallback to the store (ORR-1135): one the test hasn't set up fails, as no API would.
@@ -51,6 +52,24 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         expect(await store.ownerOf()).toEqual(replies['/api/owner'])
         expect(await store.people()).toEqual(replies['/api/people'])
         expect(await store.epics()).toEqual(replies['/api/epics'])
+    })
+
+    it("reads a board's statuses in its own workspace, so another workspace's ids hold there (ORR-1251)", async () => {
+        const status = (id: string, kind: string, position: number) => ({id, name: id, kind, color: 'slate', position})
+        replies['/api/statuses'] = [status('todo', 'todo', 0), status('in-progress', 'started', 1), status('done', 'done', 2)]
+        replies['/api/statuses@acme'] = [status('acme-todo', 'todo', 0), status('acme-in-progress', 'started', 1), status('acme-done', 'done', 2)]
+        await store.run("INSERT INTO workspaces (id, name, created_at) VALUES ('acme', 'Acme', 'x')")
+        await store.run("UPDATE projects SET workspace = 'acme' WHERE id = 'greenhouse'")
+        await store.run("INSERT INTO statuses (id, name, kind, color, position, workspace) VALUES ('acme-todo', 'To do', 'todo', 'slate', 0, 'acme')")
+        await store.run("UPDATE issues SET status = 'acme-todo' WHERE project = 'greenhouse'")
+        expect((await store.statuses('greenhouse')).map(s => s.id)).toEqual(['acme-todo', 'acme-in-progress', 'acme-done'])
+        expect(await store.resolveStatus('todo', undefined, 'greenhouse')).toBe('acme-todo')
+        writes['/api/projects/greenhouse/signals'] = {id: 1}
+        await store.focusMilestone('greenhouse', 'all', {status: 'acme-todo,started'}, {name: 'ada', owner: true})
+        expect(sent.find(s => s.path === '/api/projects/greenhouse/signals')?.body).toMatchObject({kind: 'focus', status: 'acme-todo,started'})
+        await expect(store.focusMilestone('greenhouse', 'all', {status: 'acme-done'}, {name: 'ada', owner: true})).rejects.toThrow('not an open status (acme-todo, acme-in-progress)')
+        // With no board named, the default workspace's, as before.
+        expect((await store.statuses()).map(s => s.id)).toEqual(['todo', 'in-progress', 'done'])
     })
 
     it("counts who's here, and who's a person, from the API's people, removed ones aside", async () => {

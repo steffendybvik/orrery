@@ -452,7 +452,7 @@ async function askMove(id: string, body: Record<string, unknown>): Promise<ChatM
     if (assignee !== undefined && assignee !== null && typeof assignee !== 'string') throw badRequest('Send "assignee" as a name, "owner", or null for nobody')
     const store = useStore()
     const to = {
-        ...status === undefined ? {} : {status: await store.resolveStatus(status as string)},
+        ...status === undefined ? {} : {status: await store.resolveStatus(status as string, undefined, project)},
         ...assignee === undefined ? {} : {assignee: !assignee?.trim() ? null : assignee.trim().toLowerCase() === 'owner' ? (await ownerNow()).name : assignee.trim()},
     }
     const issues = await Promise.all([...new Set((ids as string[]).map(i => i.trim()))].map(i => issueNow(project, i)))

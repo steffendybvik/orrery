@@ -72,9 +72,11 @@ export abstract class StatusStore extends StoreBase {
         return (row && JSON.parse(row.value) as WorkKind[] | null) ?? WORK_KINDS
     }
 
-    /** The issue statuses, in board order: by kind, then as arranged. */
-    async statuses(): Promise<IssueStatus[]> {
-        const read = await this.fromApi<IssueStatus[]>('/api/statuses')
+    /** The issue statuses, in board order: by kind, then as arranged. A workspace has its own (ORR-1107): `project`'s,
+     * else the default workspace's (ORR-1251). */
+    async statuses(project?: string): Promise<IssueStatus[]> {
+        const workspace = project ? (await this.projectRow(project)).workspace || 'default' : undefined
+        const read = await this.fromApi<IssueStatus[]>('/api/statuses', workspace)
         if (read) return read
         const rows = await this.all<IssueStatus>('SELECT id, name, kind, color, position FROM statuses ORDER BY position, id')
         return KINDS.flatMap(kind => rows.filter(r => r.kind === kind))
@@ -129,22 +131,22 @@ export abstract class StatusStore extends StoreBase {
         await this.statusesChanged()
     }
 
-    async status(id: string): Promise<IssueStatus> {
-        const found = (await this.statuses()).find(s => s.id === id)
+    async status(id: string, project?: string): Promise<IssueStatus> {
+        const found = (await this.statuses(project)).find(s => s.id === id)
         if (!found) throw notFound(`No status "${id}"`)
         return found
     }
 
     /** The status an issue gets from what was sent: a status's id, a kind (its first status), or the words
      * from before statuses (`doing`; `todo` with a `plan`). */
-    async resolveStatus(status: Input[string], plan?: Input[string]): Promise<string> {
-        return resolveIn(await this.statuses(), status, plan)
+    async resolveStatus(status: Input[string], plan?: Input[string], project?: string): Promise<string> {
+        return resolveIn(await this.statuses(project), status, plan)
     }
 
     /** What a status filter or focus means: the status ids it covers (an id, a kind, or an old word). */
     /** The status ids a status's id or kind stands for; several, comma-separated, stand for all of theirs. */
-    protected async statusIds(status: string): Promise<string[]> {
-        const statuses = await this.statuses()
+    protected async statusIds(status: string, project?: string): Promise<string[]> {
+        const statuses = await this.statuses(project)
         const of = (one: string) => {
             if (statuses.some(s => s.id === one)) return [one]
             const kind = (KINDS.includes(one as Kind) ? one : LEGACY_KINDS[one]) as Kind | undefined
