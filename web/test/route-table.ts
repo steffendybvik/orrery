@@ -72,6 +72,7 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'POST /api/chats/{chat}/move-requests': CHAT_ASK,
     'GET /api/connects': MACHINE,
     'POST /api/connects': MACHINE,
+    'POST /api/connects/remove': MACHINE,
     'GET /api/connects/stream': MACHINE,
     'GET /api/connects/{connect}': MACHINE,
     'POST /api/connects/{connect}/report': MACHINE,

@@ -242,6 +242,15 @@ export const PERMISSIONS: Permission[] = [
         member: {level: 'owner'},
     },
     {
+        id: 'connects.remove', area: 'Sessions', action: 'Remove a connected repo: a launcher stops serving it',
+        why: 'It takes a folder off a launcher on your machine.',
+        routes: ['POST /api/connects/remove'],
+        session: {level: 'owner'},
+        chat: refused,
+        untrusted: refused,
+        member: {level: 'owner'},
+    },
+    {
         id: 'sessions.watch', area: 'Sessions', action: 'Watch a session in a terminal',
         why: 'It opens a window on your machine.',
         routes: ['POST /api/projects/:project/launches/:launch/watch'],

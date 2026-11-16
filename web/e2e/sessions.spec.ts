@@ -662,6 +662,36 @@ test('lists the repos the launchers serve on Connect, with a line pointing there
     await expect(page.getByText('None listed.')).toBeVisible()
 })
 
+test('removes a connected repo after asking: its launcher hears it, and the project stays (ORR-1260)', async ({page, request, baseURL}) => {
+    const garden = hold(baseURL!, `/api/projects/dairy/launches/stream?dir=${encodeURIComponent('/code/garden')}&connected=${encodeURIComponent(new Date().toISOString())}`)
+    const kitchen = hold(baseURL!, `/api/projects/kitchen/launches/stream?dir=${encodeURIComponent('/code/kitchen')}`)
+    try {
+        await page.goto('/connect')
+        const repos = page.getByRole('list', {name: 'Connected repos'})
+        const row = repos.getByRole('listitem').filter({hasText: '/code/garden'})
+        await row.getByRole('button', {name: 'Remove /code/garden'}).click()
+        await expect(row).toContainText('issues and running sessions stay')
+        await row.getByRole('button', {name: 'Cancel'}).click()
+        await expect(garden.said.text).not.toContain('event: remove')
+        await row.getByRole('button', {name: 'Remove /code/garden'}).click()
+        await row.getByRole('button', {name: 'Remove', exact: true}).click()
+        await expect.poll(() => garden.said.text).toContain('event: remove')
+        expect(JSON.parse(/event: remove\ndata: (.+)\n/.exec(garden.said.text)![1]!)).toEqual({project: 'dairy', dir: '/code/garden'})
+        // Only the launchers serving it from that folder hear it.
+        expect(kitchen.said.text).not.toContain('event: remove')
+        // The launcher takes it off its list and lets go, so the row goes; the project is untouched.
+        garden.stop()
+        await expect(repos.getByRole('listitem').filter({hasText: '/code/garden'})).toHaveCount(0)
+        await expect(repos.getByRole('listitem').filter({hasText: '/code/kitchen'})).toHaveCount(1)
+        expect((await request.get('/api/projects/dairy')).ok()).toBe(true)
+        // A folder no launcher serves isn't named back to any.
+        expect((await request.post('/api/connects/remove', {data: {dir: '/code/garden', projects: ['dairy']}, headers: OWNER})).status()).toBe(404)
+    } finally {
+        garden.stop()
+        kitchen.stop()
+    }
+})
+
 test('keeps a preset on the Sessions page and offers it in Start session', async ({page}) => {
     await page.goto('/sessions#presets')
     // New preset opens a dialog with the cursor in its text, what a session is told.
