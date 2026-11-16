@@ -161,6 +161,16 @@ const held = ref<{key: number, text: string, images: {id: string, url: string}[]
 let heldKey = 0
 let holdTimer: ReturnType<typeof setTimeout> | undefined
 
+/** The run on its way, and how many messages its chat had as it went: the chat's stream can bring the owner's message
+ * back before the send itself answers, and from then the chat shows it, so the held copy steps aside. */
+const going = ref<{run: unknown[], after: number} | null>(null)
+/** What's held that the chat doesn't show yet: never the same message twice. */
+const showing = computed(() => {
+    const on = going.value
+    if (!on || !chat.value?.messages.slice(on.after).some(m => m.from === 'owner')) return held.value
+    return held.value.filter(m => !on.run.includes(m))
+})
+
 /** What's held couldn't go (no launcher, or the server said no): it waits for Retry rather than trying every few
  * seconds on its own (ORR-530). */
 const stuck = ref(false)
@@ -225,7 +235,10 @@ async function flush(owner = true): Promise<boolean> {
     sending.value = true
     const texts = run.map(m => m.text).filter(Boolean)
     const ids = run.flatMap(m => m.images.map(i => i.id))
-    const went = !!(chat.value || await start()) && await send(texts.length > 1 ? texts : texts[0] ?? '', ids)
+    const started = !!(chat.value || await start())
+    going.value = {run, after: chat.value?.messages.length ?? 0}
+    const went = started && await send(texts.length > 1 ? texts : texts[0] ?? '', ids)
+    going.value = null
     if (went) held.value = held.value.filter(m => !run.includes(m))
     stuck.value = !went
     sending.value = false
@@ -761,7 +774,7 @@ v-if="m.milestone" class="flex w-full flex-col gap-2 rounded-xl bg-well p-3 ring
       </li>
       </template>
       <!-- What's held to go together, looking sent: the owner needn't watch it wait (ORR-535). -->
-      <li v-for="m in held" :key="`held-${m.key}`" class="flex flex-col items-end gap-1.5">
+      <li v-for="m in showing" :key="`held-${m.key}`" class="flex flex-col items-end gap-1.5">
         <div v-if="m.images.length" class="flex flex-wrap justify-end gap-1.5">
           <img v-for="image in m.images" :key="image.id" :src="image.url" alt="" class="max-h-32 rounded-lg ring-1 ring-line">
         </div>
