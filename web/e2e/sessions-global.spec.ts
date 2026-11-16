@@ -67,6 +67,8 @@ test('lists a global session under Global, and starts one with no project ticked
         const global = page.locator('#sessions-global')
         await expect(global.getByRole('heading', {name: 'Global'})).toBeVisible()
         const card = global.locator('#session-e2e-global')
+        // Its Details say so, which its name opens (ORR-1220).
+        await card.getByRole('button', {name: /^Details for /}).click()
         await expect(card.getByText('global, no project of its own')).toBeVisible()
         // Once only: not again under Across projects.
         await expect(page.locator('#session-e2e-global')).toHaveCount(1)
