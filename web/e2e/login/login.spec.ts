@@ -120,6 +120,16 @@ test("logging out returns to the login page, and going back doesn't reopen the b
     expect((await page.request.get('/api/projects')).status()).toBe(401)
 })
 
+test('the sidebar says who is signed in, and signs out from there (ORR-1268)', async ({page}) => {
+    await signedIn(page)
+    await page.goto('/')
+    const sidebar = page.getByRole('complementary').first()
+    await expect(sidebar.getByText('Signed in as')).toBeVisible()
+    await sidebar.getByRole('button', {name: 'Sign out'}).click()
+    await expect(page).toHaveURL(/\/login$/)
+    expect((await page.request.get('/api/projects')).status()).toBe(401)
+})
+
 test('a login ended while the page is open goes back to the login page', async ({page, context}) => {
     await signedIn(page)
     const other = await context.newPage()
