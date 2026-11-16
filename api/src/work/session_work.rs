@@ -214,7 +214,8 @@ impl<'c> SessionWork<'c> {
     /// pool for one to take, as `carryUnanswered` reads them (ORR-1161): `[{issue, body, created_by, owned, assignee}]`,
     /// oldest first, ten at most. A member's (`person`) own words count too, on what's theirs. Who each goes to stays
     /// the local app's, as it picks the session. orrery's own word after one answers nothing (ORR-528), and one older
-    /// than the signals kept isn't carried (ORR-778).
+    /// than the signals kept isn't carried (ORR-778). Nor is one a board brought in with it (older than its issue's `uploaded`,
+    /// ORR-1253): the signals that heard it stayed on the orrery it came from.
     pub(crate) async fn unanswered(&mut self, project: &str, person: Option<&str>) -> Result<Vec<Value>> {
         let ago = |days: i64| (chrono::Utc::now() - chrono::Duration::days(days)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
         let rows = sqlx::query(&sql("SELECT c.issue, c.body, c.created_by, CAST(c.owned AS BIGINT) AS owned, \
@@ -225,6 +226,8 @@ impl<'c> SessionWork<'c> {
                                AND NOT (a.owned = 1 OR (a.person IS NOT NULL AND a.by_agent = 0)) AND a.created_by != ? AND a.id > c.id) \
                AND NOT EXISTS (SELECT 1 FROM signals s WHERE s.project = c.project AND s.issue = c.issue AND s.kind = 'comment' \
                                AND s.created_at >= c.created_at AND (s.delivered_to != '[]' OR (s.target IS NULL AND s.created_at >= ?))) \
+               AND NOT EXISTS (SELECT 1 FROM issue_events e WHERE e.project = c.project AND e.issue = c.issue AND e.field = 'uploaded' \
+                               AND e.created_at > c.created_at) \
              ORDER BY c.created_at LIMIT 10"))
         .bind(project)
         .bind(ago(crate::work::signals::KEEP_DAYS))
