@@ -43,7 +43,7 @@ describe('connecting a repo', () => {
         expect(hooks.PreToolUse![0].hooks[0].async).toBe(true)
         expect(hooks.PermissionRequest![0].hooks[0].async).toBe(true)
         expect(hooks.Stop![0].hooks[0]).not.toHaveProperty('async')
-        expect(hooks.Stop![0].hooks[0].command).toBe('ORRERY_PROJECT=greenhouse ORRERY_URL=http://localhost:9000 node "$HOME/.orrery/bootstrap.mjs" hook')
+        expect(hooks.Stop![0].hooks[0].command).toBe('ORRERY_PROJECT=${ORRERY_PROJECT:-greenhouse} ORRERY_URL=http://localhost:9000 node "$HOME/.orrery/bootstrap.mjs" hook')
     })
 
     it('has a new project created first, and asks for it by name', () => {

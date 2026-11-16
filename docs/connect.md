@@ -219,10 +219,11 @@ forgotten. An issue assigned to you stays with you, even if the session touched 
 }
 ```
 
-The same entry goes under each of the other events. `${ORRERY_PROJECT:-shop}` lets an alias pick the
-project; without one, it's `shop`. (Connect writes the project plainly, `ORRERY_PROJECT=shop`; the `:-` form is for
-when you want an alias to pick.) With a server serving several projects, it's the one a session is filed
-under; it shows under the others on the Sessions page too.
+The same entry goes under each of the other events. `${ORRERY_PROJECT:-shop}` lets the session's own
+`ORRERY_PROJECT` pick the project, and without one it's `shop`. Connect writes it this way (ORR-1258): in a repo
+serving several projects, a session orrery started for one of them (the launcher sets `ORRERY_PROJECT`) is filed
+under that one, and one you open yourself under `shop`, unless an alias sets another. It shows under the others on
+the Sessions page too. A session another orrery started is that orrery's to report, so this hook says nothing for it.
 
 With the hooks, a session can clear its context without losing its place: after a `/clear` (or when
 Claude Code compacts it) the channel stays connected, and `SessionStart` hands the fresh context the
