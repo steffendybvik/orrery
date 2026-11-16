@@ -110,8 +110,9 @@ export abstract class ClaimStore extends EpicStore {
         const key = `${project}\n${await this.issueId(project, issue)}`
         const run = (this.claiming.get(key) ?? Promise.resolve()).catch(() => {}).then(async () => {
             await this.claim(project, issue, status, session)
-            const id = await this.resolveStatus(status)
-            if ((await this.statuses()).find(s => s.id === id)?.kind === 'started') await this.lockFor(project, await this.issueId(project, issue), session)
+            const statuses = await this.statusesOf(project)
+            const id = resolveIn(statuses, status)
+            if (statuses.find(s => s.id === id)?.kind === 'started') await this.lockFor(project, await this.issueId(project, issue), session)
             const written = await write()
             // One the write moved to another project is tied there by its route. The write has started it by now, so
             // the guard would see whoever was tied to it before (a comment while it sat in Todo) as on it: the claim

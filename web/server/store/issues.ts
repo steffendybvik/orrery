@@ -388,7 +388,7 @@ export abstract class IssueStore extends ClaimStore {
     protected async urgent(project: string, before: IssueRow | null, after: IssueRow, actor: Actor) {
         try {
             const urgentWork = async (row: IssueRow) => row.priority === 'P0' && !row.proposal
-                && !CLOSED.includes((await this.statuses()).find(s => s.id === row.status)?.kind as Kind)
+                && !CLOSED.includes((await this.statusesOf(project)).find(s => s.id === row.status)?.kind as Kind)
             if (!(actor.owner || actor.person) || !await urgentWork(after) || (before && await urgentWork(before))) return
             // One blocked (ORR-601) waits for what it depends on, urgent or not: it's handed out once that's done.
             if ((await this.blockers(project, after.id)).length) return

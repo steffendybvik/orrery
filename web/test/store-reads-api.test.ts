@@ -11,9 +11,11 @@ let writes: Record<string, unknown> = {}
 /** What went to the API's writes with no fallback, and with what. */
 const sent: {path: string, body: unknown}[] = []
 vi.mock('../server/utils/api-router', () => ({
-    readFromApi: async (path: string) => {
-        asked.push(path)
-        return replies[path]
+    // A read for another workspace (ORR-1254) is set up as `path@workspace`.
+    readFromApi: async (path: string, {workspace}: {workspace?: string} = {}) => {
+        const key = workspace ? `${path}@${workspace}` : path
+        asked.push(key)
+        return replies[key]
     },
     writeToApi: async (_method: string, path: string) => path in writes ? {reply: writes[path]} : undefined,
     // The reads and writes with no fallback to the store (ORR-1135): one the test hasn't set up fails, as no API would.
@@ -193,6 +195,19 @@ describe("the store's reads through the Rust API (ORR-1162)", () => {
         await store.focusMilestone('greenhouse', 'MLS-3', {release: '2.0.0'}, {name: 'owner', owner: true})
         expect(asked).toEqual(expect.arrayContaining(['/api/projects/greenhouse/milestones/3/row', '/api/projects/greenhouse/releases/2.0.0/row']))
         expect(await store.all('SELECT id FROM milestones')).toEqual([])
+    })
+
+    it("checks a focus's status against its project's workspace's statuses (ORR-1254)", async () => {
+        replies['/api/projects/css/row'] = {id: 'css', name: 'CSS', key: 'CSS', workspace: 'work', instructions: '[]', muted: '[]'}
+        replies['/api/statuses'] = [{id: 'todo', name: 'Todo', kind: 'todo', color: null, position: 0}]
+        replies['/api/statuses@work'] = [
+            {id: 'work-todo', name: 'Todo', kind: 'todo', color: null, position: 0},
+            {id: 'work-done', name: 'Done', kind: 'done', color: null, position: 1},
+        ]
+        writes['/api/projects/css/signals'] = {id: 9, project: 'css', kind: 'focus', milestone: 'all', status: 'work-todo', delivered_to: []}
+        await expect(store.focusMilestone('css', 'all', {status: 'work-todo'}, {name: 'owner', owner: true})).resolves.toMatchObject({status: 'work-todo'})
+        await expect(store.focusMilestone('css', 'all', {status: 'todo'}, {name: 'owner', owner: true})).resolves.toBeTruthy()
+        await expect(store.focusMilestone('css', 'all', {status: 'work-done'}, {name: 'owner', owner: true})).rejects.toThrow(/not an open status \(work-todo\)/)
     })
 
     it("resolves an issue's id from the API for the store's helpers (ORR-1174)", async () => {

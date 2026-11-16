@@ -862,8 +862,8 @@ function configHere(): {apiUrl?: unknown, apiToken?: unknown} {
  * board over HTTP rather than from the database (ORR-1093). Undefined with no API set up (unit tests, a `nuxt dev`
  * without its build), for the caller to read the store as before, until that goes too (ORR-1143). A refusal comes back
  * as the API's status (a project or doc that isn't there is a 404), and one that's down fails (`cantReach`). */
-export async function readFromApi<T>(path: string, {config = configHere()} = {}): Promise<T | undefined> {
-    const read = await writeToApi('GET', path, undefined, ORRERY, {always: true, config})
+export async function readFromApi<T>(path: string, {config = configHere(), workspace = undefined as string | undefined} = {}): Promise<T | undefined> {
+    const read = await writeToApi('GET', path, undefined, ORRERY, {always: true, config, workspace})
     return read?.reply as T | undefined
 }
 

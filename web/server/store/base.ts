@@ -46,9 +46,9 @@ export abstract class StoreBase {
     /** A read asked of the Rust API when it's set up (ORR-1162): its reply, or undefined with no API, which leaves the
      * read to the database here. It answers alike (a 404 where the store would throw one). Imported when used, as the
      * router reads the store. */
-    protected async fromApi<T>(path: string): Promise<T | undefined> {
+    protected async fromApi<T>(path: string, workspace?: string): Promise<T | undefined> {
         const {readFromApi} = await import('../utils/api-router')
-        return await readFromApi<T>(path)
+        return await readFromApi<T>(path, workspace ? {workspace} : {})
     }
 
     /** Tells what a write the Rust API made set off (`work`, the router's hooks), without a second row in the outbox. */
@@ -163,7 +163,8 @@ export abstract class StoreBase {
     }
 
     /** The orrery's statuses, in order (`StatusStore` has them). */
-    abstract statuses(): Promise<IssueStatus[]>
+    abstract statuses(workspace?: string): Promise<IssueStatus[]>
+    protected abstract statusesOf(project: string): Promise<IssueStatus[]>
 
     // Reading
 
