@@ -430,7 +430,7 @@ async function pick(tint: string | null) {
           <h2 class="text-[15px] font-semibold text-fg">{{ title.upload }}</h2>
           <p class="text-xs text-muted">
             Brings a board's file in as a new board, so every board here stays as it is. Nothing in the file counts as yours, and its schedules arrive paused.
-            Leave out its images when this orrery refuses a file that big.
+            A big one goes in pieces, its images one by one, so a proxy's cap on what one request carries doesn't stop it.
           </p>
         </header>
         <BoardUpload />

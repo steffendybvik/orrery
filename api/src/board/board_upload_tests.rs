@@ -276,3 +276,48 @@ async fn an_uploaded_boards_comments_are_no_sessions_to_catch_up_on() {
     let bodies = unanswered("copy").send().await.body;
     assert_eq!(bodies.as_array().unwrap().iter().map(|c| c["body"].as_str().unwrap()).collect::<Vec<_>>(), ["Carry on"]);
 }
+
+/// A board too big for one request comes in parts (ORR-1257): the board first, then the rest of its file `into` it, its
+/// comments and events, which tell no session anything, as the whole board's don't.
+#[tokio::test]
+async fn the_rest_of_a_big_board_comes_into_it_after_it() {
+    let api = TestApi::new().await;
+    let (project, _) = primes(&api).await;
+    api.run("UPDATE comments SET owned = 1, created_by = 'owner'", &[]).await;
+    let file = exported(&api, &project).await;
+    let mut first = sent(&file, "copy", "CPY");
+    first["own"] = json!(true);
+    let later = ["comments", "milestone_comments", "issue_events", "doc_revisions"];
+    for table in later {
+        first["tables"][table] = json!([]);
+    }
+    let made = api.post("/api/boards", first).send().await;
+    assert_eq!(made.status, 201, "{}", made.body);
+    assert_eq!(api.count("SELECT count(*) FROM comments WHERE project = 'copy'").await, 0);
+
+    let mut rest = json!({"id": "copy", "key": "CPY", "holder": "sam", "own": true, "into": true, "people": file["people"],
+        "tables": {"projects": file["tables"]["projects"]}});
+    for table in later {
+        rest["tables"][table] = file["tables"][table].clone();
+    }
+    // Only what nothing else points at comes after the board, and only into a board its holder holds.
+    // The web's check sends every table, the empty ones too, which are fine.
+    rest["tables"]["issues"] = json!([]);
+    let mut issues = rest.clone();
+    issues["tables"]["issues"] = file["tables"]["issues"].clone();
+    assert_eq!(api.post("/api/boards", issues).send().await.status, 400);
+    let mut theirs = rest.clone();
+    theirs["holder"] = json!("ada");
+    assert_eq!(api.post("/api/boards", theirs).send().await.status, 404);
+    let mut nowhere = rest.clone();
+    nowhere["id"] = json!("nowhere");
+    assert_eq!(api.post("/api/boards", nowhere).send().await.status, 404);
+
+    let added = api.post("/api/boards", rest).send().await;
+    assert_eq!(added.status, 200, "{}", added.body);
+    assert_eq!(api.count("SELECT count(*) FROM comments WHERE project = 'copy' AND owned = 1 AND created_by = 'owner'").await, 1);
+    let events = api.count(&format!("SELECT count(*) FROM issue_events WHERE project = '{project}'")).await;
+    assert_eq!(api.count("SELECT count(*) FROM issue_events WHERE project = 'copy' AND field <> 'uploaded'").await, events);
+    assert_eq!(api.count("SELECT count(*) FROM signals WHERE project = 'copy'").await, 0, "nothing is signalled");
+    assert_eq!(api.get("/api/projects/copy/comments/unanswered").send().await.body, json!([]));
+}

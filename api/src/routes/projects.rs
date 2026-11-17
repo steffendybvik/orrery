@@ -39,8 +39,8 @@ pub(crate) fn routes() -> Router<Arc<App>> {
 /// what JSON adds around them.
 const BOARD_BODY_LIMIT: usize = 320 * 1024 * 1024;
 
-/// `POST /api/boards` {id, key, name?, holder, own?, project, exported_at?, statuses, people, uploads, tables} → 201 the new
-/// board. The local app's own call (ORR-1142): it checks a board's file first (`checkedBoard` in board-upload.ts), as
+/// `POST /api/boards` {id, key, name?, holder, own?, into?, project, exported_at?, statuses, people, uploads, tables} → 201
+/// the new board; with `into`, 200 and the rest of its file (comments, events, doc revisions) added to the board `id`. The local app's own call (ORR-1142): it checks a board's file first (`checkedBoard` in board-upload.ts), as
 /// that's untrusted, and sends its rows here to be made a board, held by `holder` (`board_upload`). Its body is read
 /// here, past the API's own limit, as a board's file is far bigger than any other request.
 async fn upload_board(State(app): Shared, request: Request) -> Result<Response> {
@@ -69,10 +69,12 @@ async fn upload_board(State(app): Shared, request: Request) -> Result<Response> 
     if own && !actor.owner {
         return Err(ApiError::forbidden("Only the owner brings a board in as their own"));
     }
-    let upload = Upload { id, key, name: text("name"), holder, body: &body, workspace: &workspace, own };
+    // The rest of a board too big for one request, sent after it in parts (ORR-1257).
+    let into = body.get("into").and_then(Value::as_bool).unwrap_or(false);
+    let upload = Upload { id, key, name: text("name"), holder, body: &body, workspace: &workspace, own, into };
     let effects = board_upload::upload_board(&mut conn, &upload, &actor).await?;
     let value = Projects::new(&mut conn).project(id).await?;
-    Ok(reply(StatusCode::CREATED, Some(value), effects))
+    Ok(reply(if into { StatusCode::OK } else { StatusCode::CREATED }, Some(value), effects))
 }
 
 /// `GET /api/projects` → every project with its counts; `?expand=board` gives each one's board instead, without the

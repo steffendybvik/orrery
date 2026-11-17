@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 import {RESERVED_KEYS} from '../shared/roadmap/board'
-import {RESERVED_KEYS as SCRIPT_RESERVED, freeId, freeKey, importOrrery, laterLinks, parseArgs, planProjects, planStatuses, prepareFile, rewriteLinks, summary} from '../scripts/import-orrery.mjs'
+import {RESERVED_KEYS as SCRIPT_RESERVED, PART_SIZE, boardParts, freeId, freeKey, imagesShown, importOrrery, laterLinks, parseArgs, planProjects, planStatuses, prepareFile, rewriteLinks, sendBoard, summary} from '../scripts/import-orrery.mjs'
 
 // `pnpm orrery:import` (ORR-1110): a whole orrery brought in as a new workspace of another. Its planning is pure, so it's
 // tested here; the upload it ends in is the Rust API's, tested in board_upload_tests.rs.
@@ -108,8 +108,8 @@ describe('importOrrery', () => {
     const source = () => fake('http://work', {
         '/projects': [{id: 'hub', key: 'HUB', name: 'Hub'}, {id: 'orrery', key: 'ORR', name: 'orrery'}],
         '/settings': {tint: 'teal', statuses: [{id: 'todo', name: 'Todo', kind: 'todo'}]},
-        '/projects/hub/export?uploads=1': {project: 'hub', tables: {issues: [{id: 'HUB-1'}], schedules: [{id: 1, title: 'Groom', enabled: 1}]}, people: [{id: 'ada', name: 'Ada'}]},
-        '/projects/orrery/export?uploads=1': {project: 'orrery', tables: {issues: []}},
+        '/projects/hub/export': {project: 'hub', tables: {issues: [{id: 'HUB-1'}], schedules: [{id: 1, title: 'Groom', enabled: 1}]}, people: [{id: 'ada', name: 'Ada'}]},
+        '/projects/orrery/export': {project: 'orrery', tables: {issues: []}},
         '/secrets': [{name: 'STRIPE', hosts: ['api.stripe.com'], projects: ['orrery']}],
     })
     const target = (workspaces: unknown[] = []) => fake('http://home', {
@@ -142,5 +142,108 @@ describe('importOrrery', () => {
         // An orrery from before workspaces answers the page's HTML.
         const old = fake('http://old', {'/workspaces': '<!DOCTYPE html>'})
         await expect(importOrrery({source: source(), target: old, name: 'Work', dryRun: true})).rejects.toThrow(/http:\/\/old has no workspaces/)
+    })
+})
+
+// A board too big for one request (ORR-1257): its images one at a time, then its rows in parts.
+describe('sending a big board', () => {
+    const CAP = 100 * 1024 * 1024
+    const image = (n: number) => n.toString(16).padStart(24, '0')
+
+    /** An orrery behind a proxy that refuses a body over Cloudflare's cap, keeping every board it's sent. */
+    function behindProxy() {
+        const bodies: number[] = []
+        const images = new Map<string, number>()
+        const boards: {query: URLSearchParams, file: {tables: Record<string, unknown[]>}}[] = []
+        const sized = (text: string) => {
+            bodies.push(text.length)
+            if (text.length > CAP) throw Object.assign(new Error('413 Payload Too Large'), {status: 413})
+        }
+        return {
+            bodies, images, boards,
+            post: async (path: string, body: {data: string}) => {
+                sized(JSON.stringify(body))
+                expect(path).toBe('/uploads')
+                const id = image(1000 + images.size)
+                images.set(id, body.data.length)
+                return {id}
+            },
+            upload: async (path: string, text: string) => {
+                sized(text)
+                const query = new URL(path, 'http://x').searchParams
+                boards.push({query, file: JSON.parse(text)})
+                return {id: query.get('id') ?? 'shop', key: query.get('key') ?? 'SHP'}
+            },
+        }
+    }
+
+    it('gets a board of 150 MB through a proxy capped at 100 MB, every image and row with it', async () => {
+        // Twelve images of 9 MB, shown by its comments, and 20 MB of comments: one file of about 150 MB.
+        const data = new Map(Array.from({length: 12}, (_, n) => [image(n), 'A'.repeat(12 * 1024 * 1024)]))
+        const comments = Array.from({length: 2000}, (_, n) => ({id: n + 1, issue: 'SHP-1', body: `${'words '.repeat(1700)} ![shot](/api/uploads/${image(n % 12)})`}))
+        const file = {format: 'orrery-board', format_version: 1, schema_step: 99, project: 'shop', people: [], statuses: [],
+            uploads: [...data].map(([id, d]) => ({id, data: d})),
+            tables: {projects: [{id: 'shop', key: 'SHP'}], issues: [{id: 'SHP-1'}], comments, issue_events: [{issue: 'SHP-1', field: 'status'}], releases: [{version: '1.0', doc_mark: 7}], doc_revisions: [{id: 7, doc: 'readme'}]}}
+        expect(JSON.stringify(file).length).toBeGreaterThan(CAP * 1.4)
+        expect(imagesShown(file)).toHaveLength(12)
+
+        const target = behindProxy()
+        const board = await sendBoard(target, file, {id: 'shop', key: 'SHP', own: true})
+        expect(board).toEqual({id: 'shop', key: 'SHP'})
+        expect(Math.max(...target.bodies)).toBeLessThan(CAP)
+        // Each image once, on its own.
+        expect(target.images.size).toBe(12)
+        // The board first, with no images and none of what can come after it, then the rest into it, in parts.
+        const [first, ...parts] = target.boards
+        expect(first!.query.get('into')).toBeNull()
+        expect(first!.file.tables.comments).toEqual([])
+        expect((first!.file as {uploads: unknown[]}).uploads).toEqual([])
+        expect(parts.length).toBeGreaterThan(1)
+        for (const part of parts) {
+            expect(Object.fromEntries(part.query)).toEqual({id: 'shop', key: 'SHP', own: '1', into: '1'})
+            expect(JSON.stringify(part.file).length).toBeLessThan(PART_SIZE * 1.1)
+            expect(part.file.tables.projects).toEqual([{id: 'shop', key: 'SHP'}])
+        }
+        const arrived = parts.flatMap(part => part.file.tables.comments ?? []) as {id: number, body: string}[]
+        expect(arrived.map(c => c.id)).toEqual(comments.map(c => c.id))
+        // Its text shows each image by the id it has there.
+        expect(arrived.every(c => /\/api\/uploads\/0{20}03[0-9a-f]{2}\)$/.test(c.body))).toBe(true)
+        // A release comes with the doc revision it marks.
+        const withRevision = parts.find(part => part.file.tables.doc_revisions)!
+        expect(withRevision.file.tables.releases).toEqual([{version: '1.0', doc_mark: 7}])
+        expect(parts.flatMap(part => part.file.tables.issue_events ?? [])).toHaveLength(1)
+    }, 60_000)
+
+    it("keeps a schedule's request with the board, as the comment it points at", () => {
+        const file = {tables: {projects: [{id: 'shop'}], comments: [{id: 1}, {id: 2}], schedule_requests: [{comment: 2}]}}
+        const {first, parts} = boardParts(file)
+        expect(first.tables.comments).toEqual([{id: 2}])
+        expect(parts.map(part => part.tables.comments)).toEqual([[{id: 1}]])
+    })
+
+    it('reads an image the file leaves out from the source, and sends one shown on two boards once', async () => {
+        const target = behindProxy()
+        const sent = new Map()
+        const read: string[] = []
+        const source = async (id: string) => {
+            read.push(id)
+            return 'iVBORw0K'
+        }
+        const shows = (project: string) => ({project, tables: {projects: [{id: project}], issues: [{id: 'A-1', notes: `![x](/api/uploads/${image(5)})`}]}})
+        await sendBoard(target, shows('a'), {id: 'a', key: 'A', image: source, sent})
+        await sendBoard(target, shows('b'), {id: 'b', key: 'B', image: source, sent})
+        expect(read).toEqual([image(5)])
+        expect(target.boards.map(b => (b.file.tables.issues as {notes: string}[])[0]!.notes)).toEqual([`![x](/api/uploads/${image(1000)})`, `![x](/api/uploads/${image(1000)})`])
+    })
+
+    it('says the board came in when a later part fails', async () => {
+        const target = behindProxy()
+        const upload = target.upload
+        target.upload = async (path: string, text: string) => {
+            if (path.includes('into=1')) throw new Error('500 Internal Server Error')
+            return await upload(path, text)
+        }
+        const file = {tables: {projects: [{id: 'shop'}], comments: [{id: 1}]}}
+        await expect(sendBoard(target, file, {id: 'shop', key: 'SHP'})).rejects.toThrow(/came in as shop, but part 1 of 1/)
     })
 })
