@@ -56,10 +56,3 @@ async function sent(method: 'PUT' | 'DELETE', session: string, body?: unknown): 
         return false
     }
 }
-
-/** Forgets what was told, for tests. */
-export function forgetPresence() {
-    told.clear()
-    saying = null
-    again = null
-}

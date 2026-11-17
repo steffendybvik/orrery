@@ -7,7 +7,9 @@ onlyBuiltDependencies:
   - '@parcel/watcher'
 # Above what a dependency asks for, for a fix it hasn't taken up yet. node-forge: nuxt's dev server (listhen), GHSA-4487-j8r4-4g2f and others.
 # hono and @hono/node-server: the channel's MCP SDK, GHSA-3gg2-335m-rxc6 and others.
+# glob: build and test tooling (@vercel/nft, js-beautify), GHSA-3g3m-2fjr-6pw4.
 overrides:
   node-forge: ^1.4.3
   hono: ^4.13.16
   '@hono/node-server': ^2.1.6
+  'glob@>=9 <14.0.2': ^14.0.2
