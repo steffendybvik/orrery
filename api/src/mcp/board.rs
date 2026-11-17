@@ -81,7 +81,7 @@ impl Api<'_> {
         }
         .map_err(|e| No(e.to_string()))?;
         let router = routes::all().route_layer(middleware::from_fn_with_state(self.app.clone(), access::rails::rails)).with_state(self.app.clone());
-        let response = router.oneshot(request).await.map_err(|e| No(e.to_string()))?;
+        let Ok(response) = router.oneshot(request).await;
         let (parts, body) = response.into_parts();
         self.relay.keep(&parts.headers);
         let bytes = axum::body::to_bytes(body, usize::MAX).await.map_err(|e| No(e.to_string()))?;
