@@ -237,7 +237,7 @@ waits for those writes first (`chatWritesSettled()` in `chats.test.ts`): a fetch
 roadmap, releases, sessions, schedules, the keys, the phone layout…). The page walks go over the whole app from one
 list of pages, `e2e/pages.ts`: `navigation.spec.ts` checks each renders with no error and that the sidebar, ⌘K and App
 settings → Advanced lead to it, and `a11y.spec.ts` that it breaks no WCAG A or AA rule axe checks beyond the known ones
-listed there (`wcag-light.spec.ts`, `wcag-dark.spec.ts`), scrolls by keyboard on a phone and leaves nothing under the Agent button.
+listed there (`wcag-light.spec.ts`, `wcag-dark.spec.ts`), scrolls by keyboard on a phone and leaves nothing under the Agent button, on a desktop and on a phone.
 These read-only walks are a test per page (`eachPage` in `e2e/walks.ts`), so a slow browser can't run one out of time partway and a retry runs only the page that failed (ORR-916). A new page is a line in
 `pages.ts`, and `test/page-specs.test.ts` fails on a page that isn't, unless it names the spec that opens it. `a11y.spec.ts`
 sets Advanced on the settings its page reads, not the shared one, so it needn't take turns with the specs that change them. `first-run.spec.ts` (naming the owner, the first

@@ -125,6 +125,33 @@ test("a field's text is 16px on a touch screen, so iOS doesn't zoom in as it tak
     for (const {field, size} of sizes) expect(size, field).toBeGreaterThanOrEqual(16)
 })
 
+// The Agent button sits over the right of each row on a phone, where its assignee is: it tucks away while the page
+// scrolls down, and is back on scrolling up and at the page's end, which has room for it (ORR-1282).
+test('the Agent button tucks away while the page scrolls down, and is back on scrolling up or at the end', async ({page, request}) => {
+    await api(request, 'post', '/projects', {name: 'Tall', key: 'TAL'})
+    for (let i = 1; i <= 30; i++) await api(request, 'post', '/projects/tall/issues', {title: `Row ${i}`, status: 'todo'})
+    await page.goto('/p/tall?view=list')
+    await expect(page.getByText('Row 30')).toBeVisible()
+    const agent = page.getByRole('button', {name: 'Agent', exact: true})
+    await expect(agent).toBeInViewport()
+    const scroller = page.locator('main .clear-agent').first()
+    const scrollBy = (y: number) => scroller.evaluate((el, by) => el.scrollBy(0, by), y)
+    await scrollBy(200)
+    await expect(agent).toHaveAttribute('data-tucked')
+    await expect(agent).not.toBeInViewport()
+    await scrollBy(-100)
+    await expect(agent).not.toHaveAttribute('data-tucked')
+    await expect(agent).toBeInViewport()
+    await scrollBy(200)
+    await expect(agent).toHaveAttribute('data-tucked')
+    // At the end it's back, and clear of the last row.
+    await scroller.evaluate(el => el.scrollTo(0, el.scrollHeight))
+    await expect(agent).not.toHaveAttribute('data-tucked')
+    const last = await scroller.locator('[data-issue]').last().boundingBox()
+    const button = await agent.boundingBox()
+    expect(last!.y + last!.height).toBeLessThanOrEqual(button!.y)
+})
+
 test.describe('on a desktop', () => {
     test.use({viewport: {width: 1280, height: 800}, isMobile: false, hasTouch: false})
 
