@@ -224,6 +224,9 @@ The same entry goes under each of the other events. `${ORRERY_PROJECT:-shop}` le
 serving several projects, a session orrery started for one of them (the launcher sets `ORRERY_PROJECT`) is filed
 under that one, and one you open yourself under `shop`, unless an alias sets another. It shows under the others on
 the Sessions page too. A session another orrery started is that orrery's to report, so this hook says nothing for it.
+A hook written before that, as `ORRERY_PROJECT=shop`, overrides the launcher's value inline, so the launcher also hands
+the project down as `ORRERY_STARTED_FOR`, which the hook reads first for a session orrery started (ORR-1275): either form
+files it under the project it was started for, with no need to connect the repo again.
 
 With the hooks, a session can clear its context without losing its place: after a `/clear` (or when
 Claude Code compacts it) the channel stays connected, and `SessionStart` hands the fresh context the

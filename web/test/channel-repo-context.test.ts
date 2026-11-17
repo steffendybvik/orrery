@@ -148,6 +148,14 @@ describe("the hook's project (ORR-1068)", () => {
         expect(await hookPosts({hook_event_name: 'Stop', session_id: 'abc', cwd: dir}, list, {ORRERY_SCOPE: 'user'})).toMatchObject([{project: 'pantry'}])
     })
 
+    it('is the one orrery started it for, over the project a hook line sets inline (ORR-1275)', async () => {
+        const dir = repo()
+        const started = {ORRERY_STARTED: 'l1', ORRERY_STARTED_FOR: 'css', ORRERY_PROJECT: 'checkout-api'}
+        expect(await hookPosts({hook_event_name: 'Stop', session_id: 'abc', cwd: dir}, undefined, started)).toMatchObject([{project: 'css', started: 'l1'}])
+        // Not started by orrery: the hook line's own project.
+        expect(await hookPosts({hook_event_name: 'Stop', session_id: 'abc', cwd: dir}, undefined, {ORRERY_STARTED_FOR: 'css', ORRERY_PROJECT: 'checkout-api'})).toMatchObject([{project: 'checkout-api'}])
+    })
+
     it("says nothing in a folder no orrery knows, rather than taking the folder's name for a project", async () => {
         const dir = repo()
         expect(await hookPosts({hook_event_name: 'Stop', session_id: 'abc', cwd: dir})).toEqual([])
