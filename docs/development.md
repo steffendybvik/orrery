@@ -61,7 +61,7 @@ the database goes there; what touches the machine (sessions, tmux, the launcher,
 ORR-926), **milestones and releases** (ORR-926: a project's, one of each, and `/api/releases`; made, changed, frozen,
 shipped and deleted too, ORR-974), **reading
 issues and their comments**, and **making, editing and deleting a comment**, **claiming an issue and letting it go, changing its own words, status, priority, assignee and where it sits (title, status, priority, assignee, notes, labels, links, parent, milestone, release, epic, what it depends on, whether it's a proposal and its choices, model, effort, place; a session's change of status stays on Nuxt, which holds its lock) changing many at once (their status, priority, assignee, milestone, release, epic and labels), the owner's decision on a proposal, or on many at once (a rejection told to its session but starting no work), and deleting one, or many at once** (ORR-927: the list with its filters, one issue, its comments) and **people, invites, keys
-and logins** (ORR-928, removing a person included; logging in and out aside) **reading the secrets** (ORR-953, never a value) and **reading the schedules** (ORR-930: a project's, one with its runs, every project's and those across projects), **reading one pull request, and rating its risk** (ORR-952,
+and logins** (ORR-928, removing a person included, and logging in and out with a key, ORR-1137) **reading the secrets** (ORR-953, never a value) and **reading the schedules** (ORR-930: a project's, one with its runs, every project's and those across projects), **reading one pull request, and rating its risk** (ORR-952,
 `/api/pulls/:owner/:name/:number`), **listing the projects** with their counts and boards (ORR-997, ORR-1006, `GET /api/projects`), **reading one with its board** (each labelled in Nuxt with the events stream's `rev`), **deleting, exporting and importing one** (ORR-1006) and **changing a project** (ORR-923, `PATCH /api/projects/:project`, its prompts the owner's), **making one** (ORR-1002, `POST /api/projects`, held by whoever asks), **uploading an image** (ORR-1058), **the presets** (ORR-949), **the settings** (ORR-954), adopting and deleting a schedule (ORR-950) **the bell** (ORR-1005, `/api/notices`: reading it, its status changes, clearing it and marking it read, each person's their own) and **the epics** (ORR-1004, `/api/epics`: listing, reading, making, changing and deleting one, and its comments and a milestone's; an epic's focus stays in Nuxt): the routes in
 `api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`), a milestone's focus, and writing an issue (its claim, its own words, changing many at once, deciding proposals and deleting issues aside) stays in Nuxt, and so do setting, narrowing and deleting a secret and egress.
 
@@ -89,15 +89,14 @@ How it fits together:
   A new comment's reply also says what only Nuxt can do, as it knows the sessions: `Orrery-Carry` passes the owner's or
   a member's words on to the session on the issue, and `Orrery-Notice` puts an agent's on the owner's bell
   (`handOn` in `store/comments.ts`), each with its own outbox row. An edit's carry ends `edited`, as its words replace
-  ones the session may have read. A line can also name a check this server runs before forwarding (`first`): a
-  comment's edit checks the session's claim on the issue (`claimFor`), as only this server knows the sessions.
+  ones the session may have read. A line can also name a check this server runs before forwarding (`first`): an
+  issue's edit checks the session's claim on it (`claimFor`, or takes it when a session starts it), as only this server
+  knows the sessions; a comment's edit is checked against the claim by the API's own rails (ORR-1172).
 - **No falling back (ORR-1041).** The Nuxt routes for what the router sends on are gone, so when the API is down, not
   started yet, or on another database (the owner moved it in App settings), the request fails with a 503 that says
-  why, logged once to the server's log and the event log (`api.unreachable`) while it lasts. The one exception is a
-  line marked `here`: making an issue and editing one, whose `first` check keeps a session's, the chat's and an
-  untrusted session's requests (and an edit's status change by a session) for the Nuxt route, which still exists for
-  them. With the API down, the rest of their requests fail as any other's do. A test in `rust-api-coverage.test.ts`
-  fails when a Nuxt route comes back for what's routed without `here`.
+  why, logged once to the server's log and the event log (`api.unreachable`) while it lasts. There's no exception:
+  making and editing an issue go there too, after the `first` check here (`wordsOnly`) for a session's claim and the
+  chat's rewrite. A test in `rust-api-coverage.test.ts` fails when a Nuxt route comes back for what's routed.
 - **No swap flag.** The API isn't opt-in any more ([ORR-1091](/p/orrery/issues/ORR-1091) removed `NUXT_API_ONLY`).
   The local app's own writes (`writeToApi`: the chat's rows, its Allow, the poll's and the scheduler's) go to the API
   too, and fail with it down once this server has started one. Only a server with no API set up at all (unit tests)
@@ -127,11 +126,12 @@ of these and no build, the server says so as it starts, and the API's routes ans
 Which server answered: every reply to an `/api/` request carries `X-Served-By: rust` or `X-Served-By: nuxt` (the
 browser's network tab shows it). A request the API serves that it didn't answer logs one line, `[orrery api-route]
 served=nuxt reason=… domain=… method=… path=…`, or `served=none` when it failed instead; `reason` is `not-running`,
-`unreachable`, `other-database`, or `kept-here` with the `check` that kept a session's or the chat's request here. The
+`unreachable` or `other-database`. The
 playground runs the API with `ORRERY_API_LOG=1`, so `play logs | grep 'api-route'` and the API's own lines sit side by side.
 
 Its checks: `cargo fmt --check`, `cargo clippy -- -D warnings` and `cargo test` in `api/`; with `TEST_POSTGRES_URL` set,
-`cargo test` runs on that Postgres instead, each test in a schema of its own, and CI runs it both ways. SQL in a test
+`cargo test` runs on that Postgres instead, each test in a schema of its own, and CI runs it both ways, under `cargo llvm-cov`, failing when the tests cover under 95% of the code's lines (test
+files aside; raise the floor in `ci.yml` as tests are added). SQL in a test
 goes through `db::sql`, as the API's own does, so its `?` are numbered for Postgres. `web/test/api-parity.test.ts`
 runs the same steps through the store and through the API on one database (SQLite, or Postgres with
 `TEST_POSTGRES_URL`) and compares the replies, failures and what each said changed; it skips without a built binary,
@@ -148,12 +148,12 @@ A change to a route the API serves is a change in the API (`api/src/routes/`, `a
 Nuxt route is gone, but the store's code for it stays while the parity test holds the API to it and the local app still
 writes through it with no request (the chat's Allow, the scheduler, sessions finishing work); change it too, with the
 parity test saying when they differ. That includes how the board is built: a field `readBoard` or
-`buildBoard` adds to an issue, or a change to how its column rolls up, goes into `issues.rs` too. The statuses are the orrery's, not a project's, so their parity steps run on each side in turn, with the table
+`buildBoard` adds to an issue, or a change to how its column rolls up, goes into `api/src/board/issues.rs` too. The statuses are the orrery's, not a project's, so their parity steps run on each side in turn, with the table
 put back between.
 
-People, invites, keys and logins (ORR-928, `api/src/people.rs`) are the same: a change to `web/server/store/people.ts`'s
-`people`, `addPerson` or `renamePerson`, or to `keys.ts`, goes into `people.rs` too. Removing a person stays in the Nuxt
-server, as it unassigns their issues (ORR-929). What only the Nuxt server's settings say (a login provider,
+People, invites, keys and logins (ORR-928, `api/src/access/people.rs`) are the same: a change to `web/server/store/people.ts`'s
+`people`, `addPerson` or `renamePerson`, or to `keys.ts`, goes into `people.rs` too. Removing a person is the API's too: it
+unassigns their open issues and writes what that set off to the outbox in its own transaction (ORR-929). What only the Nuxt server's settings say (a login provider,
 ORRERY_AUTH=off, the address for an invite's link) goes along as `Orrery-Login-Ways` and `Orrery-Origin`. Both servers check
 the credential on each request (ORR-1038): the Nuxt server (`web/server/utils/auth.ts`) first, then the API's guard
 (`api/src/request.rs`), which looks up the login and the bearer itself, from `Orrery-Login` and `Orrery-Key`, sent only
@@ -162,17 +162,18 @@ It turns away a `closed` request too. A call the Nuxt server makes for its own w
 follower) says `Orrery-Came: server` (`OWN_WORK`) and has no login checked, as does each step of the parity test. Who may handle people, keys and logins (`authorize`, `key-rights.ts`) is checked on
 both sides, the credential having the last word over the actor, so the parity test compares the refusals with the permissions table's own words.
 
-The secrets (ORR-953, `api/src/secrets.rs`) are read there and written here. A secret's value is sealed with the key
-in `orrery.key`, which stays with the local app (Decision: secrets and settings in the Rust API), so the API never reads
-the `value` column, and setting, narrowing (which seals it again) and deleting one stay in
-`web/server/utils/secrets.ts`, as do egress and orrery's own requests. A change to its `list` or `get`, or to
-`secretOf` or `useOf`, goes into `secrets.rs` too.
+The secrets (ORR-953, `api/src/access/secrets.rs` to read, `api/src/work/secrets.rs` to write, ORR-1096). A secret's
+value is sealed with the key in `orrery.key`, which stays with the local app (Decision: secrets and settings in the Rust
+API), so setting, narrowing (which seals it again) and deleting one, and egress and orrery's own requests, are checked
+and sealed in `web/server/utils/secrets.ts`, which then keeps the sealed row through the API's own routes; the router
+sends none of those. A change to its `list` or `get`, or to `secretOf` or `useOf`, goes into `access/secrets.rs` too.
 
-One pull request as orrery keeps it (ORR-952, `api/src/pulls.rs`) is read there: `forPull` in
+One pull request as orrery keeps it (ORR-952, `api/src/work/pulls.rs`) is read there: `forPull` in
 `web/server/utils/pulls.ts`, with `pullForSession` for anyone but the owner. The router sends the asker's kind
 (`Orrery-Actor-Kind`, as `kindOf` has it), so the chat naming the owner still doesn't get a PR's title or branch. The
-list of PRs and the branches stay here, as they ask GitHub when what the poll kept is stale, and so does every write
-to the pull tables (the poll, a rating), which waits on how the local app hears the board (ORR-929).
+list of PRs and the branches stay here, as they ask GitHub when what the poll kept is stale, and so does the poll's keeping of
+a PR, as a merge sets an issue's release and posts orrery's comments (its writes are ready in `work/pull_poll.rs`, not
+routed yet). Rating a PR's risk is the API's.
 
 The outbox (ORR-929, `api/src/changes.rs`, the `rust-api-events` decision): each write the API makes adds a row to
 `changes` for each thing it set off (a project changed, the settings, each event told), and `GET /api/changes?after=<id>`
@@ -245,18 +246,20 @@ can't tell which database is behind the Rust API, and the `api` job runs parity 
 
 `e2e/visual.spec.ts` compares the board, the list and an issue's page to stored images. They're Linux's, so off
 Linux the spec skips; `pnpm test:e2e:visual` (in `web/`) runs it in CI's Playwright image through Docker, and
-`pnpm test:e2e:visual -- --update-snapshots` remakes the images after a change that's meant to show.
+`pnpm test:e2e:visual --update-snapshots` remakes the images after a change that's meant to show.
 
 `pnpm test:e2e:login` runs `e2e/login/` on an orrery of its own with `ORRERY_AUTH=on` and a fresh `web/.data/e2e-login.db`, as
 the flows' stays one person's: the login page, signing in with a key, Settings' keys and logging out. Then it runs
 `e2e/signup/` on another, with a fresh `web/.data/e2e-signup.db` and a login provider of its own (`scripts/e2e-oidc.mjs`),
 as a provider takes the key box off the login page: the first account in becomes the owner, someone new signs up into a
-workspace of their own, and neither sees the other's projects, workspaces or events.
+workspace of their own, and neither sees the other's projects, workspaces or events. CI runs it after the first Chrome shard.
 
-`pnpm test:e2e:restart` builds the app and runs `e2e/restart/` on it, with a fresh `web/.data/e2e-restart.db`: the spec
-stops and starts the server itself, to check what outlives a restart (the owner's chats). `RESTART_NO_BUILD=1` skips the build.
+`pnpm --dir web test:e2e:restart` builds the app and runs `e2e/restart/` on it, with a fresh `web/.data/e2e-restart.db`:
+its specs stop and start the server themselves: what outlives a restart (the owner's chats, `chats.spec.ts`), and moving
+an orrery to another server as the hosting doc says, a board's file and the whole database with its key (`move.spec.ts`,
+ORR-1209). `RESTART_NO_BUILD=1` skips the build.
 
-`pnpm images:readme` takes the README's images into `docs/images`, all 1440×900, from the playground's demo on an orrery of
+`pnpm --dir web images:readme` takes the README's images into `docs/images`, all 1440×900, from the playground's demo on an orrery of
 its own with a fresh `web/.data/readme.db`. It's a script rather than a test, so it isn't part of `pnpm test:e2e`. It rewrites only the images that differ by more than a run's own noise. A machine that isn't Linux renders every image differently, so the real ones come from the **Images** workflow, in CI's Playwright image: `gh workflow run images.yml --ref v<version>`, on a release branch. Any that changed go on `images/v<version>`, as one commit on that branch's tip, and the run's summary links the pull request to open. Actions can't open it here, and its checks wouldn't start if it did. Someone looks at the images, so it doesn't merge itself. A later run updates an open one and starts its checks again.
 
 `pnpm test:e2e:perf` times the pages on a big orrery. It builds the app and runs it on a fresh `web/.data/perf.db` (or,
@@ -273,6 +276,11 @@ step's time, the API calls behind it and their sizes, and the slowest routes. CI
 e2e flows and keeps the report as an artifact. `PERF_NO_BUILD=1` reuses the last build when you're trying it again.
 
 `pnpm soak`, after `pnpm build`, runs the built app on a fresh `web/.data/soak.db` and works it faster than real use: sessions listening, their streams and the page's live feed dropping and coming back, hooks, comments and edits. `web/soak-report/` keeps its memory, open files and the project list's time every 15 seconds, and `summary.json` the totals. It fails on a request that errors or when open files keep growing, and memory is for reading. `SOAK_MINUTES` (30), `SOAK_SESSIONS` (8) and `SOAK_PORT` (3360) change it. A short run catches a fast leak, and says nothing of what only shows after days.
+
+`pnpm api-bench` times the Rust API's routes alone, with no Nuxt or browser in front (ORR-1114): after `cargo build
+--release` in `api/`, it starts the API on a copy of `BENCH_DB` (an orrery's SQLite file, the playground's say) and prints
+requests a second and p50/p95/p99/max per route and concurrency. `BENCH_LEVELS` (1,8,64), `BENCH_SECONDS` (6),
+`BENCH_ONLY` and `API_BIN` change it.
 
 The database's migrations are the Rust API's numbered steps (see [Migrations in Rust](#migrations-in-rust)): a SQL file
 each in `api/migrations/sqlite` and in `api/migrations/postgres`, after Postgres's baseline. Add a step to both, never

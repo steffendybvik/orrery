@@ -192,7 +192,7 @@ Already one component each; use them rather than drawing the same thing again.
 
 | Component | For |
 |---|---|
-| `PropertyPicker` | a property as a button with a menu to type in (status, priority, milestone, release, assignee, labels with `multiple`). Use it rather than a native `<select>`; `field` draws it as a boxed field for a row of them in a form (New issue), and `field small` at a toolbar's height (the Schedules project filter). `PRIORITY_OPTIONS` and `milestoneOptions(milestones)` (utils/roadmap) are the usual option lists. `disabled` shuts an open menu, so a `multiple` one stays enabled while it saves: show the pick at once and send each in turn (an issue's labels, team tasks and depends on) |
+| `PropertyPicker` | a property as a button with a menu to type in (status, priority, milestone, release, assignee, labels with `multiple`). Use it rather than a native `<select>`; `field` draws it as a boxed field for a row of them in a form (New issue), and `field small` at a toolbar's height (the Schedules project filter). `PRIORITY_OPTIONS` and `milestoneOptions(milestones)` (utils/roadmap) are the usual option lists. `disabled` shuts an open menu, so a `multiple` one stays enabled while it saves: show the pick at once and send each in turn (an issue's labels, team tasks and depends on); `chip` draws it as a small rounded chip in a line of them (an issue's properties on a phone, ORR-1219), `up` opens it above (a bar at the bottom), `wide` makes the menu at least 28rem for long options (issue titles) |
 | `SegmentedControl` | a choice of two to four shown side by side (List \| Board, issue \| message, a page's tabs): Headless UI's `RadioGroup`, one Tab stop with ←→ moving the choice; the chosen option takes the accent fill on the `bg-well` track, as a risk rating's levels do. Its classes are `SEGMENTS` and `segment()` in `utils/segments.ts`, for a set that can't be a `RadioGroup`: ⌘K's categories (the focus stays in the input), Pull requests \| Branches (links), Context's kinds (none chosen while one session is shown) and the schedule dialog's weekdays (several can be picked). So every set of buttons looks the same and none moves when the choice does (ORR-992). Toggles that filter a list by their own colour (Events' levels) and rows of chips to tick (projects, statuses, presets) aren't tabs and keep their look |
 | `FilterMenu` | a toolbar filter: a button with options to tick, empty meaning any: Headless UI's `Listbox` (`multiple`) |
 | `LabelPicker` | a new issue's or a schedule's labels: tick the project's or make one, a `PropertyPicker` (`multiple`, `creatable`) |
@@ -302,7 +302,7 @@ being written again in each component:
 | `PropertyPicker`, `LabelPicker` | `Combobox` |
 | `FilterMenu` | `Listbox` |
 | `SegmentedControl` | `RadioGroup` |
-| `StatusFocus`, `ChatPane`, `SessionMessage`, `StartedSession` | `Menu` |
+| `StatusFocus`, `ChatPane`, `SessionMessage`, `StartedSession`, `StopSession`, `WorkspaceSwitcher` | `Menu` |
 | `PullFocus`, `ScheduleRunButton` | `Popover` |
 
 Something new that opens, picks or closes builds on the matching part and only draws it, in the classes above. Two
