@@ -110,8 +110,9 @@ export function openDb(path: string, upTo = MIGRATIONS.length): DatabaseSync {
 }
 
 /** Brings `opened`'s schema up to `upTo` steps; says from and to, or null when it was there already. Refuses one
- * from a newer orrery (ORR-433): this code can't know what its steps changed. */
-export function migrate(opened: DatabaseSync, path: string, upTo: number): {from: number, to: number} | null {
+ * from a newer orrery (ORR-433): this code can't know what its steps changed. `loose` leaves rows pointing outside it
+ * be: a part of a board's file, whose rows point at the board already on the server (ORR-1257). */
+export function migrate(opened: DatabaseSync, path: string, upTo: number, {loose = false} = {}): {from: number, to: number} | null {
     const {user_version: version} = opened.prepare('PRAGMA user_version').get() as {user_version: number}
     if (version > MIGRATIONS.length) {
         throw new Error(`${path} was written by a newer orrery (schema step ${version}; this one knows up to ${MIGRATIONS.length}). `
@@ -126,7 +127,7 @@ export function migrate(opened: DatabaseSync, path: string, upTo: number): {from
             opened.exec(`PRAGMA user_version = ${version + i + 1}`)
         })
     })
-    if (opened.prepare('PRAGMA foreign_key_check').all().length) throw new Error(`${path}: a migration left rows pointing at nothing`)
+    if (!loose && opened.prepare('PRAGMA foreign_key_check').all().length) throw new Error(`${path}: a migration left rows pointing at nothing`)
     opened.exec('PRAGMA foreign_keys = ON')
     return version < Math.min(upTo, MIGRATIONS.length) ? {from: version, to: Math.min(upTo, MIGRATIONS.length)} : null
 }

@@ -2,6 +2,8 @@
 // never merges into or overwrites a board: an id or key already taken is a 409, and you choose another. A member brings one in
 // in person, held to that by `checkBoards`; anyone else goes on to `authorize`, so an agent of theirs is still refused (ORR-725).
 // The file is checked here (`checkedBoard`), and the Rust API makes the board from its rows (`POST /api/boards`, ORR-1142).
+// `&into=1`: the rest of a board too big for one request, sent after it in parts (ORR-1257), a file of the board's project
+// row and its comments, events or doc revisions, added to the board `id` that whoever uploads it holds.
 export default defineEventHandler(async event => {
     const actor = await memberAsking(event) ?? await authorize(event, 'projects.upload')
     const tooBig = () => createError({statusCode: 413, statusMessage: `A board's file is ${BOARD_LIMIT / 1024 / 1024} MB at most`})
@@ -18,13 +20,16 @@ export default defineEventHandler(async event => {
     const text = (name: string) => typeof query[name] === 'string' && query[name] ? query[name] as string : undefined
     // Checked here, without the database; written by the API, which says the board changed (ORR-1142). With no API set
     // up, the upload fails as one that isn't running does (ORR-1135).
-    const checked = checkedBoard(file, {id: text('id'), key: text('key'), name: text('name')})
+    const into = query.into === '1' || query.into === 'true'
+    if (into && !(text('id') && text('key'))) throw badRequest('Name the board the rest of its file goes into: "id" and "key"')
+    const checked = checkedBoard(file, {id: text('id'), key: text('key'), name: text('name'), into})
     const holder = await personOf(event) ?? (await ownerNow()).name
     // Into the workspace the page is in (ORR-1195).
     // `?own=1`: the owner's own board from another orrery of theirs, keeping who said what (ORR-1110); the API holds it to them.
     const own = query.own === '1' || query.own === 'true'
-    const sent = await writeToApi('POST', '/api/boards', {...boardForApi(checked, holder), ...own ? {own: true} : {}}, actor, {always: true, workspace: getHeader(event, 'orrery-workspace')})
+    const sent = await writeToApi('POST', '/api/boards', {...boardForApi(checked, holder), ...own ? {own: true} : {}, ...into ? {into: true} : {}}, actor, {always: true, workspace: getHeader(event, 'orrery-workspace')})
     if (!sent) throw createError({statusCode: 503, statusMessage: 'Uploading a board needs the Rust API, which isn\'t running'})
+    if (into) return sent.reply
     useEventLog().note({level: 'info', kind: 'board.uploaded', project: checked.id, message: `${actor.name} uploaded a board's file as ${checked.id}`, details: {by: actor.name}})
     return created(event, sent.reply)
 })

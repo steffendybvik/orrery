@@ -137,7 +137,14 @@ pub struct Upload<'a> {
     /// The owner's own board, from another orrery of theirs (ORR-1110): its comments keep who wrote them, and the
     /// project its prompts, instructions, repo and `starts`. The route lets only the server's owner ask for it.
     pub own: bool,
+    /// The rest of a board's file, sent after it in parts (ORR-1257): its comments, events and doc revisions, added to
+    /// the board `id` that `holder` holds, as a board too big for one request arrives.
+    pub into: bool,
 }
+
+/// The tables a part sent `into` a board may hold: those nothing else on the board points at, and `releases`, read
+/// only for the doc revision each one marks.
+const LATER: [&str; 6] = ["projects", "comments", "milestone_comments", "issue_events", "doc_revisions", "releases"];
 
 /// Brings the board in, all or nothing, and says what it set off (the new board changed).
 pub async fn upload_board(conn: &mut AnyConnection, upload: &Upload<'_>, actor: &Actor) -> Result<Effects> {
@@ -152,11 +159,19 @@ pub async fn upload_board(conn: &mut AnyConnection, upload: &Upload<'_>, actor: 
     if let Some(other) = tables.keys().find(|table| !TABLES.contains(&table.as_str())) {
         return Err(ApiError::bad_request(format!("tables: {other} isn't one a board's file holds")));
     }
+    if upload.into {
+        // The web's check hands on every table, empty or not: only one with rows in it has to be one that comes later.
+        if let Some(other) =
+            tables.iter().find(|(table, rows)| !LATER.contains(&table.as_str()) && rows.as_array().is_some_and(|rows| !rows.is_empty())).map(|(table, _)| table)
+        {
+            return Err(ApiError::bad_request(format!("tables: {other} comes with the board, not after it")));
+        }
+    }
     let projects = rows(tables.get("projects"));
     let [source] = projects.as_slice() else { return Err(ApiError::bad_request("That file should hold one project")) };
     changes::begin(conn).await?;
     let mut writer = Writer { conn, types: HashMap::new() };
-    let done = writer.write(upload, source, tables, actor).await;
+    let done = if upload.into { writer.add(upload, tables).await } else { writer.write(upload, source, tables, actor).await };
     let mut effects = Effects::default();
     effects.changed.push(id.to_string());
     let mut outbox = changes::Outbox::new(actor.clone());
@@ -168,6 +183,21 @@ struct Writer<'c> {
     conn: &'c mut AnyConnection,
     /// Each Postgres table's columns' types, for the casts the text sent as each needs.
     types: HashMap<String, HashMap<String, String>>,
+}
+
+/// The people here, by id and name, and the names the file gives the ids it names.
+struct People {
+    here: Vec<(String, String)>,
+    named: HashMap<String, String>,
+}
+
+impl People {
+    /// Whoever the file names, found here by name; null for nobody here.
+    fn of(&self, who: Option<&Value>) -> Value {
+        let Some(Value::String(who)) = who else { return Value::Null };
+        let name = self.named.get(&who.to_lowercase()).cloned().unwrap_or_else(|| who.to_lowercase());
+        self.here.iter().find(|(_, n)| n.to_lowercase() == name).map(|(id, _)| Value::String(id.clone())).unwrap_or(Value::Null)
+    }
 }
 
 impl Writer<'_> {
@@ -235,7 +265,7 @@ impl Writer<'_> {
     }
 
     async fn write(&mut self, upload: &Upload<'_>, source: &Row, tables: &Map<String, Value>, actor: &Actor) -> Result<()> {
-        let Upload { id, key, name, holder, body, workspace, own } = *upload;
+        let Upload { id, key, name, holder, body, workspace, own, .. } = *upload;
         if self.exists("SELECT 1 FROM projects WHERE id = ?", &[id]).await? {
             return Err(ApiError::conflict(format!("There is already a project \"{id}\": choose another id")));
         }
@@ -275,21 +305,8 @@ impl Writer<'_> {
                 .map(pair)
                 .unwrap_or_else(|| ("backlog".into(), "backlog".into()))
         };
-        let people: Vec<(String, String)> = sqlx::query("SELECT id, name FROM people")
-            .fetch_all(&mut *self.conn)
-            .await?
-            .iter()
-            .map(|row| (row.get::<String, _>("id"), row.get::<String, _>("name")))
-            .collect();
-        let named: HashMap<String, String> = rows(body.get("people"))
-            .iter()
-            .map(|person| (person.get("id").map(said).unwrap_or_default().to_lowercase(), person.get("name").map(said).unwrap_or_default().to_lowercase()))
-            .collect();
-        let person_for = |who: Option<&Value>| -> Value {
-            let Some(Value::String(who)) = who else { return Value::Null };
-            let name = named.get(&who.to_lowercase()).cloned().unwrap_or_else(|| who.to_lowercase());
-            people.iter().find(|(_, n)| n.to_lowercase() == name).map(|(id, _)| Value::String(id.clone())).unwrap_or(Value::Null)
-        };
+        let people = self.people(body).await?;
+        let person_for = |who: Option<&Value>| people.of(who);
         let on_this_board = |row: &Row| -> Row {
             let mut row = row.clone();
             row.insert("project".into(), Value::String(id.to_string()));
@@ -450,38 +467,7 @@ impl Writer<'_> {
             self.insert("issue_links", &row, false).await?;
         }
 
-        for event in table("issue_events") {
-            self.insert("issue_events", &on_this_board(&without_id(event)), false).await?;
-        }
-        // Said by whoever the file says, which is why it says it's the file's: no one here said it, and it asks nothing of anyone.
-        // The owner's own board keeps who said it, its person found here by name, and what it asks (`own`).
-        let from_a_file = |row: &Row| Value::String(format!("{} (from a file)", row.get("created_by").map(said).unwrap_or_else(|| "undefined".into())));
-        let said_by = |row: &Row, asks: bool| -> Vec<(&str, Value)> {
-            if own {
-                return vec![("person", person_for(row.get("person")))];
-            }
-            let mut columns = vec![("created_by", from_a_file(row)), ("person", Value::Null), ("session_name", Value::Null)];
-            if asks {
-                columns.extend([("cleared", 1.into()), ("asks", Value::Null)]);
-            }
-            columns
-        };
-        let mut comments: HashMap<String, i64> = HashMap::new();
-        for comment in table("comments") {
-            let mut row = on_this_board(&without_id(comment));
-            for (column, value) in said_by(comment, true) {
-                row.insert(column.into(), value);
-            }
-            let made = self.insert("comments", &row, true).await?.unwrap_or_default();
-            comments.insert(comment.get("id").map(said).unwrap_or_default(), made);
-        }
-        for comment in table("milestone_comments") {
-            let mut row = on_this_board(&without_id(comment));
-            for (column, value) in said_by(comment, false) {
-                row.insert(column.into(), value);
-            }
-            self.insert("milestone_comments", &row, true).await?;
-        }
+        let comments = self.later(upload, tables, &people).await?;
         for request in table("schedule_requests") {
             let Some(&comment) = request.get("comment").and_then(|c| comments.get(&said(c))) else { continue };
             let mut row = request.clone();
@@ -491,26 +477,6 @@ impl Writer<'_> {
                 row.insert("state".into(), Value::String("expired".into()));
             }
             self.insert("schedule_requests", &row, false).await?;
-        }
-        let mut revisions: HashMap<String, i64> = HashMap::new();
-        for revision in table("doc_revisions") {
-            let mut row = on_this_board(&without_id(revision));
-            if !own {
-                row.insert("session_name".into(), Value::Null);
-            }
-            let made = self.insert("doc_revisions", &row, true).await?.unwrap_or_default();
-            revisions.insert(revision.get("id").map(said).unwrap_or_default(), made);
-        }
-        for release in table("releases") {
-            if let Some(&mark) = release.get("doc_mark").and_then(|m| revisions.get(&said(m))) {
-                let version = release.get("version").map(said).unwrap_or_default();
-                sqlx::query(&sql("UPDATE releases SET doc_mark = ? WHERE project = ? AND version = ?"))
-                    .bind(mark)
-                    .bind(id)
-                    .bind(&version)
-                    .execute(&mut *self.conn)
-                    .await?;
-            }
         }
         for run in table("schedule_runs") {
             let Some(&schedule) = run.get("schedule").and_then(|s| schedules.get(&said(s))) else { continue };
@@ -534,6 +500,109 @@ impl Writer<'_> {
                 .await?;
         }
         Ok(())
+    }
+
+    /// The people here, and those the file names, to find one by name.
+    async fn people(&mut self, body: &Value) -> Result<People> {
+        let here: Vec<(String, String)> = sqlx::query("SELECT id, name FROM people")
+            .fetch_all(&mut *self.conn)
+            .await?
+            .iter()
+            .map(|row| (row.get::<String, _>("id"), row.get::<String, _>("name")))
+            .collect();
+        let named: HashMap<String, String> = rows(body.get("people"))
+            .iter()
+            .map(|person| (person.get("id").map(said).unwrap_or_default().to_lowercase(), person.get("name").map(said).unwrap_or_default().to_lowercase()))
+            .collect();
+        Ok(People { here, named })
+    }
+
+    /// The rest of a board's file, sent after it (ORR-1257): its comments, events and doc revisions, onto the board
+    /// `id`, which has to be here, in the workspace the request acts in, and held by `holder`.
+    async fn add(&mut self, upload: &Upload<'_>, tables: &Map<String, Value>) -> Result<()> {
+        let Upload { id, holder, body, workspace, .. } = *upload;
+        let held = self
+            .exists(
+                "SELECT 1 FROM projects p JOIN project_members m ON m.project = p.id WHERE p.id = ? AND p.workspace = ? AND m.person = ? AND m.role = 'owner'",
+                &[id, workspace, holder],
+            )
+            .await?;
+        if !held {
+            return Err(ApiError::not_found(format!("No board {id} of yours to add to")));
+        }
+        let people = self.people(body).await?;
+        self.later(upload, tables, &people).await?;
+        Ok(())
+    }
+
+    /// What nothing else on the board points at, so it can come after the board: its issues' events, its comments, its
+    /// milestones' comments and its docs' revisions, with the revision each release marks. The comments, by their id in
+    /// the file, with the id each has here.
+    async fn later(&mut self, upload: &Upload<'_>, tables: &Map<String, Value>, people: &People) -> Result<HashMap<String, i64>> {
+        let Upload { id, own, .. } = *upload;
+        let table = |name: &str| rows(tables.get(name));
+        let on_this_board = |row: &Row| -> Row {
+            let mut row = row.clone();
+            row.remove("id");
+            row.insert("project".into(), Value::String(id.to_string()));
+            if row.contains_key("owned") && !own {
+                row.insert("owned".into(), 0.into());
+            }
+            row
+        };
+        for event in table("issue_events") {
+            self.insert("issue_events", &on_this_board(event), false).await?;
+        }
+        // Said by whoever the file says, which is why it says it's the file's: no one here said it, and it asks nothing of anyone.
+        // The owner's own board keeps who said it, its person found here by name, and what it asks (`own`).
+        let from_a_file = |row: &Row| Value::String(format!("{} (from a file)", row.get("created_by").map(said).unwrap_or_else(|| "undefined".into())));
+        let said_by = |row: &Row, asks: bool| -> Vec<(&str, Value)> {
+            if own {
+                return vec![("person", people.of(row.get("person")))];
+            }
+            let mut columns = vec![("created_by", from_a_file(row)), ("person", Value::Null), ("session_name", Value::Null)];
+            if asks {
+                columns.extend([("cleared", 1.into()), ("asks", Value::Null)]);
+            }
+            columns
+        };
+        let mut comments: HashMap<String, i64> = HashMap::new();
+        for comment in table("comments") {
+            let mut row = on_this_board(comment);
+            for (column, value) in said_by(comment, true) {
+                row.insert(column.into(), value);
+            }
+            let made = self.insert("comments", &row, true).await?.unwrap_or_default();
+            comments.insert(comment.get("id").map(said).unwrap_or_default(), made);
+        }
+        for comment in table("milestone_comments") {
+            let mut row = on_this_board(comment);
+            for (column, value) in said_by(comment, false) {
+                row.insert(column.into(), value);
+            }
+            self.insert("milestone_comments", &row, true).await?;
+        }
+        let mut revisions: HashMap<String, i64> = HashMap::new();
+        for revision in table("doc_revisions") {
+            let mut row = on_this_board(revision);
+            if !own {
+                row.insert("session_name".into(), Value::Null);
+            }
+            let made = self.insert("doc_revisions", &row, true).await?.unwrap_or_default();
+            revisions.insert(revision.get("id").map(said).unwrap_or_default(), made);
+        }
+        for release in table("releases") {
+            if let Some(&mark) = release.get("doc_mark").and_then(|m| revisions.get(&said(m))) {
+                let version = release.get("version").map(said).unwrap_or_default();
+                sqlx::query(&sql("UPDATE releases SET doc_mark = ? WHERE project = ? AND version = ?"))
+                    .bind(mark)
+                    .bind(id)
+                    .bind(&version)
+                    .execute(&mut *self.conn)
+                    .await?;
+            }
+        }
+        Ok(comments)
     }
 
     /// The images the file's text shows: each checked as an image, by its bytes rather than what it says. One this

@@ -176,6 +176,117 @@ export function planStatuses(source, target, takenIds, workspace) {
     return {map, make, drop}
 }
 
+/** What a board's file can send after the board (ORR-1257): nothing else on the board points at these rows. */
+export const LATER_TABLES = ['comments', 'milestone_comments', 'issue_events', 'doc_revisions']
+/** How much of a board's rows one request carries, well inside a proxy's cap (Cloudflare's is 100 MB) and what a small
+ * server holds in memory as it checks them. */
+export const PART_SIZE = 4 * 1024 * 1024
+
+const IMAGE = /\/api\/uploads\/([0-9a-f]{24})/g
+
+/** The images a board's file shows, by id. */
+export function imagesShown(file) {
+    return [...new Set([...JSON.stringify(file?.tables ?? {}).matchAll(IMAGE)].map(match => match[1]))]
+}
+
+/** The file with each image it shows that's in `ids` (old → new) named by its new id. Returns a new file. */
+export function renameImages(file, ids) {
+    if (!ids.size) return file
+    const tables = {}
+    for (const [table, rows] of Object.entries(file.tables ?? {})) {
+        tables[table] = (rows ?? []).map(row => {
+            const out = {...row}
+            for (const [column, value] of Object.entries(row)) {
+                if (typeof value === 'string' && value.includes('/api/uploads/')) out[column] = value.replace(IMAGE, (whole, id) => ids.has(id) ? `/api/uploads/${ids.get(id)}` : whole)
+            }
+            return out
+        })
+    }
+    return {...file, tables}
+}
+
+/**
+ * A board's file as requests no bigger than about `size` each: `first`, the board without its images or the rows that can
+ * come after it (`LATER_TABLES`, but the comments a schedule's request points at), then `parts`, each a file of the
+ * project's row and some of those rows, with the releases marking a doc revision in it.
+ */
+export function boardParts(file, size = PART_SIZE) {
+    const tables = file.tables ?? {}
+    const asked = new Set((tables.schedule_requests ?? []).map(request => String(request.comment)))
+    const first = {...tables}
+    const later = []
+    for (const table of LATER_TABLES) {
+        const rows = tables[table] ?? []
+        first[table] = table === 'comments' ? rows.filter(row => asked.has(String(row.id))) : []
+        for (const row of rows) if (!(table === 'comments' && asked.has(String(row.id)))) later.push([table, row])
+    }
+    const marking = new Map()
+    for (const release of tables.releases ?? []) if (release.doc_mark != null) marking.set(String(release.doc_mark), [...marking.get(String(release.doc_mark)) ?? [], release])
+    const head = {format: file.format, format_version: file.format_version, schema_step: file.schema_step, exported_at: file.exported_at, project: file.project, people: file.people ?? [], statuses: file.statuses ?? [], uploads: []}
+    const parts = []
+    let part
+    let filled = 0
+    for (const [table, row] of later) {
+        const weight = JSON.stringify(row).length
+        if (!part || (filled && filled + weight > size)) {
+            part = {...head, tables: {projects: tables.projects ?? []}}
+            parts.push(part)
+            filled = 0
+        }
+        add(part, table, row)
+        filled += weight
+        if (table === 'doc_revisions') for (const release of marking.get(String(row.id)) ?? []) add(part, 'releases', release)
+    }
+    return {first: {...file, uploads: [], tables: first}, parts}
+}
+
+function add(part, table, row) {
+    if (!part.tables[table]) part.tables[table] = []
+    part.tables[table].push(row)
+}
+
+/** Base64 of the bytes, with nothing of Node's. */
+function base64Of(buffer) {
+    const bytes = new Uint8Array(buffer)
+    let text = ''
+    for (let at = 0; at < bytes.length; at += 0x8000) text += String.fromCharCode(...bytes.subarray(at, at + 0x8000))
+    return btoa(text)
+}
+
+/**
+ * Sends a board's file to `target` in requests a proxy and a small server both take (ORR-1257): each image it shows on
+ * its own (`POST /uploads`, which names it anew, so its text is changed to match), then the board without them and
+ * without what can come after it, then that, in parts (`?into=1`). An image is the file's own (`uploads`), or `image(id)`
+ * reads it in base64; `sent` (old id → new) keeps one shown on several boards to one copy. → the new board.
+ */
+export async function sendBoard(target, file, {id, key, own = false, to, image, sent = new Map(), size = PART_SIZE, log = () => {}} = {}) {
+    const inFile = new Map((Array.isArray(file.uploads) ? file.uploads : []).map(upload => [upload.id, upload]))
+    for (const old of imagesShown(file)) {
+        if (sent.has(old)) continue
+        const kept = inFile.get(old)
+        try {
+            const data = kept?.data ?? await image?.(old)
+            if (!data) continue
+            const made = await target.post('/uploads', {data, ...typeof kept?.name === 'string' ? {name: kept.name} : {}}, to)
+            sent.set(old, made.id)
+        } catch (error) {
+            log(`Couldn't send image ${old}: ${error.message}`)
+        }
+    }
+    const {first, parts} = boardParts(renameImages(file, sent), size)
+    const query = new URLSearchParams({...id ? {id} : {}, ...key ? {key} : {}, ...own ? {own: '1'} : {}})
+    const board = await target.upload(`/projects/upload?${query}`, JSON.stringify(first), to)
+    const into = new URLSearchParams({id: board.id, key: board.key, ...own ? {own: '1'} : {}, into: '1'})
+    for (const [n, part] of parts.entries()) {
+        try {
+            await target.upload(`/projects/upload?${into}`, JSON.stringify(part), to)
+        } catch (error) {
+            throw new Error(`The board came in as ${board.id}, but part ${n + 1} of ${parts.length} of its comments, events and doc history didn't: ${error.message}`, {cause: error})
+        }
+    }
+    return board
+}
+
 /** The summary the owner reads at the end. */
 export function summary(report) {
     const lines = []
@@ -226,7 +337,7 @@ export function summary(report) {
 /** A small client for one orrery: its address, a key or a person's name, and the workspace it acts in. */
 export function client(base, {key, person, fetch: fetching = globalThis.fetch} = {}) {
     const url = base.replace(/\/+$/, '')
-    const request = async (method, path, {body, workspace, raw} = {}) => {
+    const request = async (method, path, {body, workspace, raw, bytes} = {}) => {
         const headers = {}
         if (key) headers.Authorization = `Bearer ${key}`
         if (person) {
@@ -236,6 +347,7 @@ export function client(base, {key, person, fetch: fetching = globalThis.fetch} =
         if (workspace) headers['Orrery-Workspace'] = workspace
         if (body !== undefined) headers['Content-Type'] = 'application/json'
         const reply = await fetching(`${url}/api${path}`, {method, headers, body: body === undefined ? undefined : raw ? body : JSON.stringify(body)})
+        if (bytes && reply.ok) return base64Of(await reply.arrayBuffer())
         const text = await reply.text()
         let value
         try {
@@ -253,6 +365,8 @@ export function client(base, {key, person, fetch: fetching = globalThis.fetch} =
     return {
         url,
         get: (path, options) => request('GET', path, options),
+        /** What's at `path`, as base64: an image. */
+        bytes: (path, options) => request('GET', path, {...options, bytes: true}),
         post: (path, body, options) => request('POST', path, {...options, body}),
         patch: (path, body, options) => request('PATCH', path, {...options, body}),
         del: (path, options) => request('DELETE', path, options),
@@ -294,7 +408,7 @@ export async function importOrrery({source, target, name, color, fromWorkspace =
     for (const p of plan) {
         if (p.skipped) continue
         progress({step: 'reading', project: p.from, done: files.size, total: moving.length})
-        const file = await source.get(`/projects/${encodeURIComponent(p.from)}/export?uploads=1`, from)
+        const file = await source.get(`/projects/${encodeURIComponent(p.from)}/export`, from)
         files.set(p.from, file)
         const t = file.tables ?? {}
         p.counts = {issues: t.issues?.length ?? 0, comments: (t.comments?.length ?? 0) + (t.milestone_comments?.length ?? 0), docs: t.docs?.length ?? 0, schedules: t.schedules?.length ?? 0}
@@ -382,15 +496,17 @@ export async function importOrrery({source, target, name, color, fromWorkspace =
     report.presets = {made, shipped, removed}
     log(`Presets: ${made} made, ${shipped} of orrery's own`)
 
-    // The boards, one by one.
+    // The boards, one by one, each in requests a proxy and a small server take: its images one at a time, read from the
+    // source as they go, then its rows in parts (ORR-1257).
+    const images = new Map()
+    const image = id => source.bytes(`/uploads/${id}`, from)
     let uploaded = 0
     for (const p of plan) {
         if (p.skipped) continue
         progress({step: 'uploading', project: p.id, done: uploaded++, total: moving.length})
         const file = prepareFile(files.get(p.from), renames, sourceStatuses)
-        const query = new URLSearchParams({id: p.id, key: p.key, own: '1'})
         try {
-            await target.upload(`/projects/upload?${query}`, JSON.stringify(file), to)
+            await sendBoard(target, file, {id: p.id, key: p.key, own: true, to, image, sent: images, log})
             log(`Uploaded ${p.from}${p.id !== p.from ? ` as ${p.id}` : ''}`)
         } catch (error) {
             p.error = error.message

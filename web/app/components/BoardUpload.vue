@@ -1,62 +1,58 @@
 <script setup lang="ts">
 import type {Project} from '#shared/roadmap'
+import * as boards from '#shared/import-orrery.mjs'
 
 // A board's file brought in as a new board (ORR-747), from App settings (ORR-1248): it never touches a board that's
 // here already. An id or key already taken is the server's to say, and then the file waits while you choose others.
-// Its images can be left out, as they're most of a big board's file: a proxy in front of a hosted orrery refuses a
-// body past its cap (413) before orrery sees it, and then that's the way through.
+// It goes as a move sends one (ORR-1257): each image on its own, then the board, then its comments, events and doc
+// history in parts, so a proxy's cap on one request and a small server's memory both hold for a board of any size.
+const {sendBoard} = boards as unknown as {sendBoard: (target: unknown, file: unknown, options: {id?: string, key?: string}) => Promise<Project>}
 const field = 'h-8 rounded-lg bg-well px-2.5 font-mono text-[13px] text-fg ring-1 ring-line focus:ring-accent-500/50 focus:outline-none'
 const router = useRouter()
 const file = ref<File | null>(null)
-const bare = ref(false)
 const taken = ref(false)
-const tooBig = ref(false)
 const id = ref('')
 const key = ref('')
 const busy = ref(false)
 const failed = ref('')
 
-/** The file as it goes: whole, or with its images left out. */
-async function bodyOf(picked: File): Promise<File | string> {
-    if (!bare.value) return picked
-    let parsed: unknown
+/** This orrery, as `sendBoard` asks it. */
+const here = {
+    post: (path: string, body: unknown) => apiFetch(path, {method: 'POST', body: body as Record<string, unknown>}),
+    upload: (path: string, text: string) => apiFetch(path, {method: 'POST', body: text, headers: {'Content-Type': 'application/json'}}),
+}
+
+/** The file read, or the file itself when it isn't JSON, for the server to say why it's no board. */
+async function bodyOf(picked: File): Promise<unknown> {
     try {
-        parsed = JSON.parse(await picked.text())
+        return JSON.parse(await picked.text())
     } catch {
-        return picked
+        return undefined
     }
-    if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as {uploads?: unknown}).uploads)) return picked
-    return JSON.stringify({...parsed, uploads: []})
 }
 
 async function send() {
     if (!file.value || busy.value) return
     busy.value = true
     failed.value = ''
-    tooBig.value = false
     try {
-        const query = {...id.value.trim() ? {id: id.value.trim()} : {}, ...key.value.trim() ? {key: key.value.trim()} : {}}
-        const board = await apiFetch<Project>('/projects/upload', {method: 'POST', query, body: await bodyOf(file.value)})
+        const as = {...id.value.trim() ? {id: id.value.trim()} : {}, ...key.value.trim() ? {key: key.value.trim()} : {}}
+        const parsed = await bodyOf(file.value)
+        const board = parsed && typeof parsed === 'object'
+            ? await sendBoard(here, parsed, as)
+            : await apiFetch<Project>('/projects/upload', {method: 'POST', query: as, body: file.value})
         reset()
         router.push(`/p/${board.id}`)
     } catch (error) {
         const status = (error as {statusCode?: number}).statusCode
         taken.value = status === 409 || taken.value
-        tooBig.value = status === 413
-        failed.value = status === 413 ? refusedAsTooBig(file.value) : errorMessage(error, 'upload')
+        failed.value = status === 413 ? refusedAsTooBig() : errorMessage(error, 'upload')
     } finally {
         busy.value = false
     }
 }
-function refusedAsTooBig(picked: File | null) {
-    const size = picked ? `${Math.max(1, Math.round(picked.size / 1024 / 1024))} MB` : 'this size'
-    return bare.value
-        ? `This orrery took no file of ${size}, even with its images left out. Something in front of it, such as a proxy, caps what one request can carry: upload it where orrery is reached directly, or ask whoever runs it to raise the cap.`
-        : `This orrery took no file of ${size}: something in front of it, such as a proxy, caps what one request can carry. Its images are most of a big board's file, so upload it without them.`
-}
-function withoutImages() {
-    bare.value = true
-    send()
+function refusedAsTooBig() {
+    return 'This orrery took none of it: something in front of it, such as a proxy, caps what one request can carry below even the board without its comments. Upload it where orrery is reached directly, or ask whoever runs it to raise the cap.'
 }
 function chosen(event: Event) {
     const input = event.target as HTMLInputElement
@@ -70,7 +66,6 @@ function chosen(event: Event) {
 function reset() {
     file.value = null
     taken.value = false
-    tooBig.value = false
     id.value = ''
     key.value = ''
     failed.value = ''
@@ -83,10 +78,6 @@ function reset() {
       <label class="inline-flex cursor-pointer items-center rounded-md px-3 py-1.5 text-[13px] font-medium text-fg ring-1 ring-line focus-within:ring-accent-500/50 hover:bg-hover">
         {{ busy ? 'Uploading…' : 'Upload a board…' }}
         <input type="file" accept=".json,application/json" class="sr-only" :disabled="busy" @change="chosen">
-      </label>
-      <label class="flex items-center gap-2 text-[13px] text-fg">
-        <input v-model="bare" type="checkbox" class="accent-accent-fill" :disabled="busy">
-        Leave out its images
       </label>
     </div>
     <form v-if="taken" class="flex flex-wrap items-end gap-2" @submit.prevent="send" @keydown.esc="reset">
@@ -102,9 +93,5 @@ function reset() {
       <UiButton variant="ghost" @click="reset">Cancel</UiButton>
     </form>
     <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400" role="alert">{{ failed }}</p>
-    <div v-if="tooBig && !bare && file" class="flex flex-wrap items-center gap-2">
-      <UiButton :disabled="busy" @click="withoutImages">Upload it without images</UiButton>
-      <UiButton variant="ghost" @click="reset">Cancel</UiButton>
-    </div>
   </div>
 </template>
