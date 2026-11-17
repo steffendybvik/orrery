@@ -55,15 +55,26 @@ Without Docker: `pnpm install` and `cargo build` in `api/`, then `pnpm dev` on h
 
 ## The Rust API
 
-orrery's API is moving to Rust a domain at a time (ORR-921, ORR-922), the Nuxt server staying in front. Anything kept in
-the database goes there; what touches the machine (sessions, tmux, the launcher, local files) stays. So far it serves the
-**docs** domain (a project's docs, their sections and revisions), the orrery's **statuses** (`/api/statuses`,
-ORR-926), **milestones and releases** (ORR-926: a project's, one of each, and `/api/releases`; made, changed, frozen,
-shipped and deleted too, ORR-974), **reading
-issues and their comments**, and **making, editing and deleting a comment**, **claiming an issue and letting it go, changing its own words, status, priority, assignee and where it sits (title, status, priority, assignee, notes, labels, links, parent, milestone, release, epic, what it depends on, whether it's a proposal and its choices, model, effort, place; a session's change of status stays on Nuxt, which holds its lock) changing many at once (their status, priority, assignee, milestone, release, epic and labels), the owner's decision on a proposal, or on many at once (a rejection told to its session but starting no work), and deleting one, or many at once** (ORR-927: the list with its filters, one issue, its comments) and **people, invites, keys
-and logins** (ORR-928, removing a person included, and logging in and out with a key, ORR-1137) **reading the secrets** (ORR-953, never a value) and **reading the schedules** (ORR-930: a project's, one with its runs, every project's and those across projects), **reading one pull request, and rating its risk** (ORR-952,
-`/api/pulls/:owner/:name/:number`), **listing the projects** with their counts and boards (ORR-997, ORR-1006, `GET /api/projects`), **reading one with its board** (each labelled in Nuxt with the events stream's `rev`), **deleting, exporting and importing one** (ORR-1006) and **changing a project** (ORR-923, `PATCH /api/projects/:project`, its prompts the owner's), **making one** (ORR-1002, `POST /api/projects`, held by whoever asks), **uploading an image** (ORR-1058), **the presets** (ORR-949), **the settings** (ORR-954), adopting and deleting a schedule (ORR-950) **the bell** (ORR-1005, `/api/notices`: reading it, its status changes, clearing it and marking it read, each person's their own) and **the epics** (ORR-1004, `/api/epics`: listing, reading, making, changing and deleting one, and its comments and a milestone's; an epic's focus stays in Nuxt): the routes in
-`api/openapi.yaml`. An artifact's page (`…/docs/:doc/artifact`), a milestone's focus, and writing an issue (its claim, its own words, changing many at once, deciding proposals and deleting issues aside) stays in Nuxt, and so do setting, narrowing and deleting a secret and egress.
+orrery's API moved to Rust a domain at a time (ORR-921, ORR-922), the Nuxt server staying in front. Anything kept in
+the database goes there; what touches the machine (sessions, tmux, the launcher, local files) stays. What it serves isn't
+listed here, as such a list falls behind: `DOMAINS` in `web/server/utils/api-router.ts` has a commented line per
+domain (and `MCP`, `/mcp`, beside it), and `api/openapi.yaml` is the contract, route by route. What stays in Nuxt is
+what's left in `web/server/api/`: the live feed and the signal streams, sessions, launches, machines and connects, the
+chats, moving to another orrery (`orrery-moves`) and a board's upload, an artifact's page (`…/docs/:doc/artifact`),
+focusing an issue, milestone or epic, running a schedule now, the list of pull requests and the branches (they ask
+GitHub), and setting, narrowing and deleting a secret and egress (they need `orrery.key`).
+
+Inside `api/src/` ([Rust API structure](/p/orrery/docs/rust-api-structure) has the rest):
+
+```
+routes/     the HTTP side, a module per domain, each with its handlers and a routes(); mod.rs merges them
+access/     who's on the orrery and how they get in: people, keys, logins, OIDC, the phone's links, the secrets read
+board/      the board: projects, issues and what's written on them, milestones, releases, epics, statuses, docs, uploads
+work/       what the local app's work keeps: pull requests and the poll, schedules, chats, signals, presets, the bell,
+            settings, usage and the event log
+mcp/        orrery's MCP tools at /mcp (streamable HTTP), the board's tools in mcp/board/
+main.rs     starting it; db.rs, migrate.rs, request.rs (the guard), changes.rs (what a write set off), reply.rs …
+```
 
 How it fits together:
 

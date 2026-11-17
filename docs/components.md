@@ -201,6 +201,10 @@ Already one component each; use them rather than drawing the same thing again.
 | `LabelPicker` | a new issue's or a schedule's labels: tick the project's or make one, a `PropertyPicker` (`multiple`, `creatable`) |
 | `FilterBar` | a list's filters: search on `/`, then priority, column, assignee, label and blocked (or ready), and off a project's pages the project |
 | `SelectBox` | the tick on an issue's row or card, for changing many at once |
+| `GroupTick` | a group's tick (a status or milestone in the list, a column on the board): ticks every issue it shows, a dash when only some are |
+| `DependsPicker` | issues linked to one, from every project's, by id or title: what blocks it or, with `label`, what it blocks; `field` in the New issue dialog |
+| `IconPicker` | an icon, any Heroicon by name, and its colour (a tint, a custom `#rrggbb`, or the text's) |
+| `AgentPicker` | which AI agent the owner runs (App settings, Getting started), saved as it's picked |
 
 **Showing**
 
@@ -227,6 +231,14 @@ Already one component each; use them rather than drawing the same thing again.
 | `StepMark` | a step's number in a guide, ticked when done |
 | `MarkdownView` | Markdown as a page (descriptions, comments, docs); with `before`, what changed is tinted |
 | `InlineText` | a line with inline `code`, **bold** and links |
+| `IssueRow` | one issue as a row: id, title, labels, status, priority, assignee; its blocked and risk chips, `nested` sub-issues under tree lines, its tick on hover |
+| `ListView` | top-level issues as rows with their sub-issues, in folding groups by status or milestone, each with a `GroupTick`; `riskFirst` sorts riskiest first |
+| `ClaimMark` | who holds an issue and for how long, on a list or a board; nothing with one person |
+| `RiskChip` | how risky a change is, high red, medium amber, low quiet; square-cornered, so it doesn't read as a `PullStateChip` |
+| `ReleaseStateChip` | where a release stands: shipped, frozen or being prepared, with the day |
+| `GithubIssueChip` | the GitHub issue an issue came from, `owner/name#523` as a link (`#523` on the project's own repo) |
+| `ModelChip` | what a session runs on, as its agent's card says (model and effort); `condensed` the effort alone |
+| `ContextMeter` | how full a session's context window is, a thin bar and the share, amber when full; `condensed` the bar alone |
 
 **Copying and adding**
 
@@ -237,12 +249,15 @@ Already one component each; use them rather than drawing the same thing again.
 | `MarkdownField` | a text box for Markdown (the chat, comments, an issue's description): a real textarea with the source drawn over it in its formatting, keys (⌘B, ⌘I, ⌘⇧H…) and, with `toolbar`, buttons; Enter carries a list on (Shift-Enter with `enterSends`). Classes and listeners go on the textarea, which it exposes as `el` (for `useImageUpload`), and its own keys run first. The drawing changes no character's width, so it lines up with the caret: keep it that way (`md-draw` in `main.css`) |
 | `ImageButton` | picks images for a Markdown field |
 | `ImageDropOverlay` | covers an area taking images while one is dragged over it: "Drop image to add" |
+| `CommentBox` | writing a comment as the owner, or editing one of theirs (`comment`), ⌘↵ to post, images pasted or dropped; `url` for a milestone's or epic's thread |
+| `ThreadComments` | the comments on a milestone's or an epic's page, oldest first, with a `CommentBox` for a new one |
 
 **Page frame**
 
 | Component | For |
 |---|---|
 | `PageHeader` | a page's top bar: title, the page's controls, the bell, theme and settings |
+| `ProjectTopBar` | a project tab's top bar: the project / the tab, then its key and progress, so a phone with the sidebar shut still says where it is; `titled` when the page has its own h1 |
 | `ViewToolbar` | a page's own controls under its header: how it's shown on the left, filters on the right (`#end`) |
 | `NotFound` | what a page couldn't find (the slot), why that might be (`reason`) and a way back (`to`, `back`); it titles the tab "Not found". `error.vue` uses it for an unknown URL, inside the layout |
 | `DocContents` | a doc's table of contents |
@@ -258,6 +273,7 @@ Already one component each; use them rather than drawing the same thing again.
 | `NoticeHistory` | Notifications' reading pane, there only while a line is chosen: a line's comments in full with its status changes among them |
 | `NoticeTransition` | a status change in words: the icon and name of where it started and where it ended |
 | `ThemeToggle` | light ⇄ dark, following the system until one is picked |
+| `PhoneLink` | Open on your phone (App settings → You): the address with Copy and a QR code, a one-time sign-in link when the phone has its own port |
 | `OrreryMark` | the logo's mark, in `currentColor` |
 
 **Dialogs**
