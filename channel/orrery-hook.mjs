@@ -27,8 +27,10 @@ try {
     // What the session is doing, as its agent's adapter reads its hook's input (ORR-1074).
     const {id, cwd, ...report} = agent.report(hook)
     const dir = process.env.CLAUDE_PROJECT_DIR ?? cwd ?? process.cwd()
-    // Its project (ORR-1068): the one it was set up or started for, else the one the launcher's list maps its folder to.
-    const linked = process.env.ORRERY_PROJECT || projectAt(dir, base)
+    // Its project (ORR-1068): the one orrery started it for, which the launcher hands down as ORRERY_STARTED_FOR, as a
+    // repo's hook line may set ORRERY_PROJECT to its own (ORR-1275); else the one it was set up for, else the one the
+    // launcher's list maps its folder to.
+    const linked = (process.env.ORRERY_STARTED && process.env.ORRERY_STARTED_FOR) || process.env.ORRERY_PROJECT || projectAt(dir, base)
     // In a folder linked to none, the orrery the session chose and its project, if it chose this one and a project
     // (ORR-1080); with another orrery, or none chosen yet, nothing.
     const choice = choiceFor({session: [id, process.env.CLAUDE_CODE_SESSION_ID], linked: !!linked})
