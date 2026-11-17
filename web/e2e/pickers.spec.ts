@@ -136,7 +136,7 @@ test('picks two labels in a row, and Esc closes the picker, not the page', async
     await expect(find).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(find).toBeHidden()
-    await expect(page).toHaveURL(new RegExp(`/p/foundry/issues/${issue.id}$`))
+    await expect(page).toHaveURL(new RegExp(`/foundry/issues/${issue.id}$`))
 })
 
 test('adds a status from App settings, renames it, colours it and moves it, Esc leaving a name as it was (ORR-792)', async ({page, request}) => {

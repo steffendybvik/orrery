@@ -501,7 +501,7 @@ test("keeps a session's state that changes as the page opens, over the older rea
         await page.goto('/p/kitchen')
         await wasRead
         await report('UserPromptSubmit')
-        const row = page.locator('a[href="/sessions#session-e2e-w4"]').first()
+        const row = page.locator('a[href="/w/default/sessions#session-e2e-w4"]').first()
         await expect(row).toContainText('working')
         const landed = page.waitForResponse('**/api/sessions')
         release()

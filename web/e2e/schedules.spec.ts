@@ -71,9 +71,9 @@ test('runs a schedule from the issues page, and has no button with none to run (
     await page.getByRole('button', {name: /Prune the vines/}).click()
     const said = page.getByRole('status').getByRole('link', {name: /^Issue created: /})
     await expect(said).toBeVisible()
-    await expect(page).toHaveURL(/\/p\/vineyard\?view=list/)
+    await expect(page).toHaveURL(/\/vineyard\?view=list/)
     await said.click()
-    await expect(page).toHaveURL(/\/p\/vineyard\/issues\//)
+    await expect(page).toHaveURL(/\/vineyard\/issues\//)
 })
 
 test("a suggested schedule opens filled in, and leaves the list once it's made", async ({page, request}) => {

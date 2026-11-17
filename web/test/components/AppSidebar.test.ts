@@ -27,7 +27,7 @@ beforeEach(() => {
 
 const mount = () => mountSuspended(AppSidebar)
 type Wrapper = Awaited<ReturnType<typeof mount>>
-const link = (wrapper: Wrapper, to: string) => wrapper.findAll('a').find(a => a.attributes('href') === to)
+const link = (wrapper: Wrapper, to: string) => wrapper.findAll('a').find(a => a.attributes('href') === `/w/default${to}`)
 
 describe('AppSidebar', () => {
     it('counts only the schedules still set to run', async () => {
@@ -82,7 +82,7 @@ describe('AppSidebar', () => {
 
     it("folds a project's pages away and opens them again", async () => {
         const wrapper = await mount()
-        const pages = () => wrapper.findAll('a').filter(a => a.attributes('href')?.startsWith('/p/shop/')).length
+        const pages = () => wrapper.findAll('a').filter(a => a.attributes('href')?.startsWith('/w/default/shop/')).length
         if (!pages()) await wrapper.find('[aria-label="Open Shop"]').trigger('click')
         expect(pages()).toBeGreaterThan(0)
         await wrapper.find('[aria-label="Fold Shop"]').trigger('click')
@@ -110,7 +110,7 @@ describe('AppSidebar', () => {
         }
         const wrapper = await mount()
         // The nav keeps its own Sessions row with the count (ORR-972), beside the panel's heading at the foot.
-        expect(wrapper.find('nav').findAll('a').find(a => a.attributes('href') === '/sessions')!.text()).toBe('Sessions3')
+        expect(wrapper.find('nav').findAll('a').find(a => a.attributes('href') === '/w/default/sessions')!.text()).toBe('Sessions3')
         const text = wrapper.text()
         expect(text.indexOf('kitchen')).toBeLessThan(text.indexOf('jars'))
         expect(text.indexOf('kitchen')).toBeLessThan(text.indexOf('shelves'))

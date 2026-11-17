@@ -69,13 +69,13 @@ test.afterAll(async () => {
 test('the first account in becomes the owner, and makes a project', async ({browser, baseURL}) => {
     ownerPage = await logIn(browser, baseURL!, 'ada', 'Ada Lovelace')
     await makeFirstProject(ownerPage, 'Greenhouse')
-    await expect(ownerPage).toHaveURL(/\/p\/greenhouse/)
+    await expect(ownerPage).toHaveURL(/\/greenhouse/)
 })
 
 test('someone new signs up into a workspace of their own, with the welcome', async ({browser, baseURL}) => {
     newPage = await logIn(browser, baseURL!, 'grace', 'Grace Hopper')
     await makeFirstProject(newPage, 'Rockets')
-    await expect(newPage).toHaveURL(/\/p\/rockets/)
+    await expect(newPage).toHaveURL(/\/rockets/)
     await expect(newPage.getByTestId('workspace-switcher').getByRole('button').first()).toContainText('Grace Hopper')
 })
 

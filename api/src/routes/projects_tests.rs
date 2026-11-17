@@ -72,8 +72,8 @@ async fn whoever_makes_a_project_holds_it() {
             rows.iter().map(|r| (r.get::<String, _>("person"), r.get::<String, _>("role"))).collect::<Vec<_>>()
         }
     };
-    make(&api, json!({"name": "Mine"})).await;
-    assert_eq!(holders("mine").await, [("owner".to_string(), "owner".to_string())]);
+    make(&api, json!({"name": "Ours"})).await;
+    assert_eq!(holders("ours").await, [("owner".to_string(), "owner".to_string())]);
     let theirs =
         api.post("/api/projects", json!({"name": "Hers"})).by_agent("ann").header("orrery-who", "browser").header("orrery-who-person", "ann").send().await;
     assert_eq!(theirs.status, 201, "{}", theirs.body);
@@ -110,7 +110,9 @@ async fn a_bad_or_taken_project_is_refused() {
     assert_eq!(wrong.body["data"]["problems"].as_array().unwrap().len(), 5, "{}", wrong.body);
     assert_eq!(api.post("/api/projects", json!({"name": "!!!"})).send().await.status, 400, "no id to make");
     assert_eq!(api.post("/api/projects", json!({"name": "Mills", "key": "MLS"})).send().await.status, 400, "a reserved key");
+    assert_eq!(api.post("/api/projects", json!({"name": "Settings"})).send().await.status, 400, "a workspace's own page");
     make(&api, json!({"name": "Shop"})).await;
+    assert_eq!(api.get("/api/projects/shop").send().await.body["workspace"], "default", "it says its workspace");
     assert_eq!(api.post("/api/projects", json!({"name": "Shop"})).send().await.status, 409);
     assert_eq!(api.get("/api/projects").send().await.body.as_array().unwrap().len(), 1);
 }

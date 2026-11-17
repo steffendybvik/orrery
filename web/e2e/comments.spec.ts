@@ -20,7 +20,7 @@ test('puts a picked image in a new issue, and in a comment on it', async ({page,
     await dialog.locator('input[type="file"]').setInputFiles(png)
     await expect(dialog.getByLabel('Description')).toHaveValue(/^!\[shelf\]\(\/api\/uploads\/[0-9a-f]{24}\)\n$/)
     await dialog.getByRole('button', {name: /Create issue/}).click()
-    await expect(page).toHaveURL(/\/p\/studio\/issues\/STU-\d+/)
+    await expect(page).toHaveURL(/\/studio\/issues\/STU-\d+/)
     const id = page.url().split('/').at(-1)!
     const image = page.locator('.doc img[alt="shelf"]').first()
     await expect(image).toBeVisible()
@@ -74,7 +74,7 @@ test('takes an image dropped or pasted anywhere on the dialog or the comment box
     }, clipboard)
     await expect(dialog.getByLabel('Description')).toHaveValue(/!\[lid\]/)
     await dialog.getByRole('button', {name: /Create issue/}).click()
-    await expect(page).toHaveURL(/\/p\/studio\/issues\/STU-\d+/)
+    await expect(page).toHaveURL(/\/studio\/issues\/STU-\d+/)
 
     // Dropped on the comment box's buttons, it goes into the comment.
     const box = page.locator('form').filter({has: page.getByRole('textbox', {name: 'Comment'})})

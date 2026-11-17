@@ -12,7 +12,7 @@ use crate::changes;
 use crate::db::{on_postgres, sql};
 use crate::error::{ApiError, Result};
 use crate::migrate::uid_of;
-use crate::text::RESERVED_KEYS;
+use crate::text::{RESERVED_KEYS, RESERVED_PROJECT_IDS};
 use crate::work::settings::hex;
 use crate::write::{stamp, Actor, Effects};
 use regex::Regex;
@@ -142,7 +142,7 @@ pub struct Upload<'a> {
 /// Brings the board in, all or nothing, and says what it set off (the new board changed).
 pub async fn upload_board(conn: &mut AnyConnection, upload: &Upload<'_>, actor: &Actor) -> Result<Effects> {
     let Upload { id, key, body, .. } = *upload;
-    if !SLUG.is_match(id) {
+    if !SLUG.is_match(id) || RESERVED_PROJECT_IDS.contains(&id) {
         return Err(ApiError::bad_request(format!("\"{id}\" doesn't make a project's id")));
     }
     if !KEY.is_match(key) || RESERVED_KEYS.contains(&key) {

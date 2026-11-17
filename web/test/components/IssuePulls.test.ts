@@ -31,7 +31,7 @@ describe('an issue\'s pull requests', () => {
         // The PRs come back after the mount, later on a busy run, so each test waits for what it checks (ORR-898).
         await vi.waitFor(() => expect(wrapper.findAll('li a:not([aria-label])').map(a => a.text())).toEqual(['#9 Still going', '#7 Old 7', '#6 Old 6']))
         // Each opens its own page, with GitHub on its ↗ (ORR-893).
-        expect(wrapper.findAll('li a:not([aria-label])').map(a => a.attributes('href'))).toEqual(['/pulls/you/shop/9', '/pulls/you/shop/7', '/pulls/you/shop/6'])
+        expect(wrapper.findAll('li a:not([aria-label])').map(a => a.attributes('href'))).toEqual(['/w/default/pulls/you/shop/9', '/w/default/pulls/you/shop/7', '/w/default/pulls/you/shop/6'])
         expect(wrapper.findAll('li a[aria-label]').map(a => a.attributes('href'))).toEqual(['https://x/9', 'https://x/7', 'https://x/6'])
         const rows = wrapper.findAll('li').map(li => li.text())
         expect(rows[1]).toContain('Merged')
@@ -60,7 +60,7 @@ describe('an issue\'s pull requests', () => {
         expect(line.text()).toBe('Not read from GitHub. Pull requests says why.')
         expect(line.classes()).toContain('text-muted')
         expect(line.attributes('title')).toBe(error)
-        expect(line.find('a').attributes('href')).toBe('/pulls')
+        expect(line.find('a').attributes('href')).toBe('/w/default/pulls')
         expect(wrapper.find('.text-rose-700').exists()).toBe(false)
     })
 

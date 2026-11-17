@@ -15,7 +15,8 @@ beforeEach(() => heard = null)
 describe('the API client', () => {
     it('reads under /api, with no actor', async () => {
         expect(await apiFetch('/thing', {query: {a: 1}})).toEqual({ok: true})
-        expect(heard).toEqual({actor: undefined, workspace: undefined, query: {a: '1'}})
+        // Every page is under a workspace (ORR-1275): the test's page is `default`'s.
+        expect(heard).toEqual({actor: undefined, workspace: 'default', query: {a: '1'}})
         expect(apiUrl('/uploads/x')).toBe('/api/uploads/x')
     })
 
@@ -50,10 +51,11 @@ describe('the workspace a page is in (ORR-1108)', () => {
             expect(heard).toMatchObject({workspace: 'acme', actor: 'skoll'})
             await apiFetch('/thing', {headers: {'Orrery-Workspace': 'default'}})
             expect(heard?.workspace).toBe('default')
+            history.replaceState(null, '', '/login')
+            await apiFetch('/thing')
+            expect(heard?.workspace).toBeUndefined()
         } finally {
             history.replaceState(null, '', from)
         }
-        await apiFetch('/thing')
-        expect(heard?.workspace).toBeUndefined()
     })
 })

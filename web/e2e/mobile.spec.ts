@@ -33,7 +33,7 @@ test('the sidebar is a drawer behind the menu button, gone again once a page is 
     await page.getByRole('button', {name: 'Open the sidebar'}).tap()
     await expect(drawer).toBeInViewport()
     await drawer.getByRole('link', {name: 'Pocket'}).tap()
-    await expect(page).toHaveURL(/\/p\/pocket/)
+    await expect(page).toHaveURL(/\/pocket/)
     await expect(drawer).not.toBeInViewport()
     // Its own button closes it too.
     await page.getByRole('button', {name: 'Open the sidebar'}).tap()
@@ -65,7 +65,7 @@ test("the project and an issue's page fit the screen", async ({page}) => {
     await expect(row).toBeVisible()
     expect(await scrollsSideways(page)).toBe(false)
     await row.tap()
-    await expect(page).toHaveURL(`/p/pocket/issues/${id}`)
+    await expect(page).toHaveURL(`/w/default/pocket/issues/${id}`)
     await expect(page.getByRole('heading', {name: /A title long enough/})).toBeVisible()
     expect(await scrollsSideways(page)).toBe(false)
 })

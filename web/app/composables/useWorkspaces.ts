@@ -8,11 +8,6 @@ export function workspaceColor(color: string | null | undefined): string | null 
     return color ? TINTS[color as keyof typeof TINTS] ?? color : null
 }
 
-/** Where a page in `workspace` is: `/w/<workspace><path>`. */
-export function inWorkspace(workspace: string, path: string): string {
-    return `/w/${encodeURIComponent(workspace)}${path === '/' ? '' : path}`
-}
-
 /** Where this browser keeps that the welcome (ORR-1194) is done or skipped in `workspace`. */
 export function welcomeKey(workspace: string): string {
     return `orrery-welcome:${workspace}`

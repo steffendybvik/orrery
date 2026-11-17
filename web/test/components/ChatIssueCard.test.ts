@@ -24,7 +24,7 @@ describe('ChatIssueCard', () => {
         const card = await mountSuspended(ChatIssueCard, {props: props({state: 'allowed', id: 'GRE-9'})})
         expect(card.findAll('button')).toHaveLength(0)
         expect(card.text()).toContain('Filed as GRE-9')
-        expect(card.find('a').attributes('href')).toBe('/p/greenhouse/issues/GRE-9')
+        expect(card.find('a').attributes('href')).toBe('/w/default/greenhouse/issues/GRE-9')
     })
 
     it('says nothing was filed when it was left, expired, or the chat ended', async () => {

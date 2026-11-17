@@ -76,7 +76,7 @@ describe('moving a workspace', () => {
 
         await button(wrapper, 'Mark as moved').trigger('click')
         await settle()
-        expect(marked).toEqual([{to: 'https://o.example.com/w/personal/p/home'}])
+        expect(marked).toEqual([{to: 'https://o.example.com/w/personal/home'}])
         expect(wrapper.text()).toContain('marked as moved')
     })
 

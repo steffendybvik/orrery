@@ -71,7 +71,7 @@ test('a person key reaches the board, and writes work from there', async ({page}
     while (!await welcome.getByLabel('Project name').isVisible()) await welcome.getByRole('button', {name: 'Skip', exact: true}).click()
     await welcome.getByLabel('Project name').fill('Greenhouse')
     await welcome.getByRole('button', {name: 'Make it'}).click()
-    await expect(page).toHaveURL(/\/p\/greenhouse/)
+    await expect(page).toHaveURL(/\/greenhouse/)
     await expect(page.getByRole('heading', {name: 'Greenhouse'})).toBeVisible()
 })
 

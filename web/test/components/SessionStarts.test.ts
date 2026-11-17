@@ -79,11 +79,11 @@ describe('Let orrery start sessions', () => {
             schedule({id: 5, kind: 'session', enabled: false}),
         ]
         const wrapper = await mount({limit: 2}, schedules)
-        expect(wrapper.find('a[href="/schedules"]').text()).toBe('3 schedules')
+        expect(wrapper.find('a[href="/w/default/schedules"]').text()).toBe('3 schedules')
         await box(wrapper, 'with no session running').setValue(false)
         await settle()
         expect(saved.at(-1)).toEqual({starts: {limit: 2, on_signal: false}})
-        expect(wrapper.find('a[href="/schedules"]').text()).toBe('1 schedule')
+        expect(wrapper.find('a[href="/w/default/schedules"]').text()).toBe('1 schedule')
     })
 
     it('says why a save was refused', async () => {

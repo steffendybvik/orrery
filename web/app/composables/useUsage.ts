@@ -8,10 +8,10 @@ export function useUsage() {
     function count(feature: Feature) {
         // The first page opens before the settings arrive: it waits for them to say whether counting is on.
         if (!settings.value.id) {
-            const stop = watch(() => settings.value.id, id => {
+            const stop = watch(() => settings.value?.id, id => {
                 if (!id) return
                 stop()
-                if (settings.value.count_use) send(feature)
+                if (settings.value?.count_use) send(feature)
             })
             return
         }
