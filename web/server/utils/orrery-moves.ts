@@ -126,8 +126,9 @@ export function moveAskOf(body: unknown): MoveAsk {
         from: typeof b.from === 'string' && /^[a-z0-9][a-z0-9-]{0,59}$/.test(b.from) ? b.from : 'default',
         ...typeof b.color === 'string' ? {color: b.color} : {},
         add: b.add === true,
-        dryRun: b.dryRun === true,
-        enableSchedules: b.enableSchedules === true,
+        // snake_case as the API's bodies are, and camelCase as the page sent them before (ORR-1287).
+        dryRun: b.dry_run === true || b.dryRun === true,
+        enableSchedules: b.enable_schedules === true || b.enableSchedules === true,
     }
 }
 
