@@ -25,7 +25,7 @@ const workTitle = (tool: McpTool) => typeof tool.work === 'string' ? `It asks fo
       <section class="flex flex-col gap-5" aria-label="Tools">
         <div v-for="group in reference.groups" :key="group.title" class="flex flex-col gap-2">
           <h3 class="label">{{ group.title }}</h3>
-          <div class="overflow-x-auto rounded-xl border border-line">
+          <div class="overflow-x-auto rounded-xl border border-line bg-panel">
             <table class="w-full min-w-[36rem] text-left text-[13px]">
               <thead class="text-xs text-faint">
                 <tr class="border-b border-line">
@@ -53,7 +53,7 @@ const workTitle = (tool: McpTool) => typeof tool.work === 'string' ? `It asks fo
       <section class="flex flex-col gap-2" aria-label="What asks you first">
         <h3 class="text-[15px] font-semibold">What asks you first</h3>
         <p class="text-[13px] leading-relaxed text-muted">The chat asks for these through <code class="font-mono text-xs">request</code>, and nothing happens until you press Allow in it. A work session asks for a schedule on its issue instead.</p>
-        <ul class="flex flex-col divide-y divide-line/60 rounded-xl border border-line">
+        <ul class="flex flex-col divide-y divide-line/60 rounded-xl border border-line bg-panel">
           <li v-for="request in reference.requests" :key="request.name" class="px-3 py-2">
             <code class="font-mono text-xs text-fg">{{ request.name }}</code>
             <p class="mt-0.5 text-xs leading-relaxed text-muted">{{ request.description }}</p>
@@ -63,7 +63,7 @@ const workTitle = (tool: McpTool) => typeof tool.work === 'string' ? `It asks fo
       <section class="flex flex-col gap-2" aria-label="Environment">
         <h3 class="text-[15px] font-semibold">Environment</h3>
         <p class="text-[13px] leading-relaxed text-muted">What the channel reads, set in the repo's <code class="font-mono text-xs">.mcp.json</code> or a session's environment.</p>
-        <ul class="flex flex-col divide-y divide-line/60 rounded-xl border border-line">
+        <ul class="flex flex-col divide-y divide-line/60 rounded-xl border border-line bg-panel">
           <li v-for="variable in reference.env" :key="variable.name" class="px-3 py-2">
             <code class="font-mono text-xs text-fg">{{ variable.name }}</code>
             <p class="mt-0.5 text-xs leading-relaxed text-muted">{{ variable.description }}</p>

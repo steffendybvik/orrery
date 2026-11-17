@@ -157,7 +157,7 @@ async function removeComment(id: number) {
 <template>
   <section class="flex flex-col gap-3">
     <h2 class="label">Activity</h2>
-    <div v-if="question" id="waiting" class="flex scroll-mt-20 flex-col gap-2 rounded-xl bg-violet-500/8 p-3 ring-1 ring-violet-500/35">
+    <div v-if="question" id="waiting" class="flex scroll-mt-20 flex-col gap-2 rounded-xl bg-[color-mix(in_oklab,var(--color-violet-500)_8%,var(--panel))] p-3 ring-1 ring-violet-500/35">
       <div class="flex items-center gap-2 text-xs">
         <WaitingChip :asks="question.asks!" />
         <span class="text-muted">{{ who(question.created_by, question.session_name) }} asked {{ ago(question.created_at) }}</span>

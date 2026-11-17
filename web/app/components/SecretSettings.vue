@@ -128,7 +128,7 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
       </div>
     </div>
 
-    <form v-if="editing !== null" class="flex flex-col gap-2 rounded-xl bg-well/50 p-3 ring-1 ring-line" @submit.prevent="save">
+    <form v-if="editing !== null" class="flex flex-col gap-2 rounded-xl bg-panel p-3 ring-1 ring-line" @submit.prevent="save">
       <div class="flex flex-wrap items-center gap-2">
         <input
             v-model="form.name"
