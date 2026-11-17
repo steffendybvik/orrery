@@ -36,7 +36,12 @@ beforeEach(async () => {
     chats = await import('../server/utils/chats')
 })
 
-afterEach(() => vi.unstubAllGlobals())
+// The chat's writes that a test didn't wait for land before its API stops (test/api.ts), which would otherwise cut a
+// fetch off mid-request: on macOS undici then throws `setTypeOfService EINVAL` where nothing catches it (ORR-1289).
+afterEach(async () => {
+    await chats.chatWritesSettled()
+    vi.unstubAllGlobals()
+})
 
 /** A test's store: what it says of `methods`, and the board's own for the rest, as the router asks it too. */
 function over(methods: object): Store {

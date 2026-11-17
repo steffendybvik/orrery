@@ -227,7 +227,10 @@ The unit tests need Rust: `pnpm test` runs `cargo build` in `api/` first (`test/
 binary instead). The Nuxt server needs the API, so a test of what reads or writes through it (`readFromApi`,
 `writeToApi`) runs the real one on its own database, never a fallback to the store: `storeSetup({api: true})`, or
 `new Store(apiTestDb())` then `await withApi(store)` (`test/api.ts`). A test that stubs `useRuntimeConfig` after that
-spreads `apiConfig()` into it. Each test's API stops when the test ends. The no-API fallbacks go as their tests move over
+spreads `apiConfig()` into it. Each test's API stops when the test ends, so a test whose code writes in the background
+waits for those writes first (`chatWritesSettled()` in `chats.test.ts`): a fetch cut off mid-request throws
+`setTypeOfService EINVAL` from undici on macOS, where nothing can catch it
+([ORR-1289](/p/orrery/issues/ORR-1289)). The no-API fallbacks go as their tests move over
 ([ORR-1163](/p/orrery/issues/ORR-1163)).
 
 `pnpm test:e2e` runs the flows in a real browser with Playwright, a file per area in `web/e2e/` (issues, proposals,
