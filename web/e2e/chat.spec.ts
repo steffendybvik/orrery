@@ -507,7 +507,7 @@ test("offers an issue it wasn't asked for, marked as not filed, and files it onl
         await expect(card).toContainText('Filed as')
         const filed = await titled('Recoat the primary mirror')
         expect(filed).toMatchObject({status: 'todo', protected: true})
-        await expect(card.getByRole('link', {name: filed!.id})).toHaveAttribute('href', `/p/observatory/issues/${filed!.id}`)
+        await expect(card.getByRole('link', {name: filed!.id})).toHaveAttribute('href', `/w/default/observatory/issues/${filed!.id}`)
         await expect.poll(() => session!.said.text).toContain(`it's ${filed!.id}`)
 
         await offer({title: 'Oil the dome'})

@@ -72,8 +72,9 @@ export default defineNuxtPlugin(async () => {
 
     router.beforeEach(async (to, from) => {
         const path = await addressOf(to.path, from.path)
-        // `/w/<workspace>/p/<project>`, as the plan first wrote it, is the project's page too.
-        if (path && path !== to.path) return {path, query: to.query, hash: to.hash, replace: true}
+        // `/w/<workspace>/p/<project>`, as the plan first wrote it, is the project's page too. A push stays a push, so
+        // Back still goes to the page before it: a redirect keeps the navigation's own `replace`.
+        if (path && path !== to.path) return {path, query: to.query, hash: to.hash}
     })
 
     // An old address the tab opened on is put right before the other plugins ask the API, which they do in the
