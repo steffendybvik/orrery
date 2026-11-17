@@ -80,7 +80,7 @@ minutes. With a token, a private repo works too, and orrery reads where each pul
 1. On GitHub, [make a fine-grained token](https://github.com/settings/personal-access-tokens/new) with
    *Pull requests: Read-only* on the repos your projects point at (a classic token needs `repo`). The Branches view
    also needs *Contents: Read-only* to read them, and *Contents: Read and write* to remove one from the page.
-2. In **App settings → This orrery → Secrets**, `GITHUB_TOKEN` is listed as *Not set*. Press **Set** and paste the
+2. In **App settings → Workspace → Secrets**, `GITHUB_TOKEN` is listed as *Not set*. Press **Set** and paste the
    token: its name and its host, `api.github.com`, are filled in.
 
 orrery polls straight away. The row then shows when it was last used, or that GitHub turned it down. A token saved
@@ -131,20 +131,20 @@ for the copy, or into a Postgres of your own. Then set `ORRERY_DATABASE` to it a
 
 ## Two servers: personal and work
 
-Each orrery is its own server with its own database, so work and personal projects never mix. Run
-each as its own compose project with its own env file:
+One orrery can hold work and personal projects as two workspaces, each with its own projects, name
+and colour, switched at the top of the sidebar. Run two servers instead when you want them in separate
+databases, or on separate machines: each orrery is its own server, so they never mix. Run each as its
+own compose project with its own env file:
 
 ```sh
 # .env.personal
 COMPOSE_PROJECT_NAME=orrery-personal
-ORRERY_ENVIRONMENT=personal
 ORRERY_PORT=9010
 ```
 
 ```sh
 # .env.work
 COMPOSE_PROJECT_NAME=orrery-work
-ORRERY_ENVIRONMENT=work
 ORRERY_PORT=9020
 ```
 
@@ -196,7 +196,7 @@ The launcher needs the file: it runs as a service with nothing from your shell b
 `ORRERY_KEY` where you start Claude Code does for sessions you start from a terminal, but it goes to any server that machine talks to.
 Never commit a key in `.mcp.json`. A person key won't work there: the channel refuses to start with one.
 
-**Other people.** Claim it first, then add them (App settings → This orrery → People, or `POST /api/people`, refused before that unless `ORRERY_AUTH=off`) and put them on a board
+**Other people.** Claim it first, then add them (App settings → Workspace → People, or `POST /api/people`, refused before that unless `ORRERY_AUTH=off`) and put them on a board
 (its Settings → Members, or `POST /api/projects/<project>/members`). Then either invite them through a login provider (`POST /api/invites`, a link good once and for a week), or, with
 no provider, give them a person key (`POST /api/keys` with `kind: "person"`, `name` and `person`). To try people out on one machine with no logins, start orrery with `ORRERY_AUTH=off`, loopback only.
 
