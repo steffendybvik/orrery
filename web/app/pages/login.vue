@@ -69,51 +69,73 @@ async function submit() {
 </script>
 
 <template>
-  <main class="flex min-h-dvh items-center justify-center p-6">
-    <div class="flex w-96 max-w-full flex-col gap-4">
-      <h1 class="text-[15px] font-semibold text-fg">Log in to this orrery</h1>
-      <p v-if="linking" class="flex items-center gap-2 text-xs text-muted"><UiSpinner />Signing you in…</p>
-      <p v-if="status?.mode === 'closed'" class="text-xs text-rose-700 dark:text-rose-400">
-        ORRERY_AUTH=off only works while orrery listens on loopback, and this one is reachable from other machines. Unset it, and restart.
-      </p>
-      <p v-else-if="status?.phone && !linking" class="text-xs text-muted">
-        On your computer, open orrery's App settings → You and scan its QR code with this phone's camera: that signs you in.
-        Or type the code shown under it here.
-      </p>
-      <form v-if="status?.phone && !linking" class="flex flex-col gap-2" @submit.prevent="submitCode">
-        <input
-            v-model="code"
-            aria-label="Code from your computer"
-            placeholder="Code, e.g. KQ7-M4X"
-            autocomplete="one-time-code"
-            autocapitalize="characters"
-            spellcheck="false"
-            maxlength="9"
-            class="h-8 w-full field font-mono uppercase tracking-widest placeholder:normal-case placeholder:tracking-normal"
-        >
-        <UiButton type="submit" variant="primary" size="md" :disabled="busy || !codeTyped">Sign in with the code</UiButton>
-      </form>
-      <p v-else-if="status && !status.can_get_in" class="text-xs text-muted">
-        Nobody can log in yet. On the machine it runs on, run <code class="font-mono">pnpm orrery:claim</code>
-        (or <code class="font-mono">docker compose exec orrery node /app/server/claim.mjs</code>), and sign in with the key it prints.
-      </p>
-      <p v-if="status?.warn_http" class="text-xs text-amber-800 dark:text-amber-300">
-        This is plain http: over anything but a VPN, a person key and this login's cookie can travel unencrypted.
-      </p>
-      <UiButton v-if="status?.oidc" :to="provider" variant="primary" size="md" external>Log in with your provider</UiButton>
-      <form v-if="status?.mode !== 'closed' && !status?.oidc" class="flex flex-col gap-2" @submit.prevent="submit">
-        <input
-            v-model="key"
-            type="password"
-            aria-label="Person key"
-            placeholder="Person key"
-            autocomplete="off"
-            spellcheck="false"
-            class="h-8 w-full field font-mono"
-        >
-        <UiButton type="submit" :variant="status?.phone ? 'secondary' : 'primary'" size="md" :disabled="busy || !key.trim()">Sign in with a key</UiButton>
-      </form>
-      <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
+  <!-- The front door looks like orrery (ORR-1291): its mark and name, a line on what it is, and one clear way in, on a
+       card over a faint orbit, the logo's drawn large. -->
+  <main class="relative isolate flex min-h-dvh items-center justify-center overflow-hidden p-4 sm:p-6">
+    <div aria-hidden="true" class="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(60%_45%_at_50%_0%,color-mix(in_oklab,var(--color-accent-500)_14%,transparent),transparent)]" />
+    <OrreryMark class="pointer-events-none absolute -right-40 -bottom-40 -z-10 size-[34rem] text-accent-500/[0.06] sm:-right-24 sm:-bottom-24 dark:text-accent-400/[0.07]" />
+    <div class="flex w-full max-w-sm animate-fade-up flex-col gap-6 rounded-2xl border border-line bg-panel p-6 shadow-xl shadow-black/5 sm:p-8 dark:shadow-black/40">
+      <header class="flex flex-col items-center gap-4 text-center">
+        <div class="flex items-center gap-2.5">
+          <div class="grid size-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-tile-from to-tile-to shadow-lg shadow-accent-600/30">
+            <OrreryMark class="size-5 text-white" />
+          </div>
+          <span class="text-lg font-semibold tracking-tight text-fg">orrery</span>
+        </div>
+        <div class="flex flex-col gap-1.5">
+          <h1 class="text-xl font-semibold tracking-tight text-fg">Log in to this orrery</h1>
+          <p class="text-[13px] text-balance text-muted">The roadmap you share with your Claude Code sessions: you write the issues, they pick them up and ask when they need you.</p>
+        </div>
+      </header>
+      <div class="flex flex-col gap-4">
+        <p v-if="linking" class="flex items-center gap-2 text-xs text-muted"><UiSpinner />Signing you in…</p>
+        <p v-if="status?.mode === 'closed'" class="text-xs text-rose-700 dark:text-rose-400">
+          ORRERY_AUTH=off only works while orrery listens on loopback, and this one is reachable from other machines. Unset it, and restart.
+        </p>
+        <p v-else-if="status?.phone && !linking" class="text-xs text-muted">
+          On your computer, open orrery's App settings → You and scan its QR code with this phone's camera: that signs you in.
+          Or type the code shown under it here.
+        </p>
+        <form v-if="status?.phone && !linking" class="flex flex-col gap-2" @submit.prevent="submitCode">
+          <input
+              v-model="code"
+              aria-label="Code from your computer"
+              placeholder="Code, e.g. KQ7-M4X"
+              autocomplete="one-time-code"
+              autocapitalize="characters"
+              spellcheck="false"
+              maxlength="9"
+              class="h-8 w-full field font-mono uppercase tracking-widest placeholder:normal-case placeholder:tracking-normal"
+          >
+          <UiButton type="submit" variant="primary" size="md" :disabled="busy || !codeTyped">Sign in with the code</UiButton>
+        </form>
+        <p v-else-if="status && !status.can_get_in" class="text-xs text-muted">
+          Nobody can log in yet. On the machine it runs on, run <code class="font-mono">pnpm orrery:claim</code>
+          (or <code class="font-mono">docker compose exec orrery node /app/server/claim.mjs</code>), and sign in with the key it prints.
+        </p>
+        <p v-if="status?.warn_http" class="text-xs text-amber-800 dark:text-amber-300">
+          This is plain http: over anything but a VPN, a person key and this login's cookie can travel unencrypted.
+        </p>
+        <!-- With sign-up open the provider's button lets someone new in too, so it says so (docs/running.md, ORRERY_SIGN_UP). -->
+        <div v-if="status?.oidc" class="flex flex-col gap-2">
+          <UiButton :to="provider" variant="primary" size="md" class="w-full" external>{{ status.sign_up ? 'Sign in or sign up' : 'Log in with your provider' }}</UiButton>
+          <p v-if="status.sign_up && !invite" class="text-center text-xs text-balance text-faint">New here? Signing in makes you a workspace of your own.</p>
+          <p v-else-if="invite" class="text-center text-xs text-faint">You've been invited: sign in to join.</p>
+        </div>
+        <form v-if="status?.mode !== 'closed' && !status?.oidc" class="flex flex-col gap-2" @submit.prevent="submit">
+          <input
+              v-model="key"
+              type="password"
+              aria-label="Person key"
+              placeholder="Person key"
+              autocomplete="off"
+              spellcheck="false"
+              class="h-8 w-full field font-mono"
+          >
+          <UiButton type="submit" :variant="status?.phone ? 'secondary' : 'primary'" size="md" :disabled="busy || !key.trim()">Sign in with a key</UiButton>
+        </form>
+        <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
+      </div>
     </div>
   </main>
 </template>

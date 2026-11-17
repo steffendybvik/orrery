@@ -131,7 +131,7 @@ async fn status_is_off_on_loopback_for_one_person_and_says_nothing_of_anyone() {
     let api = TestApi::at_the_door().await;
     api.owner().await;
     let said = status(api.get("/api/auth/status").without("orrery-actor-name").without("orrery-actor-owner")).await;
-    assert_eq!(said, json!({"mode": "off", "can_get_in": false, "oidc": false, "warn_http": false, "phone": false}));
+    assert_eq!(said, json!({"mode": "off", "can_get_in": false, "oidc": false, "sign_up": false, "warn_http": false, "phone": false}));
 }
 
 #[tokio::test]

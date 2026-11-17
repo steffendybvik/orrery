@@ -1892,7 +1892,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const stays = await store.authStaysOn()
         const canGetIn = await store.ownerHasKey()
         // On loopback it's off unless auth stays on; anywhere else, through a proxy or on the phone's port it asks.
-        expect(await status(loopback)).toEqual({mode: stays ? 'on' : 'off', can_get_in: canGetIn, oidc: false, warn_http: false, phone: false})
+        expect(await status(loopback)).toEqual({mode: stays ? 'on' : 'off', can_get_in: canGetIn, oidc: false, sign_up: false, warn_http: false, phone: false})
         // How the owner can get in, as the auth middleware asks it (ORR-1158): the local app's own call alone.
         expect(await (await call('GET', '/api/auth/ways-in', undefined, OWN_WORK)).json()).toEqual({owner_has_key: canGetIn, stays_on: stays})
         // Who a sign-in is (ORR-1180), the local app's own call alone: that and sign-up are held in the API's tests.
@@ -1907,7 +1907,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await status(loopback, 'localhost:9000', {provider: false, off: true})).mode).toBe('off')
         expect((await status(none, '192.168.1.9:9000', {provider: false, off: true})).mode).toBe('closed')
         expect((await status({...none, phone: true}, '192.168.1.9:9000', {provider: false, off: true})).mode).toBe('closed')
-        expect(await status(loopback, 'localhost:9000', {provider: true, off: false})).toMatchObject({oidc: true, can_get_in: true})
+        expect(await status(loopback, 'localhost:9000', {provider: true, off: false})).toMatchObject({oidc: true, can_get_in: true, sign_up: true})
         // Who's asking is what the API finds of the credential: a real login, not the router's word (ORR-1038).
         await store.addPerson({name: 'Ada'}).catch(() => undefined)
         // A page's fetch says which page it's from, which the router passes on and the guard asks of a write (ORR-1081).
