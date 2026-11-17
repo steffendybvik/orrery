@@ -18,7 +18,20 @@ What you can do on orrery's pages, and where it lives. Many actions are tucked i
 - **The bell and My issues**: where the owner sees what needs them. Agents' questions and proposals wait in [the bell](#the-bell); **My issues**, the home page, gathers them with what's urgent and what's yours, across projects.
 - **Secrets and egress**: keys for outside services, set by the owner on App settings, each limited to the hosts and projects it may go to. An agent calls a service through **egress**, putting `{{secret:NAME}}` where the key goes. orrery fills it in, and the agent never sees the value. Each use is kept on the secret.
 - **Events**: orrery's own log, for looking into a problem: errors always, and with **Advanced** on, what it did and each change to the roadmap. It, **Context** and **Pull requests** sit in the sidebar under **Releases** while **Advanced** is on (as it is unless you turn it off), and are linked from App settings → Advanced either way.
-- **Workspaces**: one orrery holds several, each with its own projects, name and colour. The switcher at the top of the sidebar shows the one this tab is in (`/w/<workspace>/…` in the address), lists the others you're in and makes a new one. Lists (sidebar, Projects, Releases, Schedules, Sessions, Events, the bell) show one workspace at a time. A second orrery is a second server with its own database ([Running orrery](running.md#two-servers-personal-and-work)).
+- **Workspaces**: one orrery holds several, each with its own projects, name, colour and settings, switched at the top of the sidebar. See [Workspaces](#workspaces).
+
+## Workspaces
+
+One orrery holds several workspaces, work and personal say, each with its own projects. Your first is made when you give your name.
+
+- **Switching**: the switcher at the top of the sidebar shows the workspace this tab is in, with its colour, and lists the others you're in (**owner** beside the ones you own). Picking one opens its My issues in this tab; other tabs stay where they are, so two tabs can be in two workspaces. **New workspace…** asks a name and a colour, makes it with you as its owner and opens it.
+- **The address**: every page is under its workspace, `/w/<workspace>/…`, so a link opens in the workspace it was copied from. An address without one opens `default`, or your first workspace when you aren't in `default`. Nothing is remembered between tabs: the address alone says which.
+- **What a tab shows**: only its workspace's projects, in the sidebar, Projects, Releases and Schedules, and only its bell, Events and Sessions.
+- **Launchers**: a machine's launcher serves every project of every workspace its person is in (it reads `/api/projects?every=1`), so one launcher is enough.
+- **Its own settings**: App settings → **Workspace** is this workspace's: its name and colour (the colour tints the page's background, the sidebar and its dot in the switcher; the name leads the tab's title), the statuses, proposals, the team tracker, people, secrets, the sidebar's projects, exporting and uploading boards, and moving the whole workspace to another orrery.
+- **Deleting one**: App settings → You → **Account**, by its owner, signed in through a browser, typing its name to confirm. It goes with everything in it, even with others in it. The first workspace, `default`, can't be deleted, and a session, the chat or an agent key can't delete any.
+
+Two servers, each with its own database, is the choice only when they must be kept apart on disk or on separate machines ([Running orrery](running.md#two-servers-personal-and-work)).
 
 ## Right-click
 

@@ -56,8 +56,8 @@ In practice:
 - **Secrets:** API keys that agents use through orrery's egress, without ever seeing the value.
 - **Event log:** orrery's errors and each change to the roadmap, and with Advanced on what it did, kept on the machine,
   on an Events page that sessions can read too.
-- **Workspaces and moving:** one orrery holds several workspaces, each with its own projects, switched in the
-  sidebar. Export a project's board to a file and upload it to another orrery, or move a whole workspace there
+- **Workspaces and moving:** one orrery holds several workspaces, work and personal say, each with its own projects,
+  colour and settings, switched in the sidebar ([how](docs/using.md#workspaces)). Export a project's board to a file and upload it to another orrery, or move a whole workspace there
   from App settings, with a preview first.
 - **On your phone:** scan the QR code in App settings and the phone is signed in, driving the sessions on this machine.
   End a lost phone's login from the Mac.
