@@ -95,6 +95,17 @@ describe('a session ending (ORR-775)', () => {
         expect(handedBack.map(args => args[1])).toEqual([['w3', 'w']])
     })
 
+    it('leaves the list once its channel has been gone that long with no hook since, as after a restart (ORR-1292)', () => {
+        open().done()
+        open('x').done()
+        vi.advanceTimersByTime(FIVE_MINUTES - 1)
+        sessions.report({id: 'x', project: 'hub', event: 'PreToolUse'})
+        changed = []
+        vi.advanceTimersByTime(1)
+        expect(sessions.listSessions('hub').map(s => s.id)).toEqual(['x'])
+        expect(changed).toEqual(['hub'])
+    })
+
     it('goes through every project its channels served, even once they have closed', () => {
         const own = open()
         const other = sessions.attend('pantry', 'w', undefined, undefined)
