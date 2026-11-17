@@ -70,7 +70,7 @@ const putUpAgain = () => send('', 'PATCH', {proposal: 'pending'})
 </script>
 
 <template>
-  <section v-if="issue.proposal || approved" class="flex flex-col gap-3 rounded-xl bg-well p-4 ring-1 ring-line">
+  <section v-if="issue.proposal || approved" class="flex flex-col gap-3 rounded-xl bg-panel p-4 ring-1 ring-line">
     <header class="flex flex-wrap items-center gap-2">
       <StatusIcon column="proposed" />
       <h2 class="text-[13px] font-semibold text-fg">Proposal</h2>

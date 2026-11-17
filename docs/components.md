@@ -180,7 +180,10 @@ Colours come from the theme, never a fixed grey: `bg-canvas` (the page), `bg-pan
 and an orrery's tint mixes into the surfaces, so a fixed colour looks wrong in one of them.
 
 A card or a section that should read as its own surface goes on `bg-panel`, not a border alone: in the dark a border on
-the page's black barely shows (ORR-563). To leave light mode as it is, `dark:bg-panel`. On a panel, hover with
+the page's black barely shows (ORR-563), and a card with no background, or a see-through one (`bg-well`,
+`bg-accent-500/5`), takes on an orrery's tint and its words get hard to read (ORR-1276). A card coloured to stand out
+mixes its colour into the panel instead, so it stays solid on any tint:
+`bg-[color-mix(in_oklab,var(--color-violet-500)_8%,var(--panel))]`. `bg-well` is for what sits in a card (fields, code). On a panel, hover with
 `hover:tint`, since `hover:bg-hover` puts a see-through colour in the panel's place. The dark-mode atlas (the orrery doc
 `dark-mode-atlas`) shows every page's surfaces.
 

@@ -101,7 +101,7 @@ const tab = computed<'connect' | 'mcp'>({
         </div>
       </section>
 
-      <section class="flex flex-col gap-3 rounded-2xl bg-accent-500/5 p-5 ring-1 ring-accent-500/25">
+      <section class="flex flex-col gap-3 rounded-2xl bg-[color-mix(in_oklab,var(--color-accent-500)_5%,var(--panel))] p-5 ring-1 ring-accent-500/25">
         <div class="flex items-center gap-3">
           <h3 class="flex-1 text-[15px] font-semibold">Paste this into a session in the repo</h3>
           <CopyButton :text="pieces.prompt" />

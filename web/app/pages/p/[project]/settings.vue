@@ -306,7 +306,7 @@ useHead(() => ({title: project.value ? `Settings · ${project.value.name} · orr
         </form>
       </section>
 
-      <section id="danger" class="mt-4 flex flex-col gap-3 rounded-xl border border-rose-500/30 p-4">
+      <section id="danger" class="mt-4 flex flex-col gap-3 rounded-xl border border-rose-500/30 bg-panel p-4">
         <header class="flex items-start gap-3">
           <div class="flex min-w-0 flex-1 flex-col gap-0.5">
             <h2 class="text-[15px] font-semibold text-rose-700 dark:text-rose-400">Delete this project</h2>
