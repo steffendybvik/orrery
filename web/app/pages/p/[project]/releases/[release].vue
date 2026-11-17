@@ -275,7 +275,7 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
               <span class="font-mono normal-case">{{ part.issues }} {{ part.issues === 1 ? 'issue' : 'issues' }}</span>
             </h2>
             <div v-if="part.milestones.length" class="overflow-clip rounded-xl border border-line dark:bg-panel">
-              <ListView :milestones="part.milestones" :project="part.project.id" group="status" risk-first class="pb-0!" />
+              <ListView :milestones="part.milestones" :project="part.project.id" group="status" risk-first />
             </div>
             <p v-else class="px-4 py-6 text-center text-xs text-faint">None of {{ part.project.name }}'s issues are set for it yet.</p>
           </section>
@@ -283,7 +283,7 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
         <section v-else class="flex flex-col gap-2" aria-label="Issues">
           <h2 class="label">Issues</h2>
           <div v-if="milestones.length" class="overflow-clip rounded-xl border border-line dark:bg-panel">
-            <ListView :milestones="milestones" :project="project.id" group="status" risk-first class="pb-0!" />
+            <ListView :milestones="milestones" :project="project.id" group="status" risk-first />
           </div>
           <p v-else class="px-4 py-16 text-center text-sm text-muted">No issues set for this release yet. Pick it under Release on an issue’s page.</p>
         </section>
