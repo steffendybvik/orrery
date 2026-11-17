@@ -189,6 +189,7 @@ export abstract class StoreBase {
             releases_from: row.releases_from ?? undefined,
             created_by: row.created_by,
             protected: !!row.owned,
+            workspace: row.workspace ?? 'default',
             created_at: row.created_at,
             updated_at: row.updated_at,
             board,

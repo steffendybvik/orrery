@@ -112,6 +112,33 @@ pub fn slugify(text: &str) -> String {
 /// (`RESERVED_KEYS` in web/shared/roadmap/board.ts).
 pub const RESERVED_KEYS: [&str; 6] = ["MLS", "EPC", "DOC", "CHK", "PST", "SCH"];
 
+/// The ids no project can have, as a workspace's own pages are at them: `/w/<workspace>/settings` is the workspace's
+/// settings, so a project called `settings` couldn't be reached at `/w/<workspace>/settings` (ORR-1275). Kept with
+/// `WORKSPACE_PAGES` in web/app/utils/api.ts.
+pub const RESERVED_PROJECT_IDS: [&str; 21] = [
+    "chat",
+    "connect",
+    "connect-machine",
+    "context",
+    "epics",
+    "events",
+    "getting-started",
+    "login",
+    "mine",
+    "notifications",
+    "now",
+    "p",
+    "projects",
+    "pulls",
+    "releases",
+    "schedules",
+    "sessions",
+    "settings",
+    "ui",
+    "urgent",
+    "w",
+];
+
 /// Three capitals from the name, e.g. `GRE` for Greenhouse, as `keyFor` makes them. One a milestone's or another kind's
 /// ids start with (ORR-995) takes a fourth letter: `EPCO` for Epcot, or a `P` when the name has no more.
 pub fn key_for(name: &str) -> String {

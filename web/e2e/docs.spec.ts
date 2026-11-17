@@ -16,7 +16,7 @@ test('writes a doc, edits it in place and removes it', async ({page}) => {
     await dialog.getByLabel('Title').fill('How we file')
     await dialog.getByLabel('Text').fill('Boxes by **year**.')
     await page.keyboard.press('ControlOrMeta+Enter')
-    await expect(page).toHaveURL(/\/p\/archive\/docs\/how-we-file$/)
+    await expect(page).toHaveURL(/\/archive\/docs\/how-we-file$/)
     await expect(page.locator('.doc strong', {hasText: 'year'})).toBeVisible()
 
     // Copy content puts the doc's Markdown on the clipboard (ORR-1103).
@@ -92,7 +92,7 @@ test("tints a doc an agent changed, and in it the parts that changed since the o
     await page.goto('/p/library/docs/shelves')
     await expect(page.getByText('Top shelf for tins.')).toBeVisible()
     await put('pantry', 'Keep flour dry.\n\nLabel every jar with its date.\n\nRestock on Fridays.')
-    const row = page.locator('a[href="/p/library/docs/pantry"]')
+    const row = page.locator('a[href="/w/default/library/docs/pantry"]')
     await expect(row).toHaveClass(/unseen-row/)
     await row.click()
     await expect(page.locator('.doc .changed')).toHaveText(['Label every jar with its date.', 'Restock on Fridays.'])

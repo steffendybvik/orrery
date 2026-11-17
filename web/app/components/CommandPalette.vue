@@ -102,7 +102,7 @@ const here = computed<Entry[]>(() => {
         entries.push(
             {key: 'issue:milestone', group: 'Issue', label: 'Open its milestone', detail: found.milestone.title, run: () => router.push(milestonePath(p.id, found.milestone.id))},
             {key: 'issue:id', group: 'Copy', label: 'Copy the id', detail: found.issue.id, run: () => copy(fullId('issue', found.issue.id, p.uid), 'id')},
-            {key: 'issue:link', group: 'Copy', label: 'Copy the link', run: () => copy(`${location.origin}${path}`, 'link')},
+            {key: 'issue:link', group: 'Copy', label: 'Copy the link', run: () => copy(`${location.origin}${router.resolve(path).href}`, 'link')},
             {key: 'issue:curl', group: 'Copy', label: 'Copy a curl to update it', detail: 'for an agent', run: () => copy(
                 `curl -X PATCH ${serverOrigin()}/api/projects/${p.id}/issues/${found.issue.id} -H 'Content-Type: application/json' -H 'Orrery-Actor: claude' -d '{"status": "in-progress"}'`, 'curl')},
         )

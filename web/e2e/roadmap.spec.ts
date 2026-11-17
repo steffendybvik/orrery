@@ -16,7 +16,7 @@ test('makes a milestone from the roadmap, renames it, gives it a summary and rem
     await dialog.getByLabel('Title').fill('Shelves')
     await dialog.getByLabel('Summary').fill('Where things go')
     await dialog.getByRole('button', {name: /Create milestone/}).click()
-    await expect(page).toHaveURL(/\/p\/orchard\/roadmap\/\d+$/)
+    await expect(page).toHaveURL(/\/orchard\/roadmap\/\d+$/)
     const id = page.url().split('/').at(-1)!
     expect(await api(request, 'get', `/milestones/${id}`)).toMatchObject({title: 'Shelves', summary: 'Where things go', created_by: 'ada_lovelace'})
 
@@ -33,7 +33,7 @@ test('makes a milestone from the roadmap, renames it, gives it a summary and rem
 
     await page.getByRole('button', {name: 'Remove this milestone'}).click()
     await page.getByRole('button', {name: 'Remove', exact: true}).click()
-    await expect(page).toHaveURL(/\/p\/orchard\/roadmap$/)
+    await expect(page).toHaveURL(/\/orchard\/roadmap$/)
     expect((await request.get(`/api/projects/orchard/milestones/${id}`)).status()).toBe(404)
 })
 
@@ -46,7 +46,7 @@ test("a milestone's right-click menu sets its priority, files an issue in it, co
         navigator.clipboard.writeText = async text => { copied.push(text) }
     })
     // By its own address, as a retry finds the first try's Ladders on the roadmap too.
-    const card = page.locator(`a[href="/p/orchard/roadmap/${milestone.id}"]`).first()
+    const card = page.locator(`a[href="/w/default/orchard/roadmap/${milestone.id}"]`).first()
     const menu = page.getByRole('menu', {name: `Actions for MLS-${milestone.id}`})
 
     await card.click({button: 'right'})
@@ -68,14 +68,14 @@ test("a milestone's right-click menu sets its priority, files an issue in it, co
     const dialog = page.getByRole('dialog', {name: 'New issue'})
     await dialog.getByLabel('Title').fill('Oil the hinges')
     await dialog.getByRole('button', {name: /Create issue/}).click()
-    await expect(page).toHaveURL(/\/p\/orchard\/issues\/ORC-\d+/)
+    await expect(page).toHaveURL(/\/orchard\/issues\/ORC-\d+/)
     const hinges = page.url().split('/').at(-1)!
     expect(await api(request, 'get', `/issues/${hinges}`)).toMatchObject({milestone: milestone.id})
 
     await page.goto('/p/orchard/roadmap')
     await card.click({button: 'right'})
     await menu.getByRole('button', {name: 'Open'}).click()
-    await expect(page).toHaveURL(new RegExp(`/p/orchard/roadmap/${milestone.id}$`))
+    await expect(page).toHaveURL(new RegExp(`/orchard/roadmap/${milestone.id}$`))
 
     // Remove asks first; Cancel leaves it, Remove takes the milestone and leaves its issues in no milestone.
     await page.goto('/p/orchard/roadmap')

@@ -89,7 +89,7 @@ test('pops the sessions out to float anywhere, remembers where, and puts them ba
         await page.mouse.down()
         await page.mouse.move(400, 700, {steps: 6})
         await page.mouse.up()
-        await expect(page).toHaveURL(/\/p\/grain-store$/)
+        await expect(page).toHaveURL(/\/grain-store$/)
         box = (await panel.boundingBox())!
         expect(box.x).toBeLessThan(640)
         expect(box.y + box.height).toBeGreaterThan(400)

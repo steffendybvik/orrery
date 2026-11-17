@@ -61,7 +61,7 @@ test("runs its script, which can't reach the app, the network, a popup, a form o
     await expect(frame.locator('#out')).toContainText('"ran":true', {timeout: 20_000})
     const out = JSON.parse(await frame.locator('#out').textContent() ?? '{}') as Record<string, unknown>
     expect(out).toMatchObject({api: 'blocked', parent: 'blocked', storage: 'blocked', cookie: 'blocked', popup: 'blocked', image: 'blocked', origin: 'null'})
-    await expect(page).toHaveURL(/\/p\/atelier\/docs\/tries$/)
+    await expect(page).toHaveURL(/\/atelier\/docs\/tries$/)
     expect(answered).toEqual([])
     // Only Chrome reports it this way: the others don't report a blocked image as a request at all.
     if (browserName === 'chromium') expect(failed).toEqual(['/api/sentinel-image csp'])

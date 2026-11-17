@@ -60,9 +60,9 @@ test("an issue event's line links the issue, and following it opens the issue", 
     // Made by an agent: the line names it as the page does, not by its stored actor (ORR-477).
     await expect(line).toContainText(`Agent made ${issue.id}`)
     await expect(line).not.toContainText('claude')
-    await expect(line.getByRole('link', {name: '[ledger]'})).toHaveAttribute('href', '/p/ledger')
+    await expect(line.getByRole('link', {name: '[ledger]'})).toHaveAttribute('href', '/w/default/ledger')
     const link = line.getByRole('link', {name: issue.id})
-    await expect(link).toHaveAttribute('href', `/p/ledger/issues/${issue.id}`)
+    await expect(link).toHaveAttribute('href', `/w/default/ledger/issues/${issue.id}`)
 
     // Clicking the line opens nothing under it: it's one line still, with no actions.
     const height = (await line.boundingBox())!.height
@@ -70,7 +70,7 @@ test("an issue event's line links the issue, and following it opens the issue", 
     expect((await line.boundingBox())!.height).toBe(height)
     await expect(page.getByRole('button', {name: 'Resolve'})).toHaveCount(0)
     await link.click()
-    await expect(page).toHaveURL(new RegExp(`/p/ledger/issues/${issue.id}$`))
+    await expect(page).toHaveURL(new RegExp(`/ledger/issues/${issue.id}$`))
     await expect(page.getByText('Carry the one').first()).toBeVisible()
 })
 
@@ -79,7 +79,7 @@ test('an error an agent resolved stays on the bell, and says who resolved it', a
     const looked = new Date().toISOString()
     await page.addInitScript(at => localStorage.setItem('orrery-events-seen', at), looked)
     await page.goto('/p/ledger')
-    const bell = page.locator('a[href="/notifications"]').first()
+    const bell = page.locator('a[href="/w/default/notifications"]').first()
     const errors = async () => Number(/(\d+) new kinds? of error/.exec(await bell.getAttribute('aria-label') ?? '')?.[1] ?? 0)
     const before = await errors()
     const message = `ledger broke ${Date.now()}`

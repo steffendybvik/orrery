@@ -21,9 +21,9 @@ test("shows a work session's parts and their sizes, with the total, and the chat
     // In the sidebar under Schedules while Advanced is on (ORR-578), with Events and Pull requests, each on its own row;
     // gone with it off, when App settings → Advanced still links all three, and the old address opens that tab (ORR-561).
     await page.goto('/')
-    await expect(page.getByRole('link', {name: 'Events', exact: true})).toHaveAttribute('href', '/events')
-    await expect(page.getByRole('link', {name: 'Context', exact: true})).toHaveAttribute('href', '/context')
-    await expect(page.getByRole('link', {name: /^Pull requests/})).toHaveAttribute('href', '/pulls')
+    await expect(page.getByRole('link', {name: 'Events', exact: true})).toHaveAttribute('href', '/w/default/events')
+    await expect(page.getByRole('link', {name: 'Context', exact: true})).toHaveAttribute('href', '/w/default/context')
+    await expect(page.getByRole('link', {name: /^Pull requests/})).toHaveAttribute('href', '/w/default/pulls')
     const off = await request.patch('/api/settings', {data: {advanced: false}, headers: OWNER})
     expect(off.ok(), await off.text()).toBeTruthy()
     await page.reload()
@@ -32,9 +32,9 @@ test("shows a work session's parts and their sizes, with the total, and the chat
     await expect(page.getByRole('link', {name: /^Pull requests/})).toHaveCount(0)
     await page.goto('/settings?tab=orrery#advanced')
     await expect(page).toHaveURL(/tab=advanced/)
-    await expect(page.getByRole('link', {name: 'Open the event log'})).toHaveAttribute('href', '/events')
+    await expect(page.getByRole('link', {name: 'Open the event log'})).toHaveAttribute('href', '/w/default/events')
     // Pull requests too (ORR-565).
-    await expect(page.getByRole('link', {name: 'Open pull requests'})).toHaveAttribute('href', '/pulls')
+    await expect(page.getByRole('link', {name: 'Open pull requests'})).toHaveAttribute('href', '/w/default/pulls')
     await page.getByRole('link', {name: 'See what a session is sent'}).click()
     await expect(page).toHaveURL(/\/context/)
     await page.goto('/context?project=almanac&kind=work')

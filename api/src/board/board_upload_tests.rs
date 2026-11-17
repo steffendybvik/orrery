@@ -210,7 +210,7 @@ async fn an_uploaded_board_starts_held_out_of_pick_lists_even_the_owners_own() {
     let reply = api.post("/api/boards", sent(&file, "copy", "CPY")).send().await;
     assert_eq!(reply.status, 201, "{}", reply.body);
     assert!(reply.body["picks_held"].is_string(), "{}", reply.body);
-    let mut own = sent(&file, "mine", "MIN");
+    let mut own = sent(&file, "ours", "OUR");
     own["own"] = json!(true);
     let own = api.post("/api/boards", own).send().await;
     assert_eq!(own.status, 201, "{}", own.body);

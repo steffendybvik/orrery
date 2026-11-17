@@ -43,7 +43,7 @@ test('uploads a file from App settings, asking for another id and key when they\
     await upload.getByLabel('New id').fill('wharf')
     await upload.getByLabel('New key').fill('wrf')
     await upload.getByRole('button', {name: 'Upload', exact: true}).click()
-    await expect(page).toHaveURL(/\/p\/wharf$/)
+    await expect(page).toHaveURL(/\/wharf$/)
     await page.goto(`/p/wharf/issues/${issue.id}`)
     await expect(page.getByRole('heading', {name: 'Tar the hull'})).toBeVisible()
     await expect(page.getByText('brought it in from a file')).toBeVisible()

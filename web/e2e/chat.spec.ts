@@ -97,9 +97,9 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         const opening = page.context().waitForEvent('page')
         await issueLink.click()
         const tab = await opening
-        await expect(tab).toHaveURL(/\/p\/observatory\/issues\/OBS-1$/)
+        await expect(tab).toHaveURL(/\/observatory\/issues\/OBS-1$/)
         await tab.close()
-        await expect(page).toHaveURL(/\/p\/observatory$/)
+        await expect(page).toHaveURL(/\/observatory$/)
         await expect(pane).toBeVisible()
         // Answered partway through its turn, it's still working: the spinner stays, after the reply, until the turn ends.
         await expect(pane.getByLabel('Thinking…')).toBeVisible()
@@ -507,7 +507,7 @@ test("offers an issue it wasn't asked for, marked as not filed, and files it onl
         await expect(card).toContainText('Filed as')
         const filed = await titled('Recoat the primary mirror')
         expect(filed).toMatchObject({status: 'todo', protected: true})
-        await expect(card.getByRole('link', {name: filed!.id})).toHaveAttribute('href', `/p/observatory/issues/${filed!.id}`)
+        await expect(card.getByRole('link', {name: filed!.id})).toHaveAttribute('href', `/w/default/observatory/issues/${filed!.id}`)
         await expect.poll(() => session!.said.text).toContain(`it's ${filed!.id}`)
 
         await offer({title: 'Oil the dome'})
@@ -1158,7 +1158,7 @@ test('pops out into a window of its own, which the corner button brings back, an
         document.querySelector('section[aria-label="Chat"] h2')?.after(link)
     })
     await own.getByRole('link', {name: 'the roadmap'}).click()
-    await expect(page).toHaveURL(/\/p\/observatory\/roadmap$/)
+    await expect(page).toHaveURL(/\/observatory\/roadmap$/)
     await expect(popup).toHaveURL(/\/chat\?project=observatory$/)
     // Dock back: the window closes, and the pane opens here on the same project, the draft as it was.
     const closing = popup.waitForEvent('close')
@@ -1193,7 +1193,7 @@ test('opened by its address, the chat fills the window, and its links open in a 
     const opening = context.waitForEvent('page')
     await own.getByRole('link', {name: 'the board'}).click()
     const tab = await opening
-    await expect(tab).toHaveURL(/\/p\/observatory$/)
+    await expect(tab).toHaveURL(/\/observatory$/)
     await tab.close()
     await expect(page).toHaveURL(/\/chat\?project=observatory$/)
 })

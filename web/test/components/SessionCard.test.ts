@@ -74,7 +74,7 @@ describe('its summary line and Details (ORR-1220)', () => {
     it('says the issue it is on in the summary, with a count of the others', async () => {
         const wrapper = await mount({session: session(), work: {issues: [doing('SHO-1'), doing('SHO-4')], signals: []}})
         const now = wrapper.find('[data-testid="session-now"]')
-        expect(now.attributes('href')).toBe('/p/shop/issues/SHO-1')
+        expect(now.attributes('href')).toBe('/w/default/shop/issues/SHO-1')
         expect(now.text()).toContain('Issue SHO-1')
         expect(now.text()).toContain('+1')
     })
@@ -103,7 +103,7 @@ describe('what a session is on', () => {
 
     it('lists its issues in progress, and folds the rest it worked on under them', async () => {
         const wrapper = await mount({session: session(), work: {issues: [issue('SHO-1', 'started'), issue('SHO-2', 'done'), issue('SHO-3', 'done')], signals: []}})
-        expect(wrapper.find('a[href="/p/shop/issues/SHO-1"]').text()).toContain('Issue SHO-1')
+        expect(wrapper.find('a[href="/w/default/shop/issues/SHO-1"]').text()).toContain('Issue SHO-1')
         expect(wrapper.text()).toContain('2 more it worked on')
         expect(wrapper.text()).not.toContain('Nothing in progress')
     })

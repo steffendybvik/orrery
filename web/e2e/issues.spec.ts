@@ -87,7 +87,7 @@ test('⌘K finds an issue and opens it', async ({page}) => {
     await palette.getByLabel('Type a command or search').fill('expiry')
     await expect(palette.getByRole('option', {name: /Expiry badges/})).toBeVisible()
     await page.keyboard.press('Enter')
-    await expect(page).toHaveURL(/\/p\/scullery\/issues\/SCU-2/)
+    await expect(page).toHaveURL(/\/scullery\/issues\/SCU-2/)
 })
 
 test('a change shows up live in another tab', async ({page, context, request}) => {
@@ -189,7 +189,7 @@ test('double-clicking a description opens its editor, unless it was a link, a pi
     await expect(page.getByRole('dialog', {name: 'The shelf'})).toBeHidden()
     await expect(editor).toBeHidden()
     await page.locator('.doc a', {hasText: 'The plan'}).dblclick()
-    await expect(page).toHaveURL(/\/p\/scullery(\?.*)?$/)
+    await expect(page).toHaveURL(/\/scullery(\?.*)?$/)
     await page.goto(`/p/scullery/issues/${issue.id}`)
     await expect(text).toBeVisible()
     await expect(editor).toBeHidden()

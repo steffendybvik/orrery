@@ -56,6 +56,7 @@ const ANSWERED = {allowed: 'Allowed and saved', denied: 'Denied: nothing changed
 const SENT = {allowed: (to: string[]) => to.length ? `Sent to ${to.join(', ')}` : 'Sent, but no session fit any more', denied: () => 'Not sent', expired: () => 'Expired: not answered in time'}
 const {projects} = useRoadmaps()
 const route = useRoute()
+const router = useRouter()
 const {look} = useStatuses()
 const statusName = (id: string | null) => id === null ? '(none)' : look(id).label
 /** The issues a move request changes, each with its changes, in the order asked. */
@@ -407,7 +408,7 @@ function popOut() {
     const query = new URLSearchParams(chat.value ? {chat: chat.value.id} : about.value ? {project: about.value} : {})
     const width = Math.min(480, screen.availWidth)
     const height = Math.min(760, screen.availHeight)
-    const opened = window.open(`/chat${query.size ? `?${query}` : ''}`, POPUP, `popup,width=${width},height=${height}`)
+    const opened = window.open(router.resolve(`/chat${query.size ? `?${query}` : ''}`).href, POPUP, `popup,width=${width},height=${height}`)
     if (!opened) {
         failed.value = 'The browser stopped the window opening: allow pop-ups for orrery, then try again'
         return

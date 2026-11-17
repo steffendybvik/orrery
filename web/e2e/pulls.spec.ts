@@ -135,7 +135,7 @@ test("opens a pull request by its number, listing every issue it's linked to (OR
     await expect(linked.first().getByText('High risk')).toHaveAttribute('title', 'high: moves the hinges (rated by the session that opened it)')
     await expect(linked.filter({hasText: 'Muck out'}).getByText(/ risk$/)).toHaveCount(0)
     await linked.filter({hasText: 'Mend the gate'}).getByRole('link').click()
-    await expect(page).toHaveURL(new RegExp(`/p/hayloft/issues/${issues[1]}$`))
+    await expect(page).toHaveURL(new RegExp(`/hayloft/issues/${issues[1]}$`))
     // Its address opens it straight away too.
     await page.goto('/pulls/orrery-e2e/hayloft/21')
     await expect(page.getByRole('heading', {name: '#21 Spring clean'})).toBeVisible()

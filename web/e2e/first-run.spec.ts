@@ -80,7 +80,7 @@ test('picks the welcome up in another browser, and makes a project from it', asy
     await dialog.getByLabel('Project name').fill('Greenhouse')
     await dialog.getByRole('button', {name: 'Make it'}).click()
     await expect(dialog).toBeHidden()
-    await expect(page).toHaveURL(/\/p\/greenhouse/)
+    await expect(page).toHaveURL(/\/greenhouse/)
     await expect(page.getByRole('heading', {name: 'Greenhouse'})).toBeVisible()
 })
 
@@ -88,7 +88,7 @@ test('My issues and Connect show what they should', async ({page, request}) => {
     const urgent = await api(request, 'post', '/issues', {title: 'The shelf fell down', status: 'todo', priority: 'P0'})
     // Now is gone (ORR-425): its old address lands on My issues.
     await page.goto('/now')
-    await expect(page).toHaveURL('/mine')
+    await expect(page).toHaveURL('/w/default/mine')
     await expect(page.getByText('The shelf fell down')).toBeVisible()
     // Getting started is a card on My issues until it's done; someone only planning is set without the steps for Claude.
     const card = page.getByRole('region', {name: 'Getting started'})

@@ -113,8 +113,8 @@ describe('IssueProperties, Blocked by and Blocks', () => {
     it('links each to its page, in its own project for one in another', async () => {
         const wrapper = await mount()
         const links = wrapper.findAll('a').map(a => [a.text(), a.attributes('href')])
-        expect(links).toContainEqual(['GRE-1', '/p/greenhouse/issues/GRE-1'])
-        expect(links).toContainEqual(['pantry/PAN-4', '/p/pantry/issues/PAN-4'])
+        expect(links).toContainEqual(['GRE-1', '/w/default/greenhouse/issues/GRE-1'])
+        expect(links).toContainEqual(['pantry/PAN-4', '/w/default/pantry/issues/PAN-4'])
     })
 
     it('saves the whole list as the owner, and says why one is refused', async () => {

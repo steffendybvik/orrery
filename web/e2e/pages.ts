@@ -59,12 +59,21 @@ export const ROUTES = (w: Walked): Route[] => [
 ]
 
 /** Addresses that only go on to a page, from old links and bookmarks. */
+/** Where a page's path lands in the `default` workspace, the one the browser specs are in (ORR-1275): a project's
+ * pages without their `/p`. */
+export const inDefault = (path: string) => ['/login', '/connect', '/connect-machine'].includes(path) ? path
+    : `/w/default${path.replace(/^\/p(?=\/)/, '').replace(/^\/$/, '')}`
+
 export const REDIRECTS = (w: Walked) => [
     {from: '/', to: /\/mine$/},
     {from: '/now', to: /\/mine$/},
     {from: '/urgent', to: /\/mine$/},
     {from: `/p/${w.id}/schedules`, to: new RegExp(`/schedules\\?project=${w.id}$`)},
-    {from: `/p/${w.id}/issues`, to: new RegExp(`/p/${w.id}$`)},
+    {from: `/p/${w.id}/issues`, to: new RegExp(`/w/default/${w.id}$`)},
+    // Old addresses, from before every page was under its workspace (ORR-1275), in docs, comments and notifications.
+    {from: '/settings', to: /\/w\/default\/settings$/},
+    {from: `/p/${w.id}/roadmap`, to: new RegExp(`/w/default/${w.id}/roadmap$`)},
+    {from: `/w/default/p/${w.id}`, to: new RegExp(`/w/default/${w.id}$`)},
 ]
 
 export const heading = (page: Page, name: string) => page.getByRole('heading', {name, exact: true}).first()

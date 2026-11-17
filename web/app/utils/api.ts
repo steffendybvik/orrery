@@ -60,10 +60,36 @@ export function workspaceIn(pathname: string): string | undefined {
     }
 }
 
-/** The page's own path, without the `/w/<workspace>` it's under (ORR-1108): what a link or a highlight compares. */
+/** The pages outside every workspace, the installation's: signing in and connecting a machine or a repo. Every other
+ * page is under one, at `/w/<workspace>/…` (ORR-1275). */
+export const OUTSIDE_WORKSPACE = ['/login', '/connect', '/connect-machine']
+
+/** The first part of a workspace's own pages' paths (`/w/<workspace>/settings`): what a project's id can't be, as its
+ * pages are at `/w/<workspace>/<project>/…` (ORR-1275). Kept with `RESERVED_PROJECT_IDS` in api/src/text.rs. */
+export const WORKSPACE_PAGES = [
+    'chat', 'connect', 'connect-machine', 'context', 'epics', 'events', 'getting-started', 'login', 'mine', 'notifications', 'now', 'p',
+    'projects', 'pulls', 'releases', 'schedules', 'sessions', 'settings', 'ui', 'urgent', 'w',
+]
+
+const isOutside = (path: string) => OUTSIDE_WORKSPACE.includes(path.replace(/[?#].*$/, '').replace(/\/+$/, '') || '/')
+
+/** Where a page is in `workspace`, from its path within one (`pagePath`): `/w/<workspace><path>`, a project's pages
+ * without their `/p` (`/p/rockets/issues` is `/w/acme/rockets/issues`, ORR-1275). A page outside every workspace, or
+ * one already under one, stays as it is. */
+export function inWorkspace(workspace: string, path: string): string {
+    if (isOutside(path) || workspaceIn(path)) return path
+    const within = path.replace(/^\/p(?=\/)/, '')
+    return `/w/${encodeURIComponent(workspace)}${within === '/' ? '' : within.replace(/^\/(?=[?#])/, '')}`
+}
+
+/** The page's own path, without the `/w/<workspace>` it's under: what a link or a highlight compares, and what links
+ * in the app are written as. A project's pages read as `/p/<project>/…`, as they did before ORR-1275, so
+ * `/w/acme/rockets/issues` is `/p/rockets/issues`, and `/w/acme/mine` is `/mine`. */
 export function pagePath(pathname: string): string {
     const rest = pathname.replace(/^\/w\/[^/?#]+/, '')
-    return pathname === rest ? pathname : rest || '/'
+    if (pathname === rest) return pathname
+    const first = /^\/([^/?#]+)/.exec(rest)?.[1]
+    return !first ? rest || '/' : WORKSPACE_PAGES.includes(first) ? rest : `/p${rest}`
 }
 
 /** `Orrery-Workspace` for this tab's address, for the API's workspace-wide rows (epics, statuses, presets…). */

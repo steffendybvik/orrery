@@ -57,7 +57,7 @@ describe('uploading a board', () => {
         const wrapper = await mountUpload()
         await pick(wrapper)
         expect(sent).toEqual([{query: {}, body: '{"project":{"id":"shop"}}'}])
-        await vi.waitFor(() => expect(useRouter().currentRoute.value.path).toBe('/p/shop-2'), {timeout: 5000})
+        await vi.waitFor(() => expect(useRouter().currentRoute.value.path).toBe('/w/default/shop-2'), {timeout: 5000})
         expect(wrapper.find('form').exists()).toBe(false)
     })
 
@@ -112,6 +112,6 @@ describe('uploading a board', () => {
         await wrapper.findAll('button').find(b => b.text() === 'Upload it without images')!.trigger('click')
         await settle()
         expect(JSON.parse(sent[1]!.body!).uploads).toEqual([])
-        await vi.waitFor(() => expect(useRouter().currentRoute.value.path).toBe('/p/shop-2'), {timeout: 5000})
+        await vi.waitFor(() => expect(useRouter().currentRoute.value.path).toBe('/w/default/shop-2'), {timeout: 5000})
     })
 })
