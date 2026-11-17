@@ -20,7 +20,7 @@ async function logIn(browser: Browser, baseURL: string, sub: string, name: strin
     const page = await (await browser.newContext()).newPage()
     await page.goto('/')
     await expect(page).toHaveURL(/\/login$/)
-    await page.getByRole('link', {name: 'Log in with your provider'}).click()
+    await page.getByRole('link', {name: 'Sign in or sign up'}).click()
     await expect(page).not.toHaveURL(/\/login/)
     return page
 }

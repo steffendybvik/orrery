@@ -102,8 +102,9 @@ async fn log_out(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     Ok(response)
 }
 
-/// `GET /api/auth/status` → {mode, person?, via?, can_get_in, oidc, warn_http, phone} (status.get.ts): whether this
-/// orrery asks for a login, who this browser is, and `phone` on the phone's own port (ORR-837). Open, as the login page
+/// `GET /api/auth/status` → {mode, person?, via?, can_get_in, oidc, sign_up, warn_http, phone} (status.get.ts): whether
+/// this orrery asks for a login, who this browser is, `sign_up` when its provider lets someone new in (ORR-1291), and
+/// `phone` on the phone's own port (ORR-837). Open, as the login page
 /// needs it first; it says nothing about anyone else. Written ahead of the swap: the router keeps it the Nuxt server's.
 async fn auth_status(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     let came = came_of(&headers);
@@ -117,6 +118,7 @@ async fn auth_status(State(app): Shared, headers: HeaderMap) -> Result<Response>
         "mode": mode,
         "can_get_in": can_get_in,
         "oidc": ways.provider,
+        "sign_up": ways.provider && crate::access::people::sign_up_open(),
         "warn_http": mode == "on" && !came.https && !local_host(&host),
         "phone": came.phone,
     });

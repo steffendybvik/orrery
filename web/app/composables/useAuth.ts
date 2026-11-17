@@ -6,6 +6,8 @@ export interface AuthStatus {
     via?: 'browser' | 'agent'
     can_get_in: boolean
     oidc: boolean
+    /** A provider's on and lets someone new in (ORRERY_SIGN_UP unset or `open`), so its button signs up too (ORR-1291). */
+    sign_up: boolean
     warn_http: boolean
     /** On the phone's own port (ORR-837), where the QR code signs you in. */
     phone?: boolean
