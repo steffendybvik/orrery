@@ -131,10 +131,13 @@ for the copy, or into a Postgres of your own. Then set `ORRERY_DATABASE` to it a
 
 ## Two servers: personal and work
 
-One orrery can hold work and personal projects as two workspaces, each with its own projects, name
-and colour, switched at the top of the sidebar. Run two servers instead when you want them in separate
-databases, or on separate machines: each orrery is its own server, so they never mix. Run each as its
-own compose project with its own env file:
+Work and personal projects don't need two servers: one orrery holds them as two workspaces, each with
+its own projects, name, colour and settings, switched at the top of the sidebar, and one launcher serves
+both ([Workspaces](using.md#workspaces)). Make the second with **New workspace…** in the switcher.
+
+Run two servers only when they must be kept apart: in separate databases, or on separate machines.
+Each orrery is then its own server, with its own login, people and launcher, so nothing mixes. Run each
+as its own compose project with its own env file:
 
 ```sh
 # .env.personal
