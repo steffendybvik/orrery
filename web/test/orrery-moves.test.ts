@@ -42,6 +42,9 @@ describe('what a move asks', () => {
     it('takes the fields the import does, checked', () => {
         expect(moves.moveAskOf({direction: 'send', url: 'https://o.example.com', key: ` ${KEY} `, name: ' Personal ', color: 'teal', add: true, dryRun: 'yes'}))
             .toEqual({direction: 'send', url: 'https://o.example.com', key: KEY, name: 'Personal', from: 'default', color: 'teal', add: true, dryRun: false, enableSchedules: false})
+        // Its flags in snake_case, as the API's bodies are, or camelCase, as the page sent them (ORR-1287).
+        for (const flags of [{dry_run: true, enable_schedules: true}, {dryRun: true, enableSchedules: true}])
+            expect(moves.moveAskOf({direction: 'send', url: 'https://o.example.com', name: 'x', ...flags})).toMatchObject({dryRun: true, enableSchedules: true})
         expect(moves.moveAskOf({direction: 'bring', url: 'https://o.example.com', name: 'x', from: 'work'}).from).toBe('work')
         expect(moves.moveAskOf({direction: 'bring', url: 'https://o.example.com', name: 'x', from: '../etc'}).from).toBe('default')
         expect(() => moves.moveAskOf({direction: 'up', url: 'https://o.example.com', name: 'x'})).toThrow(/direction/)
