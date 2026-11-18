@@ -56,6 +56,7 @@ async function decide(message: number, allow: boolean, anyway = false) {
 const ANSWERED = {allowed: 'Allowed and saved', denied: 'Denied: nothing changed', expired: 'Expired: not answered in time, or asked again'}
 const SENT = {allowed: (to: string[]) => to.length ? `Sent to ${to.join(', ')}` : 'Sent, but no session fit any more', denied: () => 'Not sent', expired: () => 'Expired: not answered in time'}
 const {projects} = useRoadmaps()
+const {preferred} = useLastProject()
 const route = useRoute()
 const router = useRouter()
 const {look} = useStatuses()
@@ -88,7 +89,8 @@ const here = computed(() => {
     return typeof on === 'string' && projects.value.some(p => p.id === on) ? on : null
 })
 /** The project the chat would be about: the pinned one, else the one you're on; on a page of no project, a running
- * chat's when the pane has none, so the corner button brings you back to it (ORR-865, ORR-870); else the first. */
+ * chat's when the pane has none, so the corner button brings you back to it (ORR-865, ORR-870); else the one last used,
+ * starred or busiest, never an empty one while there are others (ORR-1284). */
 watch([pinned, here, projects, chats], (_now, was?: unknown[]) => {
     const [wasPinned, wasHere] = was ?? []
     if (pinned.value && projects.value.some(p => p.id === pinned.value)) project.value = pinned.value
@@ -96,7 +98,7 @@ watch([pinned, here, projects, chats], (_now, was?: unknown[]) => {
     // list (ORR-884).
     else if (here.value) project.value = here.value === wasHere && pinned.value === wasPinned && project.value ? project.value : here.value
     else if (!chat.value && running.value[0]) project.value = running.value[0].project
-    else if (!project.value) project.value = projects.value[0]?.id ?? null
+    else if (!project.value) project.value = preferred.value?.id ?? null
 }, {immediate: true})
 /** Where the issues the chat makes land: the running chat's, or the next one's. */
 const landing = computed<ChatIssues>(() => chat.value && !chat.value.ended ? chat.value.issues : lands.value)
