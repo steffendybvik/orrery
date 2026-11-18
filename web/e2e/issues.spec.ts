@@ -20,8 +20,8 @@ test('adds issues and moves one on the board', async ({page, request}) => {
     await page.getByRole('radio', {name: /Board/}).or(page.getByRole('button', {name: /Board/})).first().click()
     const card = page.locator('[data-issue="SCU-1"]')
     await expect(card.getByRole('img', {name: 'Todo'})).toBeVisible()
-    // The milestone's name is plain text: the whole card opens the issue.
-    await expect(card.getByRole('link')).toHaveCount(0)
+    // The milestone's name is plain text: the card's one link is its id, which opens the issue (ORR-1280).
+    await expect(card.getByRole('link')).toHaveText(['SCU-1'])
     await card.click({button: 'right'})
     await page.getByRole('menu').getByRole('button', {name: 'Move to In progress'}).click()
     await expect(card.getByRole('img', {name: 'In progress'})).toBeVisible()
@@ -212,6 +212,16 @@ test('links the GitHub issues an issue came from, short for the project\'s own r
     await page.goto(`/p/tracks/issues/${id}`)
     await expect(page.getByRole('link', {name: '#523', exact: true})).toBeVisible()
     await expect(page.getByRole('link', {name: 'orrery-e2e/depot#7', exact: true})).toHaveAttribute('href', 'https://github.com/orrery-e2e/depot/issues/7')
+})
+
+test('at desktop width, the description comes before the Sessions panel, as on a phone (ORR-1283)', async ({page, request}) => {
+    const issue = await api(request, 'post', '/issues', {title: 'Scrub the pans', status: 'todo', notes: 'Copper ones first.'}, AGENT)
+    await page.setViewportSize({width: 1440, height: 900})
+    await page.goto(`/p/scullery/issues/${issue.id}`)
+    const words = page.getByText('Copper ones first.')
+    const sessions = page.getByRole('heading', {name: 'Sessions', exact: true})
+    await expect(sessions).toBeVisible()
+    expect((await words.boundingBox())!.y).toBeLessThan((await sessions.boundingBox())!.y)
 })
 
 test('on a phone, the description comes right after the title and its chips; Remove waits in ⋯ (ORR-1219)', async ({page, request}) => {
