@@ -102,11 +102,25 @@ function endSectionDrag() {
     draggingSection.value = null
     dropAt.value = null
 }
-function nudge(name: string, by: number, event: KeyboardEvent) {
+// The header moved by the keys keeps focus as the list redraws (ORR-1299): moving a focused node drops focus to the page,
+// and the server's order, or a late one from an earlier move, can redraw it after the move itself. Let go once focus
+// goes anywhere else, or on a click anywhere.
+const held = ref<string | null>(null)
+function holdFocus() {
+    if (!held.value || !strip.value || (document.activeElement && document.activeElement !== document.body)) return
+    const section = [...strip.value.querySelectorAll('section')].find(each => each.getAttribute('aria-label') === held.value)
+    section?.querySelector<HTMLElement>('[role="button"]')?.focus()
+}
+watch(() => sections.value.map(section => section.name).join('\n'), () => nextTick(holdFocus), {flush: 'post'})
+const letGo = () => held.value = null
+onMounted(() => window.addEventListener('pointerdown', letGo, true))
+onBeforeUnmount(() => window.removeEventListener('pointerdown', letGo, true))
+function nudge(name: string, by: number) {
     const index = sections.value.findIndex(section => section.name === name) + by
     if (index < 0 || index >= sections.value.length) return
+    held.value = name
     place(name, index)
-    nextTick(() => (event.target as HTMLElement).focus())
+    nextTick(holdFocus)
 }
 async function place(name: string, position: number) {
     const names = sections.value.map(section => section.name).filter(each => each !== name)
@@ -221,8 +235,9 @@ async function makeSection() {
           @click="fold(section.name)"
           @keydown.enter.prevent="fold(section.name)"
           @keydown.space.prevent="fold(section.name)"
-          @keydown.alt.up.prevent="nudge(section.name, -1, $event)"
-          @keydown.alt.down.prevent="nudge(section.name, 1, $event)"
+          @keydown.alt.up.prevent="nudge(section.name, -1)"
+          @keydown.alt.down.prevent="nudge(section.name, 1)"
+          @focusout="$event.relatedTarget && (held = null)"
           @dragstart="draggingSection = section.name; $event.dataTransfer?.setData('text/plain', section.name)"
           @dragend="endSectionDrag"
           @contextmenu.prevent="openSectionMenu($event, section.name)"

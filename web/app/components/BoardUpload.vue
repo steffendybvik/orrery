@@ -19,7 +19,9 @@ const failed = ref('')
 /** This orrery, as `sendBoard` asks it. */
 const here = {
     post: (path: string, body: unknown) => apiFetch(path, {method: 'POST', body: body as Record<string, unknown>}),
-    upload: (path: string, text: string) => apiFetch(path, {method: 'POST', body: text, headers: {'Content-Type': 'application/json'}}),
+    // JSON as a Blob of that type, not a header of its own: a call's own headers stand in for the actor apiFetch adds,
+    // and the server takes a board only from the owner (ORR-1299).
+    upload: (path: string, text: string) => apiFetch(path, {method: 'POST', body: new Blob([text], {type: 'application/json'})}),
 }
 
 /** The file read, or the file itself when it isn't JSON, for the server to say why it's no board. */
