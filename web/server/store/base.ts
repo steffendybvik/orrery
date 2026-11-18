@@ -329,9 +329,9 @@ export abstract class StoreBase {
         const row = await this.projectRow(project)
         return [
             ...row.owned ? [`project "${project}"`] : [],
-            ...(await this.all<{id: string}>('SELECT id FROM milestones WHERE project = ? AND owned = 1', project)).map(c => `milestone "${c.id}"`),
-            ...(await this.all<{id: string}>('SELECT id FROM docs WHERE project = ? AND owned = 1', project)).map(d => `doc "${d.id}"`),
-            ...(await this.all<{version: string}>('SELECT version FROM releases WHERE project = ? AND owned = 1', project)).map(r => `release ${r.version}`),
+            ...(await this.all<{id: string}>('SELECT id FROM milestones WHERE project = ? AND owned = 1 ORDER BY id', project)).map(c => `milestone "${c.id}"`),
+            ...(await this.all<{id: string}>('SELECT id FROM docs WHERE project = ? AND owned = 1 ORDER BY id', project)).map(d => `doc "${d.id}"`),
+            ...(await this.all<{version: string}>('SELECT version FROM releases WHERE project = ? AND owned = 1 ORDER BY version', project)).map(r => `release ${r.version}`),
             ...await this.ownedUnder(project, (await this.all<{id: string}>('SELECT id FROM issues WHERE project = ?', project)).map(i => i.id)),
         ]
     }
@@ -341,8 +341,8 @@ export abstract class StoreBase {
         if (!issues.length) return []
         const marks = issues.map(() => '?').join(', ')
         return [
-            ...(await this.all<{id: string}>(`SELECT id FROM issues WHERE project = ? AND owned = 1 AND id IN (${marks})`, project, ...issues)).map(i => i.id),
-            ...(await this.all<{id: number, issue: string}>(`SELECT id, issue FROM comments WHERE project = ? AND owned = 1 AND issue IN (${marks})`, project, ...issues))
+            ...(await this.all<{id: string}>(`SELECT id FROM issues WHERE project = ? AND owned = 1 AND id IN (${marks}) ORDER BY id`, project, ...issues)).map(i => i.id),
+            ...(await this.all<{id: number, issue: string}>(`SELECT id, issue FROM comments WHERE project = ? AND owned = 1 AND issue IN (${marks}) ORDER BY id`, project, ...issues))
                 .map(c => `comment ${c.id} on ${c.issue}`),
         ]
     }

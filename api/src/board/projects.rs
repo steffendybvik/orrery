@@ -638,9 +638,9 @@ impl<'c> Projects<'c> {
     async fn owned_in(&mut self, id: &str, owned: bool) -> Result<Vec<String>> {
         let mut out = if owned { vec![format!("project \"{id}\"")] } else { vec![] };
         for (query, shown) in [
-            ("SELECT id FROM milestones WHERE project = ? AND owned = 1", "milestone \"{}\""),
-            ("SELECT id FROM docs WHERE project = ? AND owned = 1", "doc \"{}\""),
-            ("SELECT version FROM releases WHERE project = ? AND owned = 1", "release {}"),
+            ("SELECT id FROM milestones WHERE project = ? AND owned = 1 ORDER BY id", "milestone \"{}\""),
+            ("SELECT id FROM docs WHERE project = ? AND owned = 1 ORDER BY id", "doc \"{}\""),
+            ("SELECT version FROM releases WHERE project = ? AND owned = 1 ORDER BY version", "release {}"),
         ] {
             let ids: Vec<String> = sqlx::query_scalar(&sql(query)).bind(id).fetch_all(&mut *self.conn).await?;
             out.extend(ids.into_iter().map(|one| shown.replace("{}", &one)));
