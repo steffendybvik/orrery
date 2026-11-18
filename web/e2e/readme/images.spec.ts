@@ -106,3 +106,15 @@ test('new-issue', async ({page}) => {
     await dialog.getByLabel('Description').fill('The segmented sieve keeps every segment it has made. Keep only the one it is on, and count as it goes.')
     await shoot(page, 'new-issue')
 })
+
+test('release', async ({page}) => {
+    await open(page, '/p/primes/releases/1.0.0')
+    await expect(page.getByRole('heading', {name: /1\.0\.0/}).first()).toBeVisible()
+    await shoot(page, 'release')
+})
+
+test('events', async ({page}) => {
+    await open(page, '/events')
+    await expect(page.getByRole('heading', {name: 'Events'}).first()).toBeVisible()
+    await shoot(page, 'events')
+})
