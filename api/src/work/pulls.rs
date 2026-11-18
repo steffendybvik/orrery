@@ -406,7 +406,7 @@ impl<'a> Pulls<'a> {
             let level: String = r.get("risk");
             let by = if r.get::<Option<String>, _>("risk_by").as_deref() == Some("owner") { "owner" } else { "session" };
             let risk = json!({"level": level, "why": r.get::<Option<String>, _>("risk_why").unwrap_or_default(), "by": by});
-            if risks.get(&key).map_or(true, |kept| rank(Some(&level)) < rank(kept["level"].as_str())) {
+            if risks.get(&key).is_none_or(|kept| rank(Some(&level)) < rank(kept["level"].as_str())) {
                 risks.insert(key, risk);
             }
         }

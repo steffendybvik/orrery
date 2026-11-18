@@ -315,7 +315,7 @@ impl<'c> Docs<'c> {
         let title = input.get("title").and_then(Value::as_str).map(|t| t.trim().to_string());
         let was = current.as_ref().map(|c| json!({"title": c["title"], "section": c.get("section").cloned().unwrap_or(Value::Null), "body": c["body"]}));
         // Whether `value` would change the doc's `field`: always, for a new one.
-        let changes = |field: &str, value: &Value| was.as_ref().map_or(true, |w| w[field] != *value);
+        let changes = |field: &str, value: &Value| was.as_ref().is_none_or(|w| w[field] != *value);
         let mut wanted = Map::new();
         if let Some(title) = title.as_ref().filter(|t| changes("title", &json!(t))) {
             wanted.insert("title".into(), json!(title));
