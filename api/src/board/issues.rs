@@ -444,7 +444,7 @@ impl<'c> Issues<'c> {
             let by = if row.get::<Option<String>, _>("risk_by").as_deref() == Some("owner") { "owner" } else { "session" };
             let risk = json!({"level": level, "why": row.get::<Option<String>, _>("risk_why").unwrap_or_default(), "by": by});
             let issue: String = row.get("issue");
-            let higher = risks.get(&issue).map_or(true, |kept| rank(&level) < rank(kept["level"].as_str().unwrap_or_default()));
+            let higher = risks.get(&issue).is_none_or(|kept| rank(&level) < rank(kept["level"].as_str().unwrap_or_default()));
             if higher {
                 risks.insert(issue, risk);
             }
@@ -494,7 +494,7 @@ impl<'c> Issues<'c> {
                 milestone_group(project, m, &rules, &milestone_aliases, tasks)
             })
             .collect();
-        let loose: Vec<&&IssueRow> = top.iter().filter(|t| t.milestone.as_deref().map_or(true, str::is_empty)).collect();
+        let loose: Vec<&&IssueRow> = top.iter().filter(|t| t.milestone.as_deref().is_none_or(str::is_empty)).collect();
         if !loose.is_empty() {
             let tasks: Vec<Node> = loose.into_iter().map(|t| context.issue(t, false)).collect();
             let mut fields = Map::new();
@@ -727,23 +727,23 @@ impl<'c> Issues<'c> {
                 let column = text(r, "column").unwrap_or_default();
                 let none_or = |key: &str, sent: Option<&str>| match sent {
                     None => true,
-                    Some("none") => text(r, key).map_or(true, |v| v.is_empty()),
+                    Some("none") => text(r, key).is_none_or(|v| v.is_empty()),
                     Some(value) => text(r, key).as_deref() == Some(value),
                 };
-                wanted_statuses.as_ref().map_or(true, |s| s.contains(&status))
+                wanted_statuses.as_ref().is_none_or(|s| s.contains(&status))
                     && none_or("priority", get("priority"))
-                    && columns.as_ref().map_or(true, |c| c.contains(&column))
+                    && columns.as_ref().is_none_or(|c| c.contains(&column))
                     && match (get("assignee"), &assignee) {
                         (None, _) => true,
-                        (Some("none"), _) => text(r, "assignee").map_or(true, |v| v.is_empty()),
+                        (Some("none"), _) => text(r, "assignee").is_none_or(|v| v.is_empty()),
                         (_, Some(name)) => name.is_some() && text(r, "assignee") == *name,
                         _ => false,
                     }
-                    && get("label").map_or(true, |l| has_in(r, "labels", l))
-                    && get("external").map_or(true, |e| has_in(r, "external", e))
+                    && get("label").is_none_or(|l| has_in(r, "labels", l))
+                    && get("external").is_none_or(|e| has_in(r, "external", e))
                     && github
                         .as_ref()
-                        .map_or(true, |g| r["github_issues"].as_array().is_some_and(|a| a.iter().any(|v| v.as_str().is_some_and(|v| v.to_lowercase() == *g))))
+                        .is_none_or(|g| r["github_issues"].as_array().is_some_and(|a| a.iter().any(|v| v.as_str().is_some_and(|v| v.to_lowercase() == *g))))
                     && none_or("milestone", milestone.as_deref())
                     && none_or("release", get("release"))
                     && none_or("parent", parent.as_deref())
@@ -752,7 +752,7 @@ impl<'c> Issues<'c> {
                         Some("none") => column != "proposed",
                         Some(value) => text(r, "proposal").as_deref() == Some(value),
                     }
-                    && get("blocked").map_or(true, |b| r.get("blocked_by").and_then(Value::as_array).is_some_and(|a| !a.is_empty()) == (b == "true"))
+                    && get("blocked").is_none_or(|b| r.get("blocked_by").and_then(Value::as_array).is_some_and(|a| !a.is_empty()) == (b == "true"))
                     && match (&q, &words) {
                         (None, _) | (_, Some(_)) => true,
                         (Some(q), None) => id_or_title(r).0.to_lowercase().contains(q) || id_or_title(r).1.to_lowercase().contains(q),
@@ -970,7 +970,7 @@ impl<'c> Issues<'c> {
                 group(id, tasks)
             })
             .collect();
-        let loose: Vec<Node> = top.iter().filter(|t| t.milestone.as_deref().map_or(true, str::is_empty)).map(|t| build(&rules, &children, t, false)).collect();
+        let loose: Vec<Node> = top.iter().filter(|t| t.milestone.as_deref().is_none_or(str::is_empty)).map(|t| build(&rules, &children, t, false)).collect();
         if !loose.is_empty() {
             grouped.push(group(String::new(), loose));
         }
