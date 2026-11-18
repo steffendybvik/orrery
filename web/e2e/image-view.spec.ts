@@ -18,7 +18,7 @@ test('opens a picture larger over the page, and closes it without leaving', asyn
     const {id} = await api(request, 'post', '/projects/pictures/issues', {title: 'Hang the frames'})
     await api(request, 'post', `/projects/pictures/issues/${id}/comments`,
         {body: `![The hallway](${after.url})\n\n![Before: frames](${before.url})\n![After: frames](${after.url})`})
-    const url = `/p/pictures/issues/${id}`
+    const url = `/w/default/pictures/issues/${id}`
     await page.goto(url)
 
     const view = page.getByRole('dialog', {name: 'The hallway'})
