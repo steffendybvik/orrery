@@ -12,9 +12,10 @@ const route = useRoute()
 const router = useRouter()
 const {settings} = useAppSettings()
 const {ordered} = useProjectOrder()
+const {preferred} = useLastProject()
 
 const project = computed({
-    get: () => (route.query.project as string | undefined) || ordered.value[0]?.id || '',
+    get: () => (route.query.project as string | undefined) || preferred.value?.id || '',
     set: id => router.replace({query: {...route.query, project: id, session: undefined}}),
 })
 const kind = computed({
