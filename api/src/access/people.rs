@@ -84,7 +84,7 @@ fn stale(last: Option<String>) -> bool {
 /// The 403 for anyone but the owner, as `authorize(event, 'people.write')` words it for a session. With login on the
 /// credential has the last word: only the owner in their browser, whatever the actor says.
 fn owner_only(actor: &Actor, who: Option<&Who>) -> Result<()> {
-    if actor.owner && who.map_or(true, |who| who.browser && who.owner) {
+    if actor.owner && who.is_none_or(|who| who.browser && who.owner) {
         return Ok(());
     }
     Err(ApiError::refused_for(
@@ -639,7 +639,7 @@ impl<'c> People<'c> {
     /// key started one; revoking it again changes nothing. `mine`, when given, is whose it has to be.
     pub async fn revoke_key(&mut self, id: &str, mine: Option<&str>) -> Result<()> {
         let row = sqlx::query(&sql("SELECT person, revoked_at FROM keys WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
-        let Some(row) = row.filter(|r| mine.map_or(true, |mine| r.get::<String, _>("person") == mine)) else {
+        let Some(row) = row.filter(|r| mine.is_none_or(|mine| r.get::<String, _>("person") == mine)) else {
             return Err(ApiError::not_found(format!("No key \"{id}\"")));
         };
         if row.get::<Option<String>, _>("revoked_at").is_some() {
@@ -999,7 +999,7 @@ impl<'c> People<'c> {
         } else {
             None
         };
-        let Some(row) = row.filter(|r| mine.map_or(true, |mine| r.get::<String, _>("person") == mine)) else {
+        let Some(row) = row.filter(|r| mine.is_none_or(|mine| r.get::<String, _>("person") == mine)) else {
             return Err(ApiError::not_found(format!("No login \"{reference}\"")));
         };
         sqlx::query(&sql("DELETE FROM logins WHERE id = ?")).bind(row.get::<String, _>("id")).execute(&mut *self.conn).await?;

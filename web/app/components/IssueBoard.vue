@@ -12,7 +12,7 @@ import {total} from '#shared/roadmap'
 // proposals are restricted, nothing is dragged out of Proposed, as approving one stays a deliberate act, and only the
 // owner drags a card into it, which approves nothing (ORR-781).
 const props = defineProps<{milestones: Milestone[], project: string}>()
-const {open, isLast} = useIssueLink()
+const {open, isLast, pathOf} = useIssueLink()
 const {issueUnseen} = useUnseen()
 const {workerOf} = useWorkedIssues()
 const {open: openMenu} = useIssueMenu()
@@ -24,6 +24,12 @@ const {me, owner} = usePeople()
 function click(event: MouseEvent, issue: Issue) {
     if (selected.value.length && (event.shiftKey || event.metaKey || event.ctrlKey)) toggle(props.project, issue.id, event.shiftKey)
     else open(props.project, issue.id)
+}
+// The id is the card's link (ORR-1280), as a row's is: a plain click goes on to the card's; ⌘-, ctrl- or shift-click with
+// none ticked is the browser's own.
+function linkClick(event: MouseEvent) {
+    if (!selected.value.length && (event.metaKey || event.ctrlKey || event.shiftKey)) event.stopPropagation()
+    else event.preventDefault()
 }
 const unfolded = ref<Column[]>([])
 const dragging = ref<Issue[]>([])
@@ -164,7 +170,6 @@ watch(columns, () => {
             :data-issue="issue.id"
             :data-project="project"
             tabindex="0"
-            role="button"
             :draggable="!locked(issue.column)"
             class="group flex flex-col gap-2 rounded-xl border bg-panel p-3 shadow-sm shadow-black/5 outline-none transition-colors hover:border-faint/40 focus-visible:ring-2 focus-visible:ring-accent-500/50 dark:shadow-black/30"
             :class="[dragging.some(i => i.id === issue.id) && 'opacity-40', isSelected(project, issue.id) ? 'border-accent-500/60 bg-accent-500/5' : isLast(project, issue.id) ? 'border-faint/50' : 'border-line', issue.waiting ? 'waiting-row' : issueUnseen(project, issue) && 'unseen-row']"
@@ -177,7 +182,7 @@ watch(columns, () => {
           <div class="flex items-center gap-2 text-[11px] text-faint">
             <SelectBox :project="project" :id="issue.id" />
             <span v-if="issueUnseen(project, issue)" class="unseen-dot" title="Changed since you last opened it" />
-            <span class="font-mono">{{ issue.id }}</span>
+            <a :href="pathOf(project, issue.id)" tabindex="-1" class="font-mono outline-none hover:text-fg" :title="`Open ${issue.id}`" draggable="false" @click="linkClick">{{ issue.id }}</a>
             <span class="min-w-0 flex-1 truncate">{{ milestone.title }}</span>
             <WorkingDot v-if="!isClosed(issue.kind) && workerOf(project, issue.id)" :session="workerOf(project, issue.id)!" />
             <ClaimMark :issue="issue" />

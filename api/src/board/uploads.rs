@@ -177,7 +177,7 @@ pub(crate) async fn workspace_for(conn: &mut AnyConnection, seen: &Seen, named: 
     match (seen.pick(named), seen) {
         (Ok(workspace), _) => Ok(workspace),
         (Err(error), Seen::Only { own: Some(own), .. }) => match own_workspace(conn, own).await? {
-            Some(workspace) if named.map_or(true, |n| n == workspace) => Ok(workspace),
+            Some(workspace) if named.is_none_or(|n| n == workspace) => Ok(workspace),
             _ => Err(error),
         },
         (Err(error), _) => Err(error),

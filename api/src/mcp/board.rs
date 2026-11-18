@@ -396,7 +396,7 @@ impl Api<'_> {
         let mut latest: Option<usize> = None;
         for (i, r) in releases.iter().enumerate() {
             if let Some(on) = shipped(r) {
-                if latest.map_or(true, |l| on > shipped(&releases[l]).unwrap_or_default()) {
+                if latest.is_none_or(|l| on > shipped(&releases[l]).unwrap_or_default()) {
                     latest = Some(i);
                 }
             }
