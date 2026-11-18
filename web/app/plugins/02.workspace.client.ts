@@ -78,7 +78,9 @@ export default defineNuxtPlugin(async () => {
     })
 
     // An old address the tab opened on is put right before the other plugins ask the API, which they do in the
-    // address's workspace (`apiFetch`): the router's first navigation comes after them.
+    // address's workspace (`apiFetch`): the router's first navigation comes after them. A logged-out browser is only
+    // ever on the login page (01.auth), which reads nothing, so it isn't given a workspace.
+    if (useAuth().loggedOut.value) return
     const opened = await addressOf(location.pathname, '')
     if (opened && opened !== location.pathname) history.replaceState(history.state, '', opened + location.search + location.hash)
     else if (OUTSIDE_WORKSPACE.includes(location.pathname)) known.value = await fallback()
