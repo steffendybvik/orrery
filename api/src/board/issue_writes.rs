@@ -250,14 +250,14 @@ impl<'c> IssueWrites<'c> {
     pub(crate) async fn owned_under(&mut self, project: &str, issues: &[String]) -> Result<Vec<String>> {
         let marks = vec!["?"; issues.len()].join(", ");
         let mut out = vec![];
-        let query = format!("SELECT id FROM issues WHERE project = ? AND owned = 1 AND id IN ({marks})");
+        let query = format!("SELECT id FROM issues WHERE project = ? AND owned = 1 AND id IN ({marks}) ORDER BY id");
         let query = sql(&query);
         let mut find = sqlx::query(&query).bind(project);
         for id in issues {
             find = find.bind(id);
         }
         out.extend(find.fetch_all(&mut *self.conn).await?.iter().map(|r| r.get::<String, _>("id")));
-        let query = format!("SELECT CAST(id AS BIGINT) AS id, issue FROM comments WHERE project = ? AND owned = 1 AND issue IN ({marks})");
+        let query = format!("SELECT CAST(id AS BIGINT) AS id, issue FROM comments WHERE project = ? AND owned = 1 AND issue IN ({marks}) ORDER BY id");
         let query = sql(&query);
         let mut find = sqlx::query(&query).bind(project);
         for id in issues {

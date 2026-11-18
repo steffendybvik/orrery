@@ -365,10 +365,12 @@ impl IssueWrites<'_> {
     async fn owned_in(&mut self, project: &str) -> Result<Vec<String>> {
         let mut out = vec![];
         let milestones: Vec<String> =
-            sqlx::query_scalar(&sql("SELECT id FROM milestones WHERE project = ? AND owned = 1")).bind(project).fetch_all(&mut *self.conn).await?;
+            sqlx::query_scalar(&sql("SELECT id FROM milestones WHERE project = ? AND owned = 1 ORDER BY id")).bind(project).fetch_all(&mut *self.conn).await?;
         out.extend(milestones.into_iter().map(|id| format!("milestone \"{id}\"")));
-        let releases: Vec<String> =
-            sqlx::query_scalar(&sql("SELECT version FROM releases WHERE project = ? AND owned = 1")).bind(project).fetch_all(&mut *self.conn).await?;
+        let releases: Vec<String> = sqlx::query_scalar(&sql("SELECT version FROM releases WHERE project = ? AND owned = 1 ORDER BY version"))
+            .bind(project)
+            .fetch_all(&mut *self.conn)
+            .await?;
         out.extend(releases.into_iter().map(|version| format!("release {version}")));
         let issues: Vec<String> = sqlx::query_scalar(&sql("SELECT id FROM issues WHERE project = ?")).bind(project).fetch_all(&mut *self.conn).await?;
         if !issues.is_empty() {
