@@ -2,7 +2,7 @@
 // The chat in a window of its own (ORR-938): ChatPane's Pop out opens it here, on the chat it showed (`?chat=`) or the
 // project it'd start on (`?project=`, which the pane takes as the page's), filling the window. No sidebar or corner button: the window is the chat.
 definePageMeta({layout: false})
-useHead({title: 'Chat'})
+useHead({title: 'Chat · orrery'})
 const {load} = useOwner()
 await callOnce('owner', load)
 
@@ -18,5 +18,7 @@ onMounted(async () => {
 </script>
 
 <template>
+  <!-- Every page has an h1 to jump to; here the window is the chat, so it's hidden (ORR-1285). -->
+  <h1 class="sr-only">Chat</h1>
   <ChatPane standalone />
 </template>
