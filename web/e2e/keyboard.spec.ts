@@ -34,7 +34,7 @@ test('j and k move between rows and group headers, Enter opens the one in focus'
     await expect(nav).toHaveCount(4)
     const order = await rows.evaluateAll(els => els.map(el => (el as HTMLElement).dataset.issue!))
     await page.keyboard.press('j')
-    await expect(nav.nth(0)).toHaveAttribute('aria-expanded', 'true')
+    await expect(nav.nth(0).locator('[aria-expanded]')).toHaveAttribute('aria-expanded', 'true')
     await expect(nav.nth(0)).toBeFocused()
     await page.keyboard.press('j')
     await expect(nav.nth(1)).toBeFocused()
