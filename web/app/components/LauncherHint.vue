@@ -15,7 +15,7 @@ const home = computed(() => `~/.orrery/${settings.value.id || '<orrery id>'}/hom
 </script>
 
 <template>
-  <div v-if="state && !state.launchers" class="flex flex-col gap-2 rounded-xl bg-well p-3 text-xs leading-relaxed text-muted ring-1 ring-line">
+  <div v-if="state && !state.launchers" class="flex flex-col gap-2 rounded-xl bg-panel p-3 text-xs leading-relaxed text-muted ring-1 ring-line">
     <p>
       <span class="font-medium text-fg">No launcher is running for {{ name }}.</span>{{ ' ' }}
       <template v-if="noRepo">

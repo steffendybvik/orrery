@@ -427,7 +427,7 @@ test("shows on an issue's page which session is on it, while it listens", async 
         // Asked to focus on it, the second one is on it: in the banner on top, and first in the panel, marked.
         await api(request, 'post', `/issues/${issue.id}/focus`, {session: 'e2e-w2'}, OWNER)
         await expect(banner).toContainText('e2e-w2 is working on this')
-        await expect(banner.getByRole('link', {name: 'e2e-w2'})).toHaveAttribute('href', '/sessions#session-e2e-w2')
+        await expect(banner.getByRole('link', {name: 'e2e-w2'})).toHaveAttribute('href', '/w/default/sessions#session-e2e-w2')
         // It stays in sight as the page scrolls (ORR-536).
         await page.getByText('Step 80: rinse and repeat.').scrollIntoViewIfNeeded()
         await expect(banner).toBeInViewport()
@@ -501,7 +501,7 @@ test("keeps a session's state that changes as the page opens, over the older rea
         await page.goto('/p/kitchen')
         await wasRead
         await report('UserPromptSubmit')
-        const row = page.locator('a[href="/sessions#session-e2e-w4"]').first()
+        const row = page.locator('a[href="/w/default/sessions#session-e2e-w4"]').first()
         await expect(row).toContainText('working')
         const landed = page.waitForResponse('**/api/sessions')
         release()

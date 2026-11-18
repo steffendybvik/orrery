@@ -170,7 +170,7 @@ Where a class is all it takes, it's a utility rather than a component:
 | `label` | the small uppercase heading over a group (PROPERTIES, WHEN) |
 | `doc` | Markdown drawn as a page (through `MarkdownView`) |
 | `tint` | the hover tint laid over a solid surface (`hover:tint`) |
-| `clear-agent` | room at the end of a page's scrolling area, so the last line comes clear of the Agent button. Every page's scroller has it, so a new page's does too |
+| `clear-agent` | room at the end of a page's scrolling area, so the last line comes clear of the Agent button. Every page's scroller has it, so a new page's does too; a list inside one doesn't, or the room doubles. On a phone the button also tucks away while the page scrolls down (`useTuckOnScroll`) |
 | `unseen-row`, `unseen-dot` | changed since the owner last looked |
 | `waiting-row` | an issue waiting on the owner's answer (violet; wins over `unseen-row`) |
 
@@ -180,7 +180,10 @@ Colours come from the theme, never a fixed grey: `bg-canvas` (the page), `bg-pan
 and an orrery's tint mixes into the surfaces, so a fixed colour looks wrong in one of them.
 
 A card or a section that should read as its own surface goes on `bg-panel`, not a border alone: in the dark a border on
-the page's black barely shows (ORR-563). To leave light mode as it is, `dark:bg-panel`. On a panel, hover with
+the page's black barely shows (ORR-563), and a card with no background, or a see-through one (`bg-well`,
+`bg-accent-500/5`), takes on an orrery's tint and its words get hard to read (ORR-1276). A card coloured to stand out
+mixes its colour into the panel instead, so it stays solid on any tint:
+`bg-[color-mix(in_oklab,var(--color-violet-500)_8%,var(--panel))]`. `bg-well` is for what sits in a card (fields, code). On a panel, hover with
 `hover:tint`, since `hover:bg-hover` puts a see-through colour in the panel's place. The dark-mode atlas (the orrery doc
 `dark-mode-atlas`) shows every page's surfaces.
 
@@ -192,12 +195,16 @@ Already one component each; use them rather than drawing the same thing again.
 
 | Component | For |
 |---|---|
-| `PropertyPicker` | a property as a button with a menu to type in (status, priority, milestone, release, assignee, labels with `multiple`). Use it rather than a native `<select>`; `field` draws it as a boxed field for a row of them in a form (New issue), and `field small` at a toolbar's height (the Schedules project filter). `PRIORITY_OPTIONS` and `milestoneOptions(milestones)` (utils/roadmap) are the usual option lists. `disabled` shuts an open menu, so a `multiple` one stays enabled while it saves: show the pick at once and send each in turn (an issue's labels, team tasks and depends on) |
+| `PropertyPicker` | a property as a button with a menu to type in (status, priority, milestone, release, assignee, labels with `multiple`). Use it rather than a native `<select>`; `field` draws it as a boxed field for a row of them in a form (New issue), and `field small` at a toolbar's height (the Schedules project filter). `PRIORITY_OPTIONS` and `milestoneOptions(milestones)` (utils/roadmap) are the usual option lists. `disabled` shuts an open menu, so a `multiple` one stays enabled while it saves: show the pick at once and send each in turn (an issue's labels, team tasks and depends on); `chip` draws it as a small rounded chip in a line of them (an issue's properties on a phone, ORR-1219), `up` opens it above (a bar at the bottom), `wide` makes the menu at least 28rem for long options (issue titles) |
 | `SegmentedControl` | a choice of two to four shown side by side (List \| Board, issue \| message, a page's tabs): Headless UI's `RadioGroup`, one Tab stop with ←→ moving the choice; the chosen option takes the accent fill on the `bg-well` track, as a risk rating's levels do. Its classes are `SEGMENTS` and `segment()` in `utils/segments.ts`, for a set that can't be a `RadioGroup`: ⌘K's categories (the focus stays in the input), Pull requests \| Branches (links), Context's kinds (none chosen while one session is shown) and the schedule dialog's weekdays (several can be picked). So every set of buttons looks the same and none moves when the choice does (ORR-992). Toggles that filter a list by their own colour (Events' levels) and rows of chips to tick (projects, statuses, presets) aren't tabs and keep their look |
 | `FilterMenu` | a toolbar filter: a button with options to tick, empty meaning any: Headless UI's `Listbox` (`multiple`) |
 | `LabelPicker` | a new issue's or a schedule's labels: tick the project's or make one, a `PropertyPicker` (`multiple`, `creatable`) |
 | `FilterBar` | a list's filters: search on `/`, then priority, column, assignee, label and blocked (or ready), and off a project's pages the project |
 | `SelectBox` | the tick on an issue's row or card, for changing many at once |
+| `GroupTick` | a group's tick (a status or milestone in the list, a column on the board): ticks every issue it shows, a dash when only some are |
+| `DependsPicker` | issues linked to one, from every project's, by id or title: what blocks it or, with `label`, what it blocks; `field` in the New issue dialog |
+| `IconPicker` | an icon, any Heroicon by name, and its colour (a tint, a custom `#rrggbb`, or the text's) |
+| `AgentPicker` | which AI agent the owner runs (App settings, Getting started), saved as it's picked |
 
 **Showing**
 
@@ -224,6 +231,14 @@ Already one component each; use them rather than drawing the same thing again.
 | `StepMark` | a step's number in a guide, ticked when done |
 | `MarkdownView` | Markdown as a page (descriptions, comments, docs); with `before`, what changed is tinted |
 | `InlineText` | a line with inline `code`, **bold** and links |
+| `IssueRow` | one issue as a row: id, title, labels, status, priority, assignee; its blocked and risk chips, `nested` sub-issues under tree lines, its tick on hover |
+| `ListView` | top-level issues as rows with their sub-issues, in folding groups by status or milestone, each with a `GroupTick`; `riskFirst` sorts riskiest first |
+| `ClaimMark` | who holds an issue and for how long, on a list or a board; nothing with one person |
+| `RiskChip` | how risky a change is, high red, medium amber, low quiet; square-cornered, so it doesn't read as a `PullStateChip` |
+| `ReleaseStateChip` | where a release stands: shipped, frozen or being prepared, with the day |
+| `GithubIssueChip` | the GitHub issue an issue came from, `owner/name#523` as a link (`#523` on the project's own repo) |
+| `ModelChip` | what a session runs on, as its agent's card says (model and effort); `condensed` the effort alone |
+| `ContextMeter` | how full a session's context window is, a thin bar and the share, amber when full; `condensed` the bar alone |
 
 **Copying and adding**
 
@@ -234,12 +249,15 @@ Already one component each; use them rather than drawing the same thing again.
 | `MarkdownField` | a text box for Markdown (the chat, comments, an issue's description): a real textarea with the source drawn over it in its formatting, keys (⌘B, ⌘I, ⌘⇧H…) and, with `toolbar`, buttons; Enter carries a list on (Shift-Enter with `enterSends`). Classes and listeners go on the textarea, which it exposes as `el` (for `useImageUpload`), and its own keys run first. The drawing changes no character's width, so it lines up with the caret: keep it that way (`md-draw` in `main.css`) |
 | `ImageButton` | picks images for a Markdown field |
 | `ImageDropOverlay` | covers an area taking images while one is dragged over it: "Drop image to add" |
+| `CommentBox` | writing a comment as the owner, or editing one of theirs (`comment`), ⌘↵ to post, images pasted or dropped; `url` for a milestone's or epic's thread |
+| `ThreadComments` | the comments on a milestone's or an epic's page, oldest first, with a `CommentBox` for a new one |
 
 **Page frame**
 
 | Component | For |
 |---|---|
 | `PageHeader` | a page's top bar: title, the page's controls, the bell, theme and settings |
+| `ProjectTopBar` | a project tab's top bar: the project / the tab, then its key and progress, so a phone with the sidebar shut still says where it is; `titled` when the page has its own h1 |
 | `ViewToolbar` | a page's own controls under its header: how it's shown on the left, filters on the right (`#end`) |
 | `NotFound` | what a page couldn't find (the slot), why that might be (`reason`) and a way back (`to`, `back`); it titles the tab "Not found". `error.vue` uses it for an unknown URL, inside the layout |
 | `DocContents` | a doc's table of contents |
@@ -255,6 +273,7 @@ Already one component each; use them rather than drawing the same thing again.
 | `NoticeHistory` | Notifications' reading pane, there only while a line is chosen: a line's comments in full with its status changes among them |
 | `NoticeTransition` | a status change in words: the icon and name of where it started and where it ended |
 | `ThemeToggle` | light ⇄ dark, following the system until one is picked |
+| `PhoneLink` | Open on your phone (App settings → You): the address with Copy and a QR code, a one-time sign-in link when the phone has its own port |
 | `OrreryMark` | the logo's mark, in `currentColor` |
 
 **Dialogs**
@@ -302,7 +321,7 @@ being written again in each component:
 | `PropertyPicker`, `LabelPicker` | `Combobox` |
 | `FilterMenu` | `Listbox` |
 | `SegmentedControl` | `RadioGroup` |
-| `StatusFocus`, `ChatPane`, `SessionMessage`, `StartedSession` | `Menu` |
+| `StatusFocus`, `ChatPane`, `SessionMessage`, `StartedSession`, `StopSession`, `WorkspaceSwitcher` | `Menu` |
 | `PullFocus`, `ScheduleRunButton` | `Popover` |
 
 Something new that opens, picks or closes builds on the matching part and only draws it, in the classes above. Two

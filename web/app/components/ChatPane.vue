@@ -22,7 +22,8 @@ import type {Chat, ChatIssues, ChatMessage} from '#shared/roadmap'
 // Send and Don't send; only Send sends it. Under each of Claude's replies, Copy takes its Markdown as written (on a
 // wide screen it shows on hover or focus). A message that's just `/clear` clears the session's context instead of going
 // to it: a divider marks the cut, and what was said above it stays, greyed. Any other slash command goes as words.
-// The pane's project follows the page you're on; picking one by hand pins it (the pin beside the picker), so it stays put
+// On a phone the corner button tucks away while the page scrolls down and is back on scrolling up or at the page's end
+// (useTuckOnScroll, ORR-1282). The pane's project follows the page you're on; picking one by hand pins it (the pin beside the picker), so it stays put
 // whatever page you open, until unpinned. While the chat's project isn't the page's, a line under the header says so
 // (ORR-588). The owner's chats, as many as they like and several on a project, are listed down the pane's left (ORR-870),
 // newest first, running and ended: each row names its project and its first message, a running one is marked, each has
@@ -55,7 +56,9 @@ async function decide(message: number, allow: boolean, anyway = false) {
 const ANSWERED = {allowed: 'Allowed and saved', denied: 'Denied: nothing changed', expired: 'Expired: not answered in time, or asked again'}
 const SENT = {allowed: (to: string[]) => to.length ? `Sent to ${to.join(', ')}` : 'Sent, but no session fit any more', denied: () => 'Not sent', expired: () => 'Expired: not answered in time'}
 const {projects} = useRoadmaps()
+const {preferred} = useLastProject()
 const route = useRoute()
+const router = useRouter()
 const {look} = useStatuses()
 const statusName = (id: string | null) => id === null ? '(none)' : look(id).label
 /** The issues a move request changes, each with its changes, in the order asked. */
@@ -86,7 +89,8 @@ const here = computed(() => {
     return typeof on === 'string' && projects.value.some(p => p.id === on) ? on : null
 })
 /** The project the chat would be about: the pinned one, else the one you're on; on a page of no project, a running
- * chat's when the pane has none, so the corner button brings you back to it (ORR-865, ORR-870); else the first. */
+ * chat's when the pane has none, so the corner button brings you back to it (ORR-865, ORR-870); else the one last used,
+ * starred or busiest, never an empty one while there are others (ORR-1284). */
 watch([pinned, here, projects, chats], (_now, was?: unknown[]) => {
     const [wasPinned, wasHere] = was ?? []
     if (pinned.value && projects.value.some(p => p.id === pinned.value)) project.value = pinned.value
@@ -94,7 +98,7 @@ watch([pinned, here, projects, chats], (_now, was?: unknown[]) => {
     // list (ORR-884).
     else if (here.value) project.value = here.value === wasHere && pinned.value === wasPinned && project.value ? project.value : here.value
     else if (!chat.value && running.value[0]) project.value = running.value[0].project
-    else if (!project.value) project.value = projects.value[0]?.id ?? null
+    else if (!project.value) project.value = preferred.value?.id ?? null
 }, {immediate: true})
 /** Where the issues the chat makes land: the running chat's, or the next one's. */
 const landing = computed<ChatIssues>(() => chat.value && !chat.value.ended ? chat.value.issues : lands.value)
@@ -407,7 +411,7 @@ function popOut() {
     const query = new URLSearchParams(chat.value ? {chat: chat.value.id} : about.value ? {project: about.value} : {})
     const width = Math.min(480, screen.availWidth)
     const height = Math.min(760, screen.availHeight)
-    const opened = window.open(`/chat${query.size ? `?${query}` : ''}`, POPUP, `popup,width=${width},height=${height}`)
+    const opened = window.open(router.resolve(`/chat${query.size ? `?${query}` : ''}`).href, POPUP, `popup,width=${width},height=${height}`)
     if (!opened) {
         failed.value = 'The browser stopped the window opening: allow pop-ups for orrery, then try again'
         return
@@ -415,6 +419,8 @@ function popOut() {
     popup = opened
     shut()
 }
+/** On a phone, the corner button tucks away while the page scrolls down, so it doesn't sit over each row (ORR-1282). */
+const tucked = useTuckOnScroll()
 /** The corner button: back to the popped-out window while it's open, else the pane. */
 function corner() {
     if (popup && !popup.closed) popup.focus()
@@ -477,9 +483,12 @@ onBeforeUnmount(() => window.removeEventListener('message', heard))
   <button
       v-if="!open && !standalone"
       type="button"
-      class="fixed right-4 bottom-4 z-40 inline-flex h-8 items-center gap-1.5 rounded-lg bg-panel px-3.5 text-[13px] text-fg shadow-md ring-1 ring-line transition hover:tint"
+      class="fixed right-4 bottom-4 z-40 inline-flex h-8 items-center gap-1.5 rounded-lg bg-panel px-3.5 text-[13px] text-fg shadow-md ring-1 ring-line transition duration-200 hover:tint"
+      :class="tucked && 'pointer-events-none translate-y-14 opacity-0'"
+      :data-tucked="tucked || undefined"
       title="Chat about a project: an agent answers and makes issues"
       @click="corner"
+      @focus="tucked = false"
   >
     <svg
         class="size-4 text-accent-fill"

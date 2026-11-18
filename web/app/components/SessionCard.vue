@@ -66,7 +66,7 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
   <li
       :id="`session-${session.id}`"
       class="flex scroll-mt-14 flex-col gap-3 rounded-xl border px-4 py-3 transition-colors duration-700"
-      :class="lit ? 'border-accent-500/60 bg-accent-500/5' : 'border-line'"
+      :class="lit ? 'border-accent-500/60 bg-[color-mix(in_oklab,var(--color-accent-500)_5%,var(--panel))]' : 'border-line bg-panel'"
   >
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
       <button

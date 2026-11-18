@@ -14,7 +14,7 @@ use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
 use crate::migrate::uid_of;
-use crate::text::{key_for, slugify, RESERVED_KEYS};
+use crate::text::{key_for, slugify, RESERVED_KEYS, RESERVED_PROJECT_IDS};
 use crate::work::event_log::EventLog;
 use crate::work::settings::hex;
 use crate::write::{js, stamp, Actor, Effects};
@@ -303,6 +303,8 @@ impl<'c> Projects<'c> {
                 project.insert(column.into(), json!(value));
             }
         }
+        // Which workspace it's in, so a page's address can name it (`/w/<workspace>/<project>/…`, ORR-1275).
+        project.insert("workspace".into(), json!(row.get::<String, _>("workspace")));
         project.insert("instructions".into(), parsed(row.get("instructions"), json!([])));
         project.insert("muted".into(), parsed(row.get("muted"), json!([])));
         if let Some(starts) = starts {
@@ -433,6 +435,9 @@ impl<'c> Projects<'c> {
         };
         if !SLUG.is_match(&id) {
             return Err(ApiError::bad_request(format!("\"{name}\" doesn't make an id; give one in \"id\"")));
+        }
+        if RESERVED_PROJECT_IDS.contains(&id.as_str()) {
+            return Err(ApiError::bad_request(format!("\"{id}\" is one of a workspace's own pages; give another id in \"id\"")));
         }
         if self.release_row(&id).await?.is_some() {
             return Err(ApiError::conflict(format!("There is already a project \"{id}\"")));

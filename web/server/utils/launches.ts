@@ -860,10 +860,18 @@ export function heldStops(project: string): string[] {
     return [...stopsAsked].filter(([, stop]) => stop.project === project).map(([id]) => id)
 }
 
-/** The owner stopping a session orrery started: its launcher kills it, and says when it's gone. */
+/** The owner stopping a session orrery started: its launcher kills it, and says when it's gone. One with no channel
+ * open has lost its process (a restart took it, and its launcher with it, which now knows nothing of the launch and
+ * says nothing), so it ends here and now, as its launcher's word would end it (ORR-1292); the stop is still held, so a
+ * launcher that does run it kills it. */
 export function stopLaunch(project: string, id: string): Session {
     const session = sessionOfLaunch(project, id)
     if (!session) throw notFound(`No session started for launch ${id} in ${project}`)
+    if (!launchConnected(project, id)) {
+        asLaunch(id, () => useEventLog().note({level: 'info', kind: 'session.stopped', project, message: 'A session orrery started was stopped with its process gone', details: {launch: id}}))
+        launchGone(id)
+        launchEnded(project, id)
+    }
     askStop(project, id)
     return session
 }

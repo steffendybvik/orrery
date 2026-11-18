@@ -19,7 +19,7 @@ test.use({launchOptions: {args: ['--disable-lcd-text']}})
 // The bell counts what earlier files left unread, so it's left out of every image. Its badge sits partly outside the
 // link, past the mask, so it's hidden too, as it is when nothing's unread.
 const shoot = async (page: Page, name: string) => {
-    await page.addStyleTag({content: 'a[href="/notifications"] > :not(svg) { visibility: hidden }'})
+    await page.addStyleTag({content: 'a[href="/w/default/notifications"] > :not(svg) { visibility: hidden }'})
     await expect(page.locator('main')).toHaveScreenshot(name, {mask: [page.getByRole('link', {name: /comments from agents|waiting on you/i})]})
 }
 

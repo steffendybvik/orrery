@@ -157,19 +157,19 @@ async function removeComment(id: number) {
 <template>
   <section class="flex flex-col gap-3">
     <h2 class="label">Activity</h2>
-    <div v-if="question" id="waiting" class="flex scroll-mt-20 flex-col gap-2 rounded-xl bg-violet-500/8 p-3 ring-1 ring-violet-500/35">
+    <div v-if="question" id="waiting" class="flex scroll-mt-20 flex-col gap-2 rounded-xl bg-[color-mix(in_oklab,var(--color-violet-500)_8%,var(--panel))] p-3 ring-1 ring-violet-500/35">
       <div class="flex items-center gap-2 text-xs">
         <WaitingChip :asks="question.asks!" />
         <span class="text-muted">{{ who(question.created_by, question.session_name) }} asked {{ ago(question.created_at) }}</span>
-        <UiButton variant="primary" size="xs" class="ml-auto" @click="answer">Answer</UiButton>
+        <UiButton size="xs" class="ml-auto" @click="showQuestion">Show in thread</UiButton>
+        <UiButton variant="primary" size="xs" @click="answer">Answer</UiButton>
       </div>
+      <!-- Clicking it shows it in the thread; the keyboard and a screen reader have the button for that, as its links can't
+           sit inside a button (ORR-1280). -->
       <div
-          role="button"
-          tabindex="0"
-          class="line-clamp-3 rounded-md text-left text-fg hover:[&_p]:underline focus-visible:ring-2 focus-visible:ring-accent-500/60 focus-visible:outline-none"
+          class="line-clamp-3 cursor-pointer rounded-md text-left text-fg hover:[&_p]:underline"
           title="Show it in the thread"
           @click="!($event.target as HTMLElement).closest('a') && showQuestion()"
-          @keydown.enter.self="showQuestion"
       >
         <MarkdownView :source="question.body" class="text-[13px] leading-5" />
       </div>

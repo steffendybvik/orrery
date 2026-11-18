@@ -244,7 +244,7 @@ useHead(() => ({title: milestone.value ? `${milestone.value.title} · orrery` : 
         </div>
         <div v-if="shown[0]?.tasks.length" class="overflow-clip rounded-xl border border-line dark:bg-panel">
           <!-- The page clears the Agent button already, so the card has no room for it at its foot. -->
-          <ListView :milestones="shown" :project="project.id" group="status" :show-milestone="false" class="pb-0!">
+          <ListView :milestones="shown" :project="project.id" group="status" :show-milestone="false">
             <template #group-end="{column}">
               <StatusFocus :project="project.id" :milestone="milestone.id || 'none'" :column="column" />
             </template>

@@ -2,7 +2,7 @@ import type {Page} from '@playwright/test'
 import {expect, test} from './test'
 import {OWNER} from './support'
 import type {Route, Walked} from './pages'
-import {REDIRECTS as REDIRECTS_OF, ROUTES as ROUTES_OF, heading, walkProject} from './pages'
+import {REDIRECTS as REDIRECTS_OF, ROUTES as ROUTES_OF, heading, inDefault, walkProject} from './pages'
 
 // The navigation as a whole (ORR-580): every page opens and renders its heading with no page or console error, each
 // sidebar entry goes to its page and shows as active there, and the ⌘K palette and App settings → Advanced still lead
@@ -44,13 +44,13 @@ function watchErrors(page: Page) {
 
 /** The sidebar's link to `path` (its own, not the sessions list under it), by its text: a project's name and its
  * Issues both go to the project. */
-const sidebarLink = (page: Page, path: string, text: string) => page.locator('aside nav').locator(`a[href="${path.split('?')[0]}"]`).filter({hasText: text})
+const sidebarLink = (page: Page, path: string, text: string) => page.locator('aside nav').locator(`a[href="${inDefault(path.split('?')[0]!)}"]`).filter({hasText: text})
 
 /** How the sidebar marks its entry for `path` active: a row is filled, the Projects heading just turns bright (ORR-967). */
 const active = (path: string) => path === '/projects' ? /(^|\s)text-fg(\s|$)/ : /\bbg-active\b/
 
 /** Where going to `path` ends up: Docs opens on the first doc. */
-const landsOn = (path: string) => new RegExp(`${path.split('?')[0]}${path.endsWith('/docs') ? '(/[^/]+)?' : ''}(\\?.*)?$`)
+const landsOn = (path: string) => new RegExp(`${inDefault(path.split('?')[0]!)}${path.endsWith('/docs') ? '(/[^/]+)?' : ''}(\\?.*)?$`)
 
 /** The requests seen from here on that went to a host other than the page's own (ORR-846). */
 function watchOtherHosts(page: Page, origin: string) {

@@ -2,18 +2,23 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import type {VueWrapper} from '@vue/test-utils'
 import {flushPromises} from '@vue/test-utils'
 import {mountSuspended, registerEndpoint} from '@nuxt/test-utils/runtime'
-import {getQuery, readRawBody, setResponseStatus} from 'h3'
+import {getHeader, getQuery, readRawBody, setResponseStatus} from 'h3'
 import BoardUpload from '~/components/BoardUpload.vue'
 
 // A board's file brought in as a new board from App settings (ORR-747, ORR-866, ORR-1248): it uploads as soon as it's
-// picked, and an id or key already taken keeps the file waiting while the owner picks others, or cancels. Its images
-// can be left out, which is the way through when a proxy refuses the file as too big.
-const sent: {query: Record<string, unknown>, body: string | undefined}[] = []
+// picked, and an id or key already taken keeps the file waiting while the owner picks others, or cancels. It goes in
+// pieces (ORR-1257): its images one by one, the board, then the rest of it into the board.
+const sent: {query: Record<string, unknown>, body: string | undefined, actor?: string, type?: string}[] = []
+const images: unknown[] = []
+registerEndpoint('/api/uploads', {method: 'POST', handler: async event => {
+    images.push(JSON.parse(await readRawBody(event) ?? '{}'))
+    return {id: 'f'.repeat(24)}
+}})
 let answers: ('taken' | 'broken' | 'big' | 'made')[] = []
 // A write goes as the owner, who the page asks for first.
 registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Sköll', named: true}))
 registerEndpoint('/api/projects/upload', {method: 'POST', handler: async event => {
-    sent.push({query: getQuery(event), body: await readRawBody(event)})
+    sent.push({query: getQuery(event), body: await readRawBody(event), actor: getHeader(event, 'orrery-actor'), type: getHeader(event, 'content-type')})
     const answer = answers.shift()
     // As the server answers a refusal: its status, and why in `message`.
     const refused = (status: number, message: string) => {
@@ -23,7 +28,7 @@ registerEndpoint('/api/projects/upload', {method: 'POST', handler: async event =
     if (answer === 'taken') return refused(409, 'A project with the id shop already exists')
     if (answer === 'broken') return refused(400, 'That file is not a board export')
     if (answer === 'big') return refused(413, 'Payload Too Large')
-    return {id: 'shop-2', name: 'Shop'}
+    return {id: 'shop-2', key: 'SH2', name: 'Shop'}
 }})
 
 const mounted: VueWrapper[] = []
@@ -32,6 +37,7 @@ afterEach(() => {
 })
 beforeEach(() => {
     sent.splice(0)
+    images.splice(0)
     answers = []
 })
 
@@ -40,7 +46,10 @@ async function mountUpload() {
     mounted.push(wrapper as VueWrapper)
     return wrapper
 }
-async function pick(wrapper: VueWrapper, text = '{"project":{"id":"shop"}}') {
+const BOARD = '{"project":"shop","tables":{"projects":[{"id":"shop"}]}}'
+/** What goes first for `BOARD`: the board, with nothing after it to send. */
+const FIRST = {project: 'shop', uploads: [], tables: {projects: [{id: 'shop'}], comments: [], milestone_comments: [], issue_events: [], doc_revisions: []}}
+async function pick(wrapper: VueWrapper, text = BOARD) {
     const input = wrapper.find('input[type="file"]')
     Object.defineProperty(input.element, 'files', {value: [new File([text], 'shop.json', {type: 'application/json'})], configurable: true})
     await input.trigger('change')
@@ -56,8 +65,10 @@ describe('uploading a board', () => {
         answers = ['made']
         const wrapper = await mountUpload()
         await pick(wrapper)
-        expect(sent).toEqual([{query: {}, body: '{"project":{"id":"shop"}}'}])
-        await vi.waitFor(() => expect(useRouter().currentRoute.value.path).toBe('/p/shop-2'), {timeout: 5000})
+        expect(sent.map(s => ({query: s.query, body: JSON.parse(s.body!)}))).toEqual([{query: {}, body: FIRST}])
+        // As the owner, which the server asks of an upload, and as JSON (ORR-1299).
+        expect(sent[0]).toMatchObject({actor: 'skoll', type: 'application/json'})
+        await vi.waitFor(() => expect(useRouter().currentRoute.value.path).toBe('/w/default/shop-2'), {timeout: 5000})
         expect(wrapper.find('form').exists()).toBe(false)
     })
 
@@ -71,7 +82,8 @@ describe('uploading a board', () => {
         expect((wrapper.find('input[aria-label="New key"]').element as HTMLInputElement).value).toBe('SH2')
         await wrapper.find('form').trigger('submit')
         await settle()
-        expect(sent[1]).toEqual({query: {id: 'shop-2', key: 'SH2'}, body: '{"project":{"id":"shop"}}'})
+        expect(sent[1]!.query).toEqual({id: 'shop-2', key: 'SH2'})
+        expect(JSON.parse(sent[1]!.body!)).toEqual(FIRST)
         expect(wrapper.find('form').exists()).toBe(false)
         expect(wrapper.text()).not.toContain('already exists')
     })
@@ -95,23 +107,23 @@ describe('uploading a board', () => {
         expect(wrapper.find('form').exists()).toBe(false)
     })
 
-    it('leaves the images out of what it sends, when asked to', async () => {
-        answers = ['made']
+    it('sends each image on its own, then the board showing it by its id here, then the rest into it', async () => {
+        answers = ['made', 'made']
         const wrapper = await mountUpload()
-        await wrapper.find('input[type="checkbox"]').setValue(true)
-        await pick(wrapper, '{"project":"shop","uploads":[{"id":"a","data":"AQID"}],"tables":{}}')
-        expect(JSON.parse(sent[0]!.body!)).toEqual({project: 'shop', uploads: [], tables: {}})
+        const shot = 'a'.repeat(24)
+        await pick(wrapper, JSON.stringify({project: 'shop', uploads: [{id: shot, data: 'AQID', name: 'shot.png'}],
+            tables: {projects: [{id: 'shop'}], comments: [{id: 1, body: `![x](/api/uploads/${shot})`}]}}))
+        expect(images).toEqual([{data: 'AQID', name: 'shot.png'}])
+        expect(JSON.parse(sent[0]!.body!).uploads).toEqual([])
+        expect(sent[1]!.query).toEqual({id: 'shop-2', key: 'SH2', into: '1'})
+        expect(JSON.parse(sent[1]!.body!).tables.comments).toEqual([{id: 1, body: `![x](/api/uploads/${'f'.repeat(24)})`}])
+        await vi.waitFor(() => expect(useRouter().currentRoute.value.path).toBe('/w/default/shop-2'), {timeout: 5000})
     })
 
-    it('says plainly when the file is refused as too big, and sends it again without its images', async () => {
-        answers = ['big', 'made']
+    it('says plainly when even the board is refused as too big', async () => {
+        answers = ['big']
         const wrapper = await mountUpload()
-        await pick(wrapper, '{"project":"shop","uploads":[{"id":"a","data":"AQID"}],"tables":{}}')
+        await pick(wrapper)
         expect(wrapper.text()).toContain('caps what one request can carry')
-        expect(JSON.parse(sent[0]!.body!).uploads).toHaveLength(1)
-        await wrapper.findAll('button').find(b => b.text() === 'Upload it without images')!.trigger('click')
-        await settle()
-        expect(JSON.parse(sent[1]!.body!).uploads).toEqual([])
-        await vi.waitFor(() => expect(useRouter().currentRoute.value.path).toBe('/p/shop-2'), {timeout: 5000})
     })
 })

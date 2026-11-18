@@ -20,8 +20,8 @@ test('adds issues and moves one on the board', async ({page, request}) => {
     await page.getByRole('radio', {name: /Board/}).or(page.getByRole('button', {name: /Board/})).first().click()
     const card = page.locator('[data-issue="SCU-1"]')
     await expect(card.getByRole('img', {name: 'Todo'})).toBeVisible()
-    // The milestone's name is plain text: the whole card opens the issue.
-    await expect(card.getByRole('link')).toHaveCount(0)
+    // The milestone's name is plain text: the card's one link is its id, which opens the issue (ORR-1280).
+    await expect(card.getByRole('link')).toHaveText(['SCU-1'])
     await card.click({button: 'right'})
     await page.getByRole('menu').getByRole('button', {name: 'Move to In progress'}).click()
     await expect(card.getByRole('img', {name: 'In progress'})).toBeVisible()
@@ -87,7 +87,7 @@ test('⌘K finds an issue and opens it', async ({page}) => {
     await palette.getByLabel('Type a command or search').fill('expiry')
     await expect(palette.getByRole('option', {name: /Expiry badges/})).toBeVisible()
     await page.keyboard.press('Enter')
-    await expect(page).toHaveURL(/\/p\/scullery\/issues\/SCU-2/)
+    await expect(page).toHaveURL(/\/scullery\/issues\/SCU-2/)
 })
 
 test('a change shows up live in another tab', async ({page, context, request}) => {
@@ -101,22 +101,25 @@ test('a change shows up live in another tab', async ({page, context, request}) =
 })
 
 test('the issues start on the open ones, Done and Canceled a tick away', async ({page, request}) => {
-    await api(request, 'post', '/issues', {title: 'Shipped pantry export', status: 'done'})
-    await api(request, 'post', '/issues', {title: 'Dropped barcode idea', status: 'canceled'})
+    // A retry's issues are named apart: the first try's are still there.
+    const again = test.info().retry ? ' again' : ''
+    const shipped = `Shipped pantry export${again}`, dropped = `Dropped barcode idea${again}`
+    await api(request, 'post', '/issues', {title: shipped, status: 'done'})
+    await api(request, 'post', '/issues', {title: dropped, status: 'canceled'})
     await page.goto('/p/scullery?view=list')
     await expect(page.getByText('Expiry badges: soon and gone')).toBeVisible()
-    await expect(page.getByText('Shipped pantry export')).toBeHidden()
-    await expect(page.getByText('Dropped barcode idea')).toBeHidden()
+    await expect(page.getByText(shipped)).toBeHidden()
+    await expect(page.getByText(dropped)).toBeHidden()
     await expect(page.getByRole('button', {name: 'Clear'})).toBeHidden()
 
     await page.getByRole('button', {name: /^Status ·/}).click()
     await page.getByRole('option').filter({hasText: /^Done$/}).click()
-    await expect(page.getByText('Shipped pantry export')).toBeVisible()
-    await expect(page.getByText('Dropped barcode idea')).toBeHidden()
+    await expect(page.getByText(shipped)).toBeVisible()
+    await expect(page.getByText(dropped)).toBeHidden()
 
     await page.keyboard.press('Escape')
     await page.getByRole('button', {name: 'Clear'}).click()
-    await expect(page.getByText('Shipped pantry export')).toBeHidden()
+    await expect(page.getByText(shipped)).toBeHidden()
 })
 
 test("marks what changed since the owner last looked, but not the owner's own changes", async ({page, request}) => {
@@ -189,7 +192,7 @@ test('double-clicking a description opens its editor, unless it was a link, a pi
     await expect(page.getByRole('dialog', {name: 'The shelf'})).toBeHidden()
     await expect(editor).toBeHidden()
     await page.locator('.doc a', {hasText: 'The plan'}).dblclick()
-    await expect(page).toHaveURL(/\/p\/scullery(\?.*)?$/)
+    await expect(page).toHaveURL(/\/scullery(\?.*)?$/)
     await page.goto(`/p/scullery/issues/${issue.id}`)
     await expect(text).toBeVisible()
     await expect(editor).toBeHidden()
@@ -212,6 +215,16 @@ test('links the GitHub issues an issue came from, short for the project\'s own r
     await page.goto(`/p/tracks/issues/${id}`)
     await expect(page.getByRole('link', {name: '#523', exact: true})).toBeVisible()
     await expect(page.getByRole('link', {name: 'orrery-e2e/depot#7', exact: true})).toHaveAttribute('href', 'https://github.com/orrery-e2e/depot/issues/7')
+})
+
+test('at desktop width, the description comes before the Sessions panel, as on a phone (ORR-1283)', async ({page, request}) => {
+    const issue = await api(request, 'post', '/issues', {title: 'Scrub the pans', status: 'todo', notes: 'Copper ones first.'}, AGENT)
+    await page.setViewportSize({width: 1440, height: 900})
+    await page.goto(`/p/scullery/issues/${issue.id}`)
+    const words = page.getByText('Copper ones first.')
+    const sessions = page.getByRole('heading', {name: 'Sessions', exact: true})
+    await expect(sessions).toBeVisible()
+    expect((await words.boundingBox())!.y).toBeLessThan((await sessions.boundingBox())!.y)
 })
 
 test('on a phone, the description comes right after the title and its chips; Remove waits in ⋯ (ORR-1219)', async ({page, request}) => {

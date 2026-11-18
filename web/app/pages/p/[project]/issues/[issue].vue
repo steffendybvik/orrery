@@ -284,12 +284,6 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           <IssueProperties fold :issue="issue" :project="project" :milestone="found.milestone" :sub="found.parents.length > 0" :worker="isClosed(issue.kind) ? undefined : worker" />
         </div>
 
-        <ProposalPanel class="max-lg:order-1" :project="project.id" :issue="issue" />
-
-        <SessionsPanel v-if="!isClosed(issue.kind)" class="max-lg:order-1" :project="project.id" :issue="issue.id" :worker="worker?.id" :blocked-by="issue.blocked_by" />
-
-        <IssuePulls class="max-lg:order-1" :project="project.id" :issue="issue.id" :updated="issue.updated_at" />
-
         <section
             v-if="editingNotes"
             class="relative flex flex-col gap-2 rounded-xl"
@@ -332,16 +326,22 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
           </div>
         </section>
 
-        <section v-if="issue.tasks.length" class="flex flex-col gap-2 max-lg:order-2">
+        <ProposalPanel :project="project.id" :issue="issue" />
+
+        <SessionsPanel v-if="!isClosed(issue.kind)" :project="project.id" :issue="issue.id" :worker="worker?.id" :blocked-by="issue.blocked_by" />
+
+        <IssuePulls :project="project.id" :issue="issue.id" :updated="issue.updated_at" />
+
+        <section v-if="issue.tasks.length" class="flex flex-col gap-2">
           <h2 class="label flex items-center gap-2">Sub-issues <span class="font-mono normal-case">{{ issue.kinds.done }}/{{ total(issue.kinds) }}</span></h2>
           <div class="overflow-hidden rounded-xl border border-line dark:bg-panel">
             <IssueRow v-for="sub in issue.tasks" :key="sub.id" :issue="sub" :project="project.id" nested />
           </div>
         </section>
 
-        <IssueActivity class="max-lg:order-2" :project="project" :issue="issue" @comments="comments = $event" />
+        <IssueActivity :project="project" :issue="issue" @comments="comments = $event" />
 
-        <p class="rounded-lg bg-well px-3 py-2 font-mono max-lg:order-2 text-[11px] text-faint ring-1 ring-line">PATCH /api/projects/{{ project.id }}/issues/{{ issue.id }}</p>
+        <p class="rounded-lg bg-well px-3 py-2 font-mono text-[11px] text-faint ring-1 ring-line">PATCH /api/projects/{{ project.id }}/issues/{{ issue.id }}</p>
       </article>
 
       <aside class="hidden w-80 shrink-0 border-l border-line px-6 py-10 lg:block dark:bg-panel">

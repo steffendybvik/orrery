@@ -140,7 +140,7 @@ const scroller = ref<HTMLElement | null>(null)
 const {size} = useDocSize()
 // The text size, with the doc's id and what copies it or its address: a row of their own under the author on a phone, at the left edge (ORR-557).
 const sizes = [{value: 'sm' as const, label: 'S'}, {value: 'md' as const, label: 'M'}, {value: 'lg' as const, label: 'L'}]
-const address = computed(() => doc.value ? `${location.origin}/p/${encodeURIComponent(doc.value.project)}/docs/${encodeURIComponent(doc.value.id)}` : '')
+const address = computed(() => doc.value ? `${location.origin}${router.resolve(`/p/${encodeURIComponent(doc.value.project)}/docs/${encodeURIComponent(doc.value.id)}`).href}` : '')
 
 useHead(() => ({title: doc.value ? `${doc.value.title} · orrery` : 'orrery'}))
 </script>

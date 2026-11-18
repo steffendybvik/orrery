@@ -27,7 +27,7 @@ async function mount() {
 
 describe('a doc page', () => {
     it.each([
-        ['Copy URL', "this doc's URL", `${location.origin}/p/greenhouse/docs/potting-mix`],
+        ['Copy URL', "this doc's URL", `${location.origin}/w/default/greenhouse/docs/potting-mix`],
         ['Copy id', "this doc's id", 'doc-potting-mix-x7k2m9qd'],
     ])('%s copies what it says', async (label, name, text) => {
         const writeText = vi.fn(async () => {})

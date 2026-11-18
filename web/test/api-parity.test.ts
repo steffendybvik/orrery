@@ -35,6 +35,7 @@ import {PullPoll} from '../server/utils/pull-poll'
 import type {PolledRow} from '../server/utils/pull-poll'
 import {openDb} from '../server/utils/db'
 import {boardForApi, checkedBoard, uploadBoard} from '../server/utils/board-upload'
+import {boardParts} from '../shared/import-orrery.mjs'
 import {PostgresDb} from '../server/utils/postgres'
 import {PHONE_LOGIN} from '#shared/phone'
 import {actorHeaders, apiStarted, cameHeaders, changedOf, countedOf, databaseMark, domainOf, DOMAINS, handedOn, handoffsOf, handOn, loginHeaders, withRev, boardsWithRev, movesStatus, onlyWords, passedThrough, servedByApi, toldOf, urgentOf, whoHeaders, writeToApi, OWN_WORK} from '../server/utils/api-router'
@@ -1892,7 +1893,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const stays = await store.authStaysOn()
         const canGetIn = await store.ownerHasKey()
         // On loopback it's off unless auth stays on; anywhere else, through a proxy or on the phone's port it asks.
-        expect(await status(loopback)).toEqual({mode: stays ? 'on' : 'off', can_get_in: canGetIn, oidc: false, warn_http: false, phone: false})
+        expect(await status(loopback)).toEqual({mode: stays ? 'on' : 'off', can_get_in: canGetIn, oidc: false, sign_up: false, warn_http: false, phone: false})
         // How the owner can get in, as the auth middleware asks it (ORR-1158): the local app's own call alone.
         expect(await (await call('GET', '/api/auth/ways-in', undefined, OWN_WORK)).json()).toEqual({owner_has_key: canGetIn, stays_on: stays})
         // Who a sign-in is (ORR-1180), the local app's own call alone: that and sign-up are held in the API's tests.
@@ -1907,7 +1908,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect((await status(loopback, 'localhost:9000', {provider: false, off: true})).mode).toBe('off')
         expect((await status(none, '192.168.1.9:9000', {provider: false, off: true})).mode).toBe('closed')
         expect((await status({...none, phone: true}, '192.168.1.9:9000', {provider: false, off: true})).mode).toBe('closed')
-        expect(await status(loopback, 'localhost:9000', {provider: true, off: false})).toMatchObject({oidc: true, can_get_in: true})
+        expect(await status(loopback, 'localhost:9000', {provider: true, off: false})).toMatchObject({oidc: true, can_get_in: true, sign_up: true})
         // Who's asking is what the API finds of the credential: a real login, not the router's word (ORR-1038).
         await store.addPerson({name: 'Ada'}).catch(() => undefined)
         // A page's fetch says which page it's from, which the router passes on and the guard asks of a write (ORR-1081).
@@ -3214,7 +3215,20 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         expect(again).toMatchObject({status: 409, body: {message: 'There is already a project "upload-store": choose another id'}})
         await expect(uploadBoard(store.db, file, {id: 'upload-other', key: 'UPA'}, OWNER, holder)).rejects.toMatchObject({statusCode: 409})
         expect((await viaApi('POST', '/api/boards', boardForApi(checkedBoard(file, {id: 'upload-other', key: 'UPS'}), holder), OWNER)).status).toBe(409)
-        for (const project of ['upload-store', 'upload-api']) await store.deleteProject(project, OWNER)
+        // Sent in parts, as a board too big for one request goes (ORR-1257): the board, then the rest of it into it,
+        // each part checked as the route checks it, makes the same board.
+        const later = boardParts(file, Infinity).parts[0]!
+        const {first, parts} = boardParts(file, Math.ceil(JSON.stringify(later.tables).length / 3))
+        expect(parts.length).toBeGreaterThanOrEqual(3)
+        expect(parts.length).toBeLessThan(6)
+        const head = await viaApi('POST', '/api/boards', {...boardForApi(checkedBoard(first, {id: 'upload-parts', key: 'UPP'}), holder)}, OWNER)
+        expect(head.status, JSON.stringify(head.body)).toBe(201)
+        for (const part of parts) {
+            const added = await viaApi('POST', '/api/boards', {...boardForApi(checkedBoard(part, {id: 'upload-parts', key: 'UPP', into: true}), holder), into: true}, OWNER)
+            expect(added.status, JSON.stringify(added.body)).toBe(200)
+        }
+        expect(await board('upload-parts')).toEqual(await board('upload-api'))
+        for (const project of ['upload-store', 'upload-api', 'upload-parts']) await store.deleteProject(project, OWNER)
         expect(domainOf('POST', '/api/boards')).toBeUndefined()
     })
 

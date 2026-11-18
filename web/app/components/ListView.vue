@@ -42,13 +42,11 @@ function toggle(group: Group) {
 </script>
 
 <template>
-  <div class="clear-agent">
+  <div>
     <section v-for="g in groups" :key="g.key">
       <div
           data-nav
           tabindex="0"
-          role="button"
-          :aria-expanded="isOpen(g)"
           class="group sticky top-0 z-20 flex h-9 items-center gap-2.5 border-b border-line bg-panel px-3 outline-none hover:tint focus-visible:bg-active"
           @click="toggle(g)"
       >
@@ -57,7 +55,8 @@ function toggle(group: Group) {
         </span>
         <svg class="size-3 shrink-0 text-faint transition-transform" :class="isOpen(g) && 'rotate-90'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
         <StatusIcon :column="g.column" :progress="g.kinds ? progress(g.kinds).share : 0.5" />
-        <h3 class="min-w-0 truncate text-[13px] font-medium" :class="g.muted && 'text-muted italic'">{{ g.title }}</h3>
+        <!-- The header's own button, a disclosure beside the group's tick rather than a button around it (ORR-1280). -->
+        <h3 class="min-w-0 truncate text-[13px] font-medium" :class="g.muted && 'text-muted italic'"><button type="button" tabindex="-1" class="max-w-full truncate text-left outline-none" :aria-expanded="isOpen(g)" @click.stop="toggle(g)">{{ g.title }}</button></h3>
         <ProgressRing v-if="g.kinds" :kinds="g.kinds" :size="13" />
         <span v-else class="font-mono text-[11px] text-faint tabular-nums">{{ g.issues.length }}</span>
         <span v-if="g.summary" class="hidden min-w-0 flex-1 truncate text-xs text-faint md:inline"><InlineText :text="g.summary" /></span>

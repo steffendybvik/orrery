@@ -56,6 +56,9 @@ In practice:
 - **Secrets:** API keys that agents use through orrery's egress, without ever seeing the value.
 - **Event log:** orrery's errors and each change to the roadmap, and with Advanced on what it did, kept on the machine,
   on an Events page that sessions can read too.
+- **Workspaces and moving:** one orrery holds several workspaces, work and personal say, each with its own projects,
+  colour and settings, switched in the sidebar ([how](docs/using.md#workspaces)). Export a project's board to a file and upload it to another orrery, or move a whole workspace there
+  from App settings, with a preview first.
 - **On your phone:** scan the QR code in App settings and the phone is signed in, driving the sessions on this machine.
   End a lost phone's login from the Mac.
 - **Storage:** one SQLite file or Postgres, set in its settings (`ORRERY_DATABASE`). Backing it up is yours to do. Alone on your machine there's no login; with a second person or from another machine it asks for one. The first name given becomes the owner.
@@ -90,7 +93,7 @@ You need:
 
    ```sh
    mkdir orrery && cd orrery
-   curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.20/compose.yml
+   curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.21/compose.yml
    docker compose up -d        # http://localhost:9000
    ```
 

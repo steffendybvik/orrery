@@ -34,7 +34,7 @@ test('j and k move between rows and group headers, Enter opens the one in focus'
     await expect(nav).toHaveCount(4)
     const order = await rows.evaluateAll(els => els.map(el => (el as HTMLElement).dataset.issue!))
     await page.keyboard.press('j')
-    await expect(nav.nth(0)).toHaveAttribute('aria-expanded', 'true')
+    await expect(nav.nth(0).locator('[aria-expanded]')).toHaveAttribute('aria-expanded', 'true')
     await expect(nav.nth(0)).toBeFocused()
     await page.keyboard.press('j')
     await expect(nav.nth(1)).toBeFocused()
@@ -47,23 +47,23 @@ test('j and k move between rows and group headers, Enter opens the one in focus'
     await page.keyboard.press('k')
     await expect(nav.nth(2)).toBeFocused()
     await page.keyboard.press('Enter')
-    await expect(page).toHaveURL(`/p/keys/issues/${order[1]}`)
+    await expect(page).toHaveURL(`/w/default/keys/issues/${order[1]}`)
 })
 
 test("on an issue's page j and k step to the next and previous issue, Esc goes back", async ({page}) => {
     const rows = await open(page)
     const order = await rows.evaluateAll(els => els.map(el => (el as HTMLElement).dataset.issue!))
     await rows.nth(0).click()
-    await expect(page).toHaveURL(`/p/keys/issues/${order[0]}`)
+    await expect(page).toHaveURL(`/w/default/keys/issues/${order[0]}`)
     await page.keyboard.press('j')
-    await expect(page).toHaveURL(`/p/keys/issues/${order[1]}`)
+    await expect(page).toHaveURL(`/w/default/keys/issues/${order[1]}`)
     await page.keyboard.press('k')
-    await expect(page).toHaveURL(`/p/keys/issues/${order[0]}`)
+    await expect(page).toHaveURL(`/w/default/keys/issues/${order[0]}`)
     // Before the first there's nothing, so k stays.
     await page.keyboard.press('k')
-    await expect(page).toHaveURL(`/p/keys/issues/${order[0]}`)
+    await expect(page).toHaveURL(`/w/default/keys/issues/${order[0]}`)
     await page.keyboard.press('Escape')
-    await expect(page).toHaveURL(/\/p\/keys(\?view=list)?$/)
+    await expect(page).toHaveURL(/\/keys(\?view=list)?$/)
 })
 
 test('1 and 2 switch between List and Board', async ({page}) => {
@@ -120,18 +120,18 @@ test('⌘A ticks every issue on the page, and not while typing', async ({page}) 
 
 test('⌥↑ and ⌥↓ move a project in the sidebar', async ({page, request}) => {
     await api(request, 'post', '/projects', {name: 'Keyring', key: 'KRG'})
-    await page.goto('/p/keyring')
+    await page.goto('/w/default/keyring')
     // Each project's row, which can be dragged; an open project lists its pages under it too.
-    const rows = page.locator('aside nav a[draggable="true"][href^="/p/"]')
+    const rows = page.locator('aside nav a[draggable="true"][href^="/w/default/"]')
     const order = () => rows.evaluateAll(els => els.map(el => el.getAttribute('href')!))
-    const ring = rows.and(page.locator('[href="/p/keyring"]'))
+    const ring = rows.and(page.locator('[href="/w/default/keyring"]'))
     await expect(ring).toBeVisible()
     // Against the one below it, as other specs add projects at the same time, at the top.
     const before = await order()
-    const below = before[before.indexOf('/p/keyring') + 1]!
+    const below = before[before.indexOf('/w/default/keyring') + 1]!
     const isAbove = async () => {
         const now = await order()
-        return now.indexOf('/p/keyring') < now.indexOf(below)
+        return now.indexOf('/w/default/keyring') < now.indexOf(below)
     }
     expect(await isAbove()).toBe(true)
 
@@ -147,7 +147,7 @@ test('g m goes to My issues', async ({page}) => {
     await open(page)
     await page.keyboard.press('g')
     await page.keyboard.press('m')
-    await expect(page).toHaveURL('/mine')
+    await expect(page).toHaveURL('/w/default/mine')
 })
 
 test('the first Tab shows Skip to content, and Enter puts the next Tab in the page, past the sidebar (ORR-856)', async ({page}) => {

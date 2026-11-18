@@ -30,7 +30,7 @@ const isRow = (value: unknown): value is Record<string, unknown> => !!value && t
 
 /** The file's tables, checked in a SQLite of their own at the file's schema step and brought up to this server's: a
  * column it doesn't know, a row pointing at nothing or a value its table refuses turns the whole file down. */
-function upToDate(file: Record<string, unknown>, statuses: Row[]): Tables {
+function upToDate(file: Record<string, unknown>, statuses: Row[], loose = false): Tables {
     const step = file.schema_step
     if (!Number.isInteger(step) || (step as number) < 1) throw badRequest('That file says no schema step')
     if ((step as number) > MIGRATIONS.length) {
@@ -62,7 +62,7 @@ function upToDate(file: Record<string, unknown>, statuses: Row[]): Tables {
                 add(named, table === 'schedules' ? {...here, across: null, place: known.has(String(here.place)) || statuses.some(s => s.id === here.place) ? here.place : 'todo'} : here)
             }
         }
-        migrate(memory, 'That file', MIGRATIONS.length)
+        migrate(memory, 'That file', MIGRATIONS.length, {loose})
         const tables = {} as Tables
         for (const table of Object.keys(EXPORTED) as Table[]) tables[table] = memory.prepare(`SELECT * FROM "${table}"${table === 'presets' ? " WHERE project = 'uploaded'" : ''}`).all() as Row[]
         return tables
@@ -145,12 +145,13 @@ async function bringUploads(db: Db, uploads: unknown, actor: Actor) {
 export type CheckedBoard = {file: Record<string, unknown>, tables: Tables, statusesInFile: Row[], id: string, key: string, name?: string}
 
 /** Checks a board's file without the database: what it is, its rows brought up to this schema in a throwaway SQLite,
- * and the id and key it's to have. Refuses it (400) when any of that doesn't hold. */
-export function checkedBoard(file: unknown, as: {id?: string, key?: string, name?: string}): CheckedBoard {
+ * and the id and key it's to have. Refuses it (400) when any of that doesn't hold. `into`: a part of a board too big
+ * for one request (ORR-1257), whose rows point at the board already here, so the database checks those when it writes them. */
+export function checkedBoard(file: unknown, as: {id?: string, key?: string, name?: string, into?: boolean}): CheckedBoard {
     if (!isRow(file) || file.format !== 'orrery-board') throw badRequest('That isn\'t a board\'s file')
     if (file.format_version !== 1) throw badRequest(`That file's format (${String(file.format_version)}) is one this orrery can't read`)
     const statusesInFile = (Array.isArray(file.statuses) ? file.statuses : []).filter(isRow) as Row[]
-    const tables = upToDate(file, statusesInFile)
+    const tables = upToDate(file, statusesInFile, as.into)
     const [source] = tables.projects
     if (!source || tables.projects.length !== 1) throw badRequest('That file should hold one project')
     const id = as.id ?? String(file.project ?? '')

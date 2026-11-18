@@ -72,7 +72,7 @@ function reset() {
 </script>
 
 <template>
-  <section class="flex flex-col gap-4 rounded-2xl bg-accent-500/5 p-5 ring-1 ring-accent-500/25" data-testid="connect-repo">
+  <section class="flex flex-col gap-4 rounded-2xl bg-[color-mix(in_oklab,var(--color-accent-500)_5%,var(--panel))] p-5 ring-1 ring-accent-500/25" data-testid="connect-repo">
     <template v-if="!request || request.state === 'canceled'">
       <div class="flex flex-wrap items-center gap-3">
         <div class="min-w-56 flex-1">

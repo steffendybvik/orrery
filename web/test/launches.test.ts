@@ -29,6 +29,9 @@ let answered: string[]
 let issueLabels: Record<string, string[]>
 /** The kinds of work the owner has set (ORR-868). */
 let kinds: readonly WorkKind[]
+/** Whether the session started for a launch has its channel open, and the launches dropped from the sessions. */
+let connected: boolean
+let endedLaunches: string[]
 
 beforeEach(async () => {
     sent = []
@@ -51,6 +54,10 @@ beforeEach(async () => {
     vi.stubGlobal('listening', () => listeners)
     vi.stubGlobal('startedSessions', (project?: string) => project ? started.greenhouse : started.all)
     vi.stubGlobal('sessionOfLaunch', () => session)
+    connected = true
+    endedLaunches = []
+    vi.stubGlobal('launchConnected', () => connected)
+    vi.stubGlobal('launchEnded', (project: string, id: string) => endedLaunches.push(`${project}/${id}`))
     vi.stubGlobal('promptAnswered', (project: string, id: string) => void answered.push(`${project}/${id}`))
     vi.stubGlobal('adoptLaunch', (_project: string, started: {launch: string}) => adopted.push(started.launch))
     vi.stubGlobal('extendLaunch', (_project: string, _id: string, stops_at: string) => ({...session, started: {...session!.started!, stops_at}}))
@@ -588,6 +595,18 @@ describe('a session orrery started', () => {
         launches.stopLaunch('greenhouse', 'abc')
         expect(launches.extendLaunchBy('greenhouse', 'abc', 30).started!.stops_at).toBe('2999-01-01T10:30:00.000Z')
         expect(sent).toEqual([{type: 'stop', project: 'greenhouse', id: 'abc'}, {type: 'extend', project: 'greenhouse', id: 'abc', stops_at: '2999-01-01T10:30:00.000Z'}])
+    })
+
+    it('ends at once when its channel has gone, as after a restart, and still asks any launcher to stop it (ORR-1292)', () => {
+        session = {name: 'greenhouse · Andvare', started: {launch: 'abc', tmux: 'orrery-greenhouse-abc'}}
+        launches.stopLaunch('greenhouse', 'abc')
+        expect(endedLaunches).toEqual([])
+        connected = false
+        expect(launches.stopLaunch('greenhouse', 'abc').name).toBe('greenhouse · Andvare')
+        expect(endedLaunches).toEqual(['greenhouse/abc'])
+        expect(noted.map(n => n.kind)).toEqual(['session.stopped'])
+        expect(launches.heldStops('greenhouse')).toEqual(['abc'])
+        expect(sent).toEqual([{type: 'stop', project: 'greenhouse', id: 'abc'}, {type: 'stop', project: 'greenhouse', id: 'abc'}])
     })
 
     it('runs until stopped when the project gives no minutes, with no time to extend', async () => {

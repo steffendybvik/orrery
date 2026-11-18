@@ -33,7 +33,7 @@ test('the sidebar is a drawer behind the menu button, gone again once a page is 
     await page.getByRole('button', {name: 'Open the sidebar'}).tap()
     await expect(drawer).toBeInViewport()
     await drawer.getByRole('link', {name: 'Pocket'}).tap()
-    await expect(page).toHaveURL(/\/p\/pocket/)
+    await expect(page).toHaveURL(/\/pocket/)
     await expect(drawer).not.toBeInViewport()
     // Its own button closes it too.
     await page.getByRole('button', {name: 'Open the sidebar'}).tap()
@@ -65,7 +65,7 @@ test("the project and an issue's page fit the screen", async ({page}) => {
     await expect(row).toBeVisible()
     expect(await scrollsSideways(page)).toBe(false)
     await row.tap()
-    await expect(page).toHaveURL(`/p/pocket/issues/${id}`)
+    await expect(page).toHaveURL(`/w/default/pocket/issues/${id}`)
     await expect(page.getByRole('heading', {name: /A title long enough/})).toBeVisible()
     expect(await scrollsSideways(page)).toBe(false)
 })
@@ -125,6 +125,33 @@ test("a field's text is 16px on a touch screen, so iOS doesn't zoom in as it tak
     for (const {field, size} of sizes) expect(size, field).toBeGreaterThanOrEqual(16)
 })
 
+// The Agent button sits over the right of each row on a phone, where its assignee is: it tucks away while the page
+// scrolls down, and is back on scrolling up and at the page's end, which has room for it (ORR-1282).
+test('the Agent button tucks away while the page scrolls down, and is back on scrolling up or at the end', async ({page, request}) => {
+    await api(request, 'post', '/projects', {name: 'Tall', key: 'TAL'})
+    for (let i = 1; i <= 30; i++) await api(request, 'post', '/projects/tall/issues', {title: `Row ${i}`, status: 'todo'})
+    await page.goto('/p/tall?view=list')
+    await expect(page.getByText('Row 30')).toBeVisible()
+    const agent = page.getByRole('button', {name: 'Agent', exact: true})
+    await expect(agent).toBeInViewport()
+    const scroller = page.locator('main .clear-agent').first()
+    const scrollBy = (y: number) => scroller.evaluate((el, by) => el.scrollBy(0, by), y)
+    await scrollBy(200)
+    await expect(agent).toHaveAttribute('data-tucked')
+    await expect(agent).not.toBeInViewport()
+    await scrollBy(-100)
+    await expect(agent).not.toHaveAttribute('data-tucked')
+    await expect(agent).toBeInViewport()
+    await scrollBy(200)
+    await expect(agent).toHaveAttribute('data-tucked')
+    // At the end it's back, and clear of the last row.
+    await scroller.evaluate(el => el.scrollTo(0, el.scrollHeight))
+    await expect(agent).not.toHaveAttribute('data-tucked')
+    const last = await scroller.locator('[data-issue]').last().boundingBox()
+    const button = await agent.boundingBox()
+    expect(last!.y + last!.height).toBeLessThanOrEqual(button!.y)
+})
+
 test.describe('on a desktop', () => {
     test.use({viewport: {width: 1280, height: 800}, isMobile: false, hasTouch: false})
 
@@ -134,4 +161,24 @@ test.describe('on a desktop', () => {
         const sizes = await fieldSizes(page)
         expect(sizes.some(({size}) => size < 16), JSON.stringify(sizes)).toBe(true)
     })
+})
+
+// Below `sm` the filters other than the text box fold into a Filters button (ORR-1281), which opens them in a list
+// and counts the ones narrowing what shows.
+test('the filters sit behind a Filters button that counts the ones set', async ({page}) => {
+    await page.goto('/p/pocket')
+    const button = page.getByRole('button', {name: 'Filters', exact: true})
+    await expect(button).toBeVisible()
+    await expect(page.getByRole('button', {name: /^Priority/})).toBeHidden()
+    await button.tap()
+    await expect(button).toHaveAttribute('aria-expanded', 'true')
+    await page.getByRole('button', {name: /^Priority/}).tap()
+    await page.getByRole('option', {name: /P1 · High/}).tap()
+    await expect(page.getByRole('button', {name: 'Filters · 1'})).toBeVisible()
+    expect(await scrollsSideways(page)).toBe(false)
+    // A tap outside closes the list; the count stays, and Clear goes back.
+    await page.getByRole('heading', {level: 1}).first().tap()
+    await expect(page.getByRole('button', {name: /^Priority/})).toBeHidden()
+    await page.getByRole('button', {name: 'Clear'}).tap()
+    await expect(page.getByRole('button', {name: 'Filters', exact: true})).toBeVisible()
 })

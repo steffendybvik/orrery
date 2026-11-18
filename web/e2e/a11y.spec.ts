@@ -40,11 +40,19 @@ test(`${PHONE}: a doc wider than the phone`, async ({page}) => {
     await phoneScrolls(page, {path: `/p/${w.id}/docs/wide-code`, heading: 'Wide code'})
 })
 
-// A test for each page (ORR-916).
+// A test for each page (ORR-916), on a desktop and on a phone (ORR-1282), whose layout stacks what sits side by side on
+// a desktop, so a page can scroll in a box the desktop's pass never reaches.
 eachPage('every page, scrolled to the end, leaves nothing under the Agent button (ORR-796)', () => w, async (page, route) => {
-    await withSettings(page, () => ({advanced: true}))
     // Short enough that each page has to scroll, and wide enough for a phone's layout not to apply.
-    await page.setViewportSize({width: 1280, height: 320})
+    await clearOfAgent(page, route, {width: 1280, height: 320})
+})
+eachPage('on a phone, every page, scrolled to the end, leaves nothing under the Agent button (ORR-1282)', () => w, async (page, route) => {
+    await clearOfAgent(page, route, {width: 390, height: 520})
+})
+
+async function clearOfAgent(page: Page, route: Route, viewport: {width: number, height: number}) {
+    await withSettings(page, () => ({advanced: true}))
+    await page.setViewportSize(viewport)
     await page.goto(route.path)
     await expect(heading(page, route.heading)).toBeVisible()
     const button = page.getByRole('button', {name: 'Agent', exact: true})
@@ -65,4 +73,4 @@ eachPage('every page, scrolled to the end, leaves nothing under the Agent button
             .map(el => el.outerHTML.slice(0, 90))
     })
     expect(under, route.path).toEqual([])
-})
+}

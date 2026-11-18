@@ -223,8 +223,16 @@ function handBackSoon(session: Known) {
     const ids = sessionIds(session.id)
     const projects = new Set([session.project, ...session.served ?? []])
     const {id, name} = session
+    const since = Date.now()
     ending.set(id, {ids, timer: setTimeout(() => {
         ending.delete(id)
+        // Still on the list, with no channel back and no hook since, it's gone (a restart took its process and its
+        // launcher with it): it leaves the list rather than showing as working for hours (ORR-1292).
+        const left = sessions.get(currentId(id))
+        if (left && !connected(left) && left.seenAt <= since) {
+            drop(left)
+            for (const project of projects) changed(project)
+        }
         Promise.all([...projects].map(async project => letGoEnded(project, ids, name)))
             .catch(error => console.error(`[orrery] handing back ${id}'s work:`, error))
     }, HAND_BACK_AFTER)})
@@ -243,6 +251,11 @@ function stillHere(session: Known) {
 
 function forget(session: Known) {
     handBackSoon(session)
+    drop(session)
+}
+
+/** Takes the session off the list, by every id it has had. */
+function drop(session: Known) {
     sessions.delete(session.id)
     for (const [from, to] of aliases) if (to === session.id) aliases.delete(from)
 }
@@ -575,6 +588,13 @@ export function extendLaunch(project: string, launch: string, stops_at: string):
 
 /** Whether any of its channels has a stream open: its process is still there. */
 const connected = (session: Known) => [...session.channels?.values() ?? []].some(c => c.streams > 0)
+
+/** Whether the session orrery started for the launch has its channel open: false for one whose process is gone, as a
+ * restart leaves it (ORR-1292), and for one that never connected. */
+export function launchConnected(project: string, launch: string): boolean {
+    const session = byLaunch(project, launch)
+    return !!session && connected(session)
+}
 
 /** The owner forgetting a session with no channel open: it leaves the list and nothing else, as orrery can't reach
  * its process. If it's still running, its next hook brings it back. */

@@ -18,7 +18,7 @@ test('makes a release, sets an issue for it from its page, and drafts its change
     await page.getByLabel('Version').fill('1.0.0')
     await expect(page.getByLabel('Branch its work gathers on')).toHaveValue('v1.0.0')
     await page.getByRole('button', {name: 'Make it'}).click()
-    await expect(page).toHaveURL(/\/p\/bakery\/releases\/1\.0\.0$/)
+    await expect(page).toHaveURL(/\/bakery\/releases\/1\.0\.0$/)
     await expect(page.getByRole('link', {name: 'PRs into it'})).toHaveAttribute('href', 'https://github.com/you/bakery/pulls?q=is%3Apr%20base%3Av1.0.0')
 
     await page.goto(`/p/bakery/issues/${issue.id}`)
@@ -74,5 +74,5 @@ test('the Releases page lists every project, a shared release once, and follows 
     await page.goto('/releases?project=mill')
     await expect(bakery.getByRole('link')).toContainText('1.1.0')
     await bakery.getByRole('link').click()
-    await expect(page).toHaveURL(/\/p\/bakery\/releases\/1\.1\.0$/)
+    await expect(page).toHaveURL(/\/bakery\/releases\/1\.1\.0$/)
 })

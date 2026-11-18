@@ -32,7 +32,7 @@ test('a working and an idle session each show their colour, heard or not', async
         await page.goto('/sessions')
         const where = {
             'the Sessions page': (id: string) => page.locator(`#session-${id} [data-state]`).first(),
-            'the sidebar': (id: string) => page.getByTestId('sidebar-sessions').first().locator(`a[href="/sessions#session-${id}"] [data-state]`),
+            'the sidebar': (id: string) => page.getByTestId('sidebar-sessions').first().locator(`a[href="/w/default/sessions#session-${id}"] [data-state]`),
         }
         for (const [place, dotOf] of Object.entries(where)) {
             const seen: Record<string, string> = {}

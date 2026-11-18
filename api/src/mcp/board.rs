@@ -81,7 +81,7 @@ impl Api<'_> {
         }
         .map_err(|e| No(e.to_string()))?;
         let router = routes::all().route_layer(middleware::from_fn_with_state(self.app.clone(), access::rails::rails)).with_state(self.app.clone());
-        let response = router.oneshot(request).await.map_err(|e| No(e.to_string()))?;
+        let Ok(response) = router.oneshot(request).await;
         let (parts, body) = response.into_parts();
         self.relay.keep(&parts.headers);
         let bytes = axum::body::to_bytes(body, usize::MAX).await.map_err(|e| No(e.to_string()))?;
@@ -396,7 +396,7 @@ impl Api<'_> {
         let mut latest: Option<usize> = None;
         for (i, r) in releases.iter().enumerate() {
             if let Some(on) = shipped(r) {
-                if latest.map_or(true, |l| on > shipped(&releases[l]).unwrap_or_default()) {
+                if latest.is_none_or(|l| on > shipped(&releases[l]).unwrap_or_default()) {
                     latest = Some(i);
                 }
             }

@@ -52,6 +52,12 @@ function inTurn<T>(id: string, write: () => Promise<T>): Promise<T> {
     return done
 }
 
+/** Waits for every chat's writes still on their way to the API, as a test does before its API stops (ORR-1289): a
+ * `save` it didn't wait for, cut off mid-fetch, throws from undici where nothing can catch it. */
+export async function chatWritesSettled(): Promise<void> {
+    while (saving.size) await Promise.allSettled([...saving.values()])
+}
+
 /** Each chat's messages as last kept, by id, as JSON: what `save` compares them with, to keep those that changed. */
 const kept = new Map<string, Map<number, string>>()
 

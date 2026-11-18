@@ -24,7 +24,7 @@ const unsaid = computed(() => behind.value.some(b => b.versions.includes('')))
 </script>
 
 <template>
-  <div v-if="behind.length" class="flex flex-col gap-2 rounded-xl bg-well p-3 text-xs leading-relaxed text-muted ring-1 ring-line">
+  <div v-if="behind.length" class="flex flex-col gap-2 rounded-xl bg-panel p-3 text-xs leading-relaxed text-muted ring-1 ring-line">
     <p v-for="b in behind" :key="b.id">
       <span class="font-medium text-fg">The launcher for {{ b.name }} runs {{ b.versions.map(v => v || 'an older version').join(' and ') }}</span>,
       and this orrery needs {{ b.minimum }} or newer, so it can't start every session.

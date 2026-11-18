@@ -20,7 +20,7 @@ test('ticks issues and changes them together', async ({page, request}) => {
     const box = (await page.getByRole('checkbox', {name: `Select ${b.id}`}).locator('span').boundingBox())!
     await page.mouse.click(box.x - 4, row.y + 2)
     await expect(page.getByRole('checkbox', {name: `Select ${b.id}`})).toHaveAttribute('aria-checked', 'true')
-    await expect(page).toHaveURL(/\/p\/workshop\?view=list$/)
+    await expect(page).toHaveURL(/\/workshop\?view=list$/)
     const bar = page.getByRole('toolbar', {name: 'Change the ticked issues'})
     await expect(bar.getByText('2 selected')).toBeVisible()
     await bar.getByRole('button', {name: 'Priority'}).click()
@@ -46,7 +46,7 @@ test('ticks a run by dragging over the ticks, and a whole group from its header'
     await page.mouse.move(bottom.x, bottom.y, {steps: 8})
     await page.mouse.up()
     for (const {id} of made) await expect(tick(id)).toHaveAttribute('aria-checked', 'true')
-    await expect(page).toHaveURL(/\/p\/workshop\?view=list$/)
+    await expect(page).toHaveURL(/\/workshop\?view=list$/)
     const bar = page.getByRole('toolbar', {name: 'Change the ticked issues'})
     await expect(bar.getByText(/Drag over the ticks/)).toBeVisible()
     // Dragging back from a ticked one unticks them.

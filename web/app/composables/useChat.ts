@@ -107,7 +107,8 @@ export function useChat() {
         try {
             // The page's tab title, without the app's name it ends in.
             const title = document.title.replace(/\s*·\s*orrery$/, '')
-            await apiFetch(`/chats/${chat.value.id}/messages`, {method: 'POST', body: {...Array.isArray(text) ? {parts: text} : {text}, images, page: {path: location.pathname + location.search, title}}})
+            // The page as it is within its workspace (`/p/<project>/…`, ORR-1275), which the session reads its project from.
+            await apiFetch(`/chats/${chat.value.id}/messages`, {method: 'POST', body: {...Array.isArray(text) ? {parts: text} : {text}, images, page: {path: pagePath(location.pathname) + location.search, title}}})
             return true
         } catch (error) {
             failed.value = errorMessage(error, 'send')

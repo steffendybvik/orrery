@@ -7,6 +7,57 @@ Each version's changes are grouped under **Features**, **Changes** and **Fixes**
 **Internal** where they help, with **Upgrading** first when an update needs a step of you. A group with nothing
 in it is left out. 1.0.0, the first release's overview, is one list.
 
+## 1.0.0-rc.21 (2026-11-18)
+
+### Features
+
+- **Every page lives under its workspace:** a workspace's pages are at `/w/<workspace>/…`, and a project's at
+  `/w/<workspace>/<project>/issues/<id>`, without `/p`. Links carry the tab's workspace, so a new tab or a copied link
+  keeps it, and old `/p/…` and `/settings` links redirect to the right workspace.
+- **A login page with orrery's mark:** the mark and name, a line on what orrery is, and one **Sign in or sign up**
+  button when sign-up is open, which `GET /api/auth/status` reports as `sign_up`.
+
+### Fixes
+
+- **A big board moves and uploads through a proxy:** its images go one by one, then the board, then its comments,
+  events and doc history in parts of about 4 MB, so Cloudflare's 100 MB cap or a small server's memory no longer stop
+  it.
+- **A started session is filed under the project it was started for,** even when an older repo hook names another:
+  the launcher hands the project down as `ORRERY_STARTED_FOR`, and the hook reads it first.
+- **Stop ends a session whose process a restart took,** and a session nobody hears from in the 5 minutes after its
+  channel closes leaves the list, where it used to show as working for up to 6 hours.
+- **Filters at phone width:** a **Filters** button opens the menus the narrow screen had hidden and counts the ones
+  set.
+- **Rows are reachable by screen readers:** an issue row's id is a real link (⌘-click opens a new tab), a schedule's
+  title is its Edit button, a list group's title is a disclosure button, and a waiting question has **Show in thread**,
+  instead of buttons wrapped round other controls.
+- **The Agent button tucks away on a phone** while the page scrolls down, and comes back on a scroll up, at the end of
+  the page or on focus, so it no longer covers the assignee column.
+- **The chat and Context open on a project you use:** the last one opened in this browser, else a starred one, else the
+  one with the most open issues, not the first in the list.
+- **An issue's description comes before its notices** (Proposal, Sessions, Pull requests) at every width.
+- **Cards are solid on tinted pages:** they sit on the panel, and the ones coloured to stand out mix their colour into
+  it, so the Sessions page's pink no longer shows through.
+- **The chat window has a heading and an orrery tab title:** "Chat · orrery", like every other page.
+- **`POST /orrery-moves` takes its flags in snake_case** (`dry_run`, `enable_schedules`); the camelCase ones still
+  work.
+
+### Docs
+
+- **Workspaces explained:** using.md has a Workspaces section, running.md's *Two servers* leads with workspaces, and
+  the compose and env files no longer offer `ORRERY_ENVIRONMENT` as an orrery's name.
+- **The docs audited against rc.21:** README, using, running, connect, API, development and components say what the
+  code does now, including what the chat may write and where the Rust API's routes are listed.
+
+### Internal
+
+- **Dependencies bumped** (marked 18.2.1, Playwright 1.65.1), glob overridden for GHSA-3g3m-2fjr-6pw4, and dead code
+  removed.
+- **`chats.test.ts` waits for chat writes** before its API stops, ending an uncaught EINVAL about one run in three on
+  macOS.
+- **CI green again:** clippy 1.99's `unnecessary_map_or` and using.md's Chat budget, which kept every pull request from
+  merging itself.
+
 ## 1.0.0-rc.20 (2026-11-16)
 
 ### Upgrading

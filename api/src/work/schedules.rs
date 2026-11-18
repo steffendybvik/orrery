@@ -84,7 +84,7 @@ fn toggled(row: &AnyRow, enabled: bool) -> std::result::Result<Toggled, String> 
     let presets = row.get::<String, _>("presets");
     let untrusted = row.get::<i64, _>("untrusted") != 0;
     // `checkKind`, for the owner: a session or action schedule is theirs to keep.
-    if kind == "message" && notes.as_deref().map_or(true, |n| n.trim().is_empty()) && presets == "[]" {
+    if kind == "message" && notes.as_deref().is_none_or(|n| n.trim().is_empty()) && presets == "[]" {
         return Err("A message schedule needs its message in \"notes\", or a preset in \"presets\"".into());
     }
     if kind == "action" && when.on.is_none() {
@@ -112,7 +112,7 @@ const STATUS_KINDS: [&str; 5] = ["backlog", "todo", "started", "done", "canceled
 /// What each kind needs (`checkKind`): a message has words, its own or a preset's; a session is the owner's to start, as
 /// it works as them; an action is too, and needs an event to move what it's about; only a message is untrusted.
 fn check_kind(kind: &str, notes: Option<&str>, presets: &str, untrusted: bool, actor: &Actor, on: Option<&str>) -> Result<()> {
-    if kind == "message" && notes.map_or(true, |n| n.trim().is_empty()) && presets == "[]" {
+    if kind == "message" && notes.is_none_or(|n| n.trim().is_empty()) && presets == "[]" {
         return Err(ApiError::bad_request("A message schedule needs its message in \"notes\", or a preset in \"presets\""));
     }
     if kind == "session" && !actor.owner {
@@ -1044,7 +1044,7 @@ impl<'c> Schedules<'c> {
                 _ => Map::new(),
             };
             // `enabled` defaults to on, as `{enabled = true, ...fields}` reads it, and is kept as a flag.
-            let enabled = fields.remove("enabled").map_or(true, |e| !matches!(e, Value::Null | Value::Bool(false)) && e != json!(0) && e != json!(""));
+            let enabled = fields.remove("enabled").is_none_or(|e| !matches!(e, Value::Null | Value::Bool(false)) && e != json!(0) && e != json!(""));
             let title = fields.get("title").map(|t| t.as_str().map_or_else(|| t.to_string(), str::to_string)).unwrap_or_else(|| "undefined".into());
             let projects: String = row.get("projects");
             fields.insert("enabled".into(), json!(enabled));
