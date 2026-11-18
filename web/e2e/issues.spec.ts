@@ -20,8 +20,8 @@ test('adds issues and moves one on the board', async ({page, request}) => {
     await page.getByRole('radio', {name: /Board/}).or(page.getByRole('button', {name: /Board/})).first().click()
     const card = page.locator('[data-issue="SCU-1"]')
     await expect(card.getByRole('img', {name: 'Todo'})).toBeVisible()
-    // The milestone's name is plain text: the whole card opens the issue.
-    await expect(card.getByRole('link')).toHaveCount(0)
+    // The milestone's name is plain text: the card's one link is its id, which opens the issue (ORR-1280).
+    await expect(card.getByRole('link')).toHaveText(['SCU-1'])
     await card.click({button: 'right'})
     await page.getByRole('menu').getByRole('button', {name: 'Move to In progress'}).click()
     await expect(card.getByRole('img', {name: 'In progress'})).toBeVisible()
