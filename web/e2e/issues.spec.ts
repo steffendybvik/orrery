@@ -214,6 +214,16 @@ test('links the GitHub issues an issue came from, short for the project\'s own r
     await expect(page.getByRole('link', {name: 'orrery-e2e/depot#7', exact: true})).toHaveAttribute('href', 'https://github.com/orrery-e2e/depot/issues/7')
 })
 
+test('at desktop width, the description comes before the Sessions panel, as on a phone (ORR-1283)', async ({page, request}) => {
+    const issue = await api(request, 'post', '/issues', {title: 'Scrub the pans', status: 'todo', notes: 'Copper ones first.'}, AGENT)
+    await page.setViewportSize({width: 1440, height: 900})
+    await page.goto(`/p/scullery/issues/${issue.id}`)
+    const words = page.getByText('Copper ones first.')
+    const sessions = page.getByRole('heading', {name: 'Sessions', exact: true})
+    await expect(sessions).toBeVisible()
+    expect((await words.boundingBox())!.y).toBeLessThan((await sessions.boundingBox())!.y)
+})
+
 test('on a phone, the description comes right after the title and its chips; Remove waits in ⋯ (ORR-1219)', async ({page, request}) => {
     const issue = await api(request, 'post', '/issues', {title: 'Label the jars', status: 'todo', priority: 'P2', notes: 'Every jar gets a date.'}, AGENT)
     await page.setViewportSize({width: 390, height: 844})
