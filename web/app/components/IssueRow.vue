@@ -5,7 +5,7 @@ import {total} from '#shared/roadmap'
 // One issue as a row (id, title, labels, status, priority, assignee); a parent shows its
 // sub-issues' progress, and with `nested` its sub-issues under it, joined by tree lines. One waiting on others not
 // closed yet has a Blocked chip (ORR-601), and one whose change is rated high or medium risk its risk (ORR-879).
-// Clicking opens its page, right-clicking its menu (IssueMenu); `j`/`k` move between rows (`data-nav`). Its tick
+// Clicking opens its page (its id is the link, ORR-1280), right-clicking its menu (IssueMenu); `j`/`k` move between rows (`data-nav`). Its tick
 // (SelectBox) takes the priority's place on hover, for changing many at once; with any ticked, a shift- or ⌘-click ticks.
 //
 // The tree: each level is `--indent` (24px) further in, and a sub-issue's line comes down from under its
@@ -25,7 +25,7 @@ const props = withDefaults(defineProps<{issue: Issue, project: string, depth?: n
 const RAIL = 19
 const railAt = (level: number) => `calc(${RAIL}px + ${level} * var(--indent))`
 const childRails = computed(() => props.depth ? [...props.rails, !props.last] : [])
-const {open, isLast} = useIssueLink()
+const {open, isLast, pathOf} = useIssueLink()
 const {open: openMenu} = useIssueMenu()
 const {changed} = useRoadmaps()
 const {selected, isSelected, toggle} = useSelection()
@@ -33,6 +33,13 @@ const ticked = computed(() => isSelected(props.project, props.issue.id))
 function click(event: MouseEvent) {
     if (selected.value.length && (event.shiftKey || event.metaKey || event.ctrlKey)) toggle(props.project, props.issue.id, event.shiftKey)
     else open(props.project, props.issue.id)
+}
+// The id is the row's link (ORR-1280): a real one, which a screen reader and a new tab can reach, rather than the row being a
+// button around other controls. A plain click goes on to the row's, which opens it in place (or ticks, with a modifier
+// while any are ticked); ⌘-, ctrl- or shift-click with none ticked is the browser's own, a new tab or window.
+function linkClick(event: MouseEvent) {
+    if (!selected.value.length && (event.metaKey || event.ctrlKey || event.shiftKey)) event.stopPropagation()
+    else event.preventDefault()
 }
 
 const isParent = computed(() => props.issue.tasks.length > 0)
@@ -55,7 +62,6 @@ const waitingLabel = computed(() => pendingProposal(props.issue) ? 'Proposal: de
       :data-issue="issue.id"
       :data-project="project"
       tabindex="0"
-      role="button"
       class="group relative flex min-h-11 items-center gap-3 border-b [--indent:12px] max-sm:py-1.5 sm:h-11 sm:[--indent:24px] border-line/60 pr-3 text-sm outline-none transition-colors hover:bg-hover focus-visible:bg-active"
       :class="[ticked ? 'bg-accent-500/8' : isLast(project, issue.id) ? 'bg-hover' : '', flash ? 'animate-flash' : '', depth ? 'border-b-transparent' : '', issue.waiting ? 'waiting-row' : unseen ? 'unseen-row' : '']"
       :style="{paddingLeft: `calc(12px + ${depth} * var(--indent))`}"
@@ -73,14 +79,14 @@ const waitingLabel = computed(() => pendingProposal(props.issue) ? 'Proposal: de
       <PriorityIcon :priority="issue.priority" class="transition-opacity" :class="ticked || selected.length ? 'opacity-0' : 'group-hover:opacity-0'" />
       <SelectBox :project="project" :id="issue.id" row class="absolute top-0 left-0" />
     </span>
-    <span class="w-16 shrink-0 truncate font-mono text-[11px] text-faint max-sm:hidden">{{ issue.id }}</span>
+    <a :href="pathOf(project, issue.id)" tabindex="-1" class="w-16 shrink-0 truncate font-mono text-[11px] text-faint outline-none hover:text-fg max-sm:hidden" :title="`Open ${issue.id}`" @click="linkClick">{{ issue.id }}</a>
     <StatusIcon :column="issue.column" :progress="progress(issue.kinds).share" />
     <span class="flex min-w-0 flex-1 items-center gap-2">
       <span v-if="unseen" class="unseen-dot" title="Changed since you last opened it" />
       <WorkingDot v-if="worker" :session="worker" />
       <span class="flex min-w-0 flex-col">
         <span class="min-w-0 max-sm:line-clamp-2 max-sm:leading-snug sm:truncate" :class="[isClosed(issue.kind) ? 'text-muted' : 'text-fg', unseen ? 'font-semibold' : '']"><InlineText :text="issue.title" /></span>
-        <span class="font-mono text-[10px] leading-tight text-faint sm:hidden">{{ issue.id }}</span>
+        <a :href="pathOf(project, issue.id)" tabindex="-1" class="self-start font-mono text-[10px] leading-tight text-faint outline-none sm:hidden" @click="linkClick">{{ issue.id }}</a>
       </span>
       <!-- The row's tint and edge say it waits on the owner; the dot's tooltip says what for. -->
       <span v-if="issue.waiting" class="size-2 shrink-0 rounded-full bg-violet-500" role="img" :aria-label="waitingLabel" :title="waitingLabel" />

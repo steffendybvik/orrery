@@ -118,7 +118,6 @@ const OUTCOME = {
         :key="s.id"
         data-nav
         tabindex="0"
-        role="button"
         class="group flex items-center gap-3 border-b border-line/60 px-4 py-3 text-sm outline-none transition-colors last:border-b-0 hover:bg-hover focus-visible:bg-active"
         :class="scheduleUnseen(s) && 'unseen-row'"
         @click="edit(s.project, s)"
@@ -145,7 +144,8 @@ const OUTCOME = {
       <div class="flex min-w-0 flex-1 flex-col gap-0.5">
         <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 sm:flex-nowrap">
           <span v-if="scheduleUnseen(s)" class="unseen-dot" title="An agent made or changed it since you last opened it" />
-          <span class="max-w-full truncate" :class="[scheduleUnseen(s) ? 'font-semibold' : 'font-medium', s.enabled ? 'text-fg' : 'text-muted']">{{ s.title }}</span>
+          <!-- The row's own button, beside its pause and ⋯ rather than around them (ORR-1280); the rest of the row opens it too. -->
+          <button type="button" tabindex="-1" class="max-w-full truncate text-left outline-none hover:underline" :class="[scheduleUnseen(s) ? 'font-semibold' : 'font-medium', s.enabled ? 'text-fg' : 'text-muted']" :aria-label="`Edit ${s.title}`" @click.stop="edit(s.project, s)">{{ s.title }}</button>
           <span
               class="shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium"
               :class="s.kind === 'message' ? 'bg-sky-500/12 text-sky-700 dark:text-sky-300' : s.kind === 'session' ? 'bg-violet-500/12 text-violet-700 dark:text-violet-300' : s.kind === 'action' ? 'bg-amber-500/12 text-amber-800 dark:text-amber-300' : 'bg-accent-500/12 text-accent-700 dark:text-accent-300'"
