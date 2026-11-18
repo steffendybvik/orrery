@@ -35,14 +35,14 @@ function lightFirst() {
 <template>
   <Listbox v-slot="{open}" v-model="model" as="div" class="relative" multiple>
     <ListboxButton
-        class="flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium ring-1 transition-colors"
+        class="flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-xs font-medium ring-1 transition-colors"
         :class="lit ? 'bg-accent-500/10 text-accent-700 ring-accent-500/30 dark:text-accent-300' : 'text-muted ring-line hover:bg-hover hover:text-fg'"
     >
       <slot name="icon" />
-      {{ summary }}
-      <svg class="size-3 opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+      <span class="truncate max-sm:flex-1 max-sm:text-left">{{ summary }}</span>
+      <svg class="size-3 shrink-0 opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6" /></svg>
     </ListboxButton>
-    <div v-if="open" class="glass absolute top-full right-0 z-40 mt-1.5 w-48 animate-fade-up rounded-xl p-1" @vue:mounted="lightFirst">
+    <div v-if="open" class="glass absolute top-full right-0 z-40 mt-1.5 w-48 max-sm:left-0 max-sm:w-auto animate-fade-up rounded-xl p-1" @vue:mounted="lightFirst">
       <ListboxOptions ref="list" class="focus:outline-none">
         <ListboxOption v-for="option in options" :key="option.value" v-slot="{active, selected}" :value="option.value" as="template">
           <li class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-fg" :class="active && 'bg-hover'">

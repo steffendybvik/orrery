@@ -162,3 +162,23 @@ test.describe('on a desktop', () => {
         expect(sizes.some(({size}) => size < 16), JSON.stringify(sizes)).toBe(true)
     })
 })
+
+// Below `sm` the filters other than the text box fold into a Filters button (ORR-1281), which opens them in a list
+// and counts the ones narrowing what shows.
+test('the filters sit behind a Filters button that counts the ones set', async ({page}) => {
+    await page.goto('/p/pocket')
+    const button = page.getByRole('button', {name: 'Filters', exact: true})
+    await expect(button).toBeVisible()
+    await expect(page.getByRole('button', {name: /^Priority/})).toBeHidden()
+    await button.tap()
+    await expect(button).toHaveAttribute('aria-expanded', 'true')
+    await page.getByRole('button', {name: /^Priority/}).tap()
+    await page.getByRole('option', {name: /P1 · High/}).tap()
+    await expect(page.getByRole('button', {name: 'Filters · 1'})).toBeVisible()
+    expect(await scrollsSideways(page)).toBe(false)
+    // A tap outside closes the list; the count stays, and Clear goes back.
+    await page.getByRole('heading', {level: 1}).first().tap()
+    await expect(page.getByRole('button', {name: /^Priority/})).toBeHidden()
+    await page.getByRole('button', {name: 'Clear'}).tap()
+    await expect(page.getByRole('button', {name: 'Filters', exact: true})).toBeVisible()
+})
