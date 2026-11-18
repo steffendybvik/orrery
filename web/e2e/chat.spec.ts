@@ -1142,6 +1142,9 @@ test('pops out into a window of its own, which the corner button brings back, an
     await expect(popup).toHaveURL(/\/chat\?project=observatory$/)
     const own = popup.getByRole('region', {name: 'Chat'})
     await expect(own.getByRole('heading', {name: 'Ask about Observatory'})).toBeVisible()
+    // Its own h1 and a tab title naming the app, as every page has (ORR-1285).
+    await expect(popup.getByRole('heading', {level: 1, name: 'Chat'})).toHaveCount(1)
+    await expect(popup).toHaveTitle('Chat · orrery')
     await expect(popup.getByRole('button', {name: 'Agent', exact: true})).toHaveCount(0)
     await expect(own.getByRole('button', {name: /^Close the chat/})).toHaveCount(0)
     await expect(own.getByRole('button', {name: /Make the chat (larger|smaller)/})).toHaveCount(0)
