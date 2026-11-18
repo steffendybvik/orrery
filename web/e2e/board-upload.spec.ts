@@ -76,10 +76,11 @@ test('brings a board\'s comments, pictures and docs along with its issues (ORR-1
 })
 
 test("holds an uploaded board's Todo out of a session's pick list till the owner lets sessions pick from it (ORR-1224)", async ({page, request, baseURL}) => {
-    await makeProject(request, {name: 'Chandlery', key: 'CHA'})
-    const issue = await projectApi('chandlery')(request, 'post', '/issues', {title: 'Coil the rope', status: 'todo'})
-    const file = await (await request.get('/api/projects/chandlery/export')).json()
-    const [id, key] = test.info().retry ? ['ropewalk-again', 'RWA'] : ['ropewalk', 'RWK']
+    // A retry starts from a board of its own: the first try's issue would be on the upload too.
+    const [from, fromKey, id, key] = test.info().retry ? ['chandlery-again', 'CHB', 'ropewalk-again', 'RWA'] : ['chandlery', 'CHA', 'ropewalk', 'RWK']
+    await makeProject(request, {name: from, key: fromKey})
+    const issue = await projectApi(from)(request, 'post', '/issues', {title: 'Coil the rope', status: 'todo'})
+    const file = await (await request.get(`/api/projects/${from}/export`)).json()
     const uploaded = await request.post(`/api/projects/upload?id=${id}&key=${key}&name=Ropewalk`, {data: file, headers: OWNER})
     expect(uploaded.status(), await uploaded.text()).toBe(201)
 

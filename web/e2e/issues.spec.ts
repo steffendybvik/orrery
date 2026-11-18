@@ -101,22 +101,25 @@ test('a change shows up live in another tab', async ({page, context, request}) =
 })
 
 test('the issues start on the open ones, Done and Canceled a tick away', async ({page, request}) => {
-    await api(request, 'post', '/issues', {title: 'Shipped pantry export', status: 'done'})
-    await api(request, 'post', '/issues', {title: 'Dropped barcode idea', status: 'canceled'})
+    // A retry's issues are named apart: the first try's are still there.
+    const again = test.info().retry ? ' again' : ''
+    const shipped = `Shipped pantry export${again}`, dropped = `Dropped barcode idea${again}`
+    await api(request, 'post', '/issues', {title: shipped, status: 'done'})
+    await api(request, 'post', '/issues', {title: dropped, status: 'canceled'})
     await page.goto('/p/scullery?view=list')
     await expect(page.getByText('Expiry badges: soon and gone')).toBeVisible()
-    await expect(page.getByText('Shipped pantry export')).toBeHidden()
-    await expect(page.getByText('Dropped barcode idea')).toBeHidden()
+    await expect(page.getByText(shipped)).toBeHidden()
+    await expect(page.getByText(dropped)).toBeHidden()
     await expect(page.getByRole('button', {name: 'Clear'})).toBeHidden()
 
     await page.getByRole('button', {name: /^Status ·/}).click()
     await page.getByRole('option').filter({hasText: /^Done$/}).click()
-    await expect(page.getByText('Shipped pantry export')).toBeVisible()
-    await expect(page.getByText('Dropped barcode idea')).toBeHidden()
+    await expect(page.getByText(shipped)).toBeVisible()
+    await expect(page.getByText(dropped)).toBeHidden()
 
     await page.keyboard.press('Escape')
     await page.getByRole('button', {name: 'Clear'}).click()
-    await expect(page.getByText('Shipped pantry export')).toBeHidden()
+    await expect(page.getByText(shipped)).toBeHidden()
 })
 
 test("marks what changed since the owner last looked, but not the owner's own changes", async ({page, request}) => {
