@@ -3,7 +3,7 @@ import {TINTS} from '#shared/roadmap'
 
 // The welcome (ORR-1194): someone new is walked through four short steps before the board, one a screen, each but the
 // first skippable, for someone who isn't a developer. Their name (only while the orrery's owner has none, as the first
-// open asks it: required, as before), their workspace's name and colour (when it's theirs), connecting this computer's
+// open asks it: required, as before), their workspace's name and colour (when it's theirs and still unnamed, ORR-1315), connecting this computer's
 // agent (the install line, ticked once a launcher connects), and their first project, or the demo. It opens on an
 // orrery's first open and for someone whose workspace has no project yet, until they finish or skip it in this browser,
 // and never in a workspace they've just made from the switcher.
@@ -34,9 +34,16 @@ const askedName = ref(false)
 watchEffect(() => {
     if (!named.value) askedName.value = true
 })
+// The workspace's name only while it has none of its own yet (`Default`, as an installation's first starts out): one
+// made from the switcher was named there, so it isn't asked again in another browser (ORR-1315). Kept once asked, as the
+// name is, so saving it doesn't change the count.
+const askedWorkspace = ref(false)
+watchEffect(() => {
+    if (workspace.value?.role === 'owner' && workspace.value.name === 'Default') askedWorkspace.value = true
+})
 const steps = computed<Step[]>(() => [
     ...!named.value || askedName.value ? ['name' as const] : [],
-    ...workspace.value?.role === 'owner' ? ['workspace' as const] : [],
+    ...askedWorkspace.value ? ['workspace' as const] : [],
     'agent', 'project',
 ])
 const step = computed(() => steps.value.find(s => !answered.value.has(s)))
