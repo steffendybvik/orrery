@@ -1096,6 +1096,30 @@ describe('a global session (ORR-1079)', () => {
     })
 })
 
+describe('a session started in a folder picked of several (ORR-1314)', () => {
+    it('goes only to the launcher in that folder, while any launcher may claim one with none', async () => {
+        vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
+        const main = launches.addLauncher('greenhouse', '/repos/greenhouse')
+        const worktree = launches.addLauncher('greenhouse', '/repos/greenhouse-worktree')
+        const launch = await launches.startLaunch('greenhouse', {dir: '/repos/greenhouse'})
+        expect(launch).toMatchObject({project: 'greenhouse', dir: '/repos/greenhouse'})
+        expect(launches.claim('greenhouse', launch.id, worktree.token)).toBe(false)
+        expect(launches.claim('greenhouse', launch.id, main.token)).toBe(true)
+        const any = await launches.startLaunch('greenhouse')
+        expect(any).not.toHaveProperty('dir')
+        expect(launches.claim('greenhouse', any.id, worktree.token)).toBe(true)
+    })
+
+    it('is refused a folder no launcher serves the project from, and with a global session', async () => {
+        vi.stubGlobal('badRequest', (message: string) => Object.assign(new Error(message), {statusCode: 400}))
+        launches.addLauncher('greenhouse', '/repos/greenhouse')
+        await expect(launches.startLaunch('greenhouse', {dir: '/repos/elsewhere'})).rejects.toThrow('No launcher serves greenhouse from /repos/elsewhere')
+        await expect(launches.startLaunch('greenhouse', {dir: '/repos/greenhouse', global: true})).rejects.toThrow('not both')
+        expect(launches.startInput({dir: '/repos/greenhouse'})).toMatchObject({dir: '/repos/greenhouse'})
+        expect(() => launches.startInput({dir: 3})).toThrow('Send {dir}')
+    })
+})
+
 describe('a launcher reporting the sessions it runs', () => {
     const running = {id: 'a1b2c3d4e5f6', tmux: 'orrery-greenhouse-a1b2c3d4e5f6', stops_at: '2026-10-25T20:00:00.000Z'}
 
