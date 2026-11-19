@@ -227,6 +227,28 @@ describe('StartSessionDialog', () => {
         expect(sent[0]!.body).toMatchObject({model: 'haiku'})
     })
 
+    it('asks which folder for a project served from several, and starts it there (ORR-1314)', async () => {
+        const pantry = STATES.pantry as {folders: string[]}
+        pantry.folders = ['/src/pantry', '/src/pantry-worktree']
+        try {
+            const {wrapper, submit} = await mount('pantry')
+            const picker = 'button[data-picker="Folder for Pantry"]'
+            await vi.waitFor(() => expect(wrapper.find(picker).exists()).toBe(true))
+            // Greenhouse, in one folder, gets no choice.
+            expect(wrapper.find('button[data-picker="Folder for Greenhouse"]').exists()).toBe(false)
+            await wrapper.find(picker).trigger('click')
+            await vi.waitFor(() => expect(wrapper.findAll('[role="option"]').some(o => o.text().trim() === '/src/pantry-worktree')).toBe(true))
+            await wrapper.findAll('[role="option"]').find(o => o.text().trim() === '/src/pantry-worktree')!.trigger('mousedown', {button: 0})
+            await vi.waitFor(() => expect(wrapper.find('[data-testid="start-folder"]').text()).toContain('/src/pantry-worktree'))
+            await vi.waitFor(() => expect(submit().attributes('disabled')).toBeUndefined())
+            await wrapper.find('form').trigger('submit')
+            await started(1)
+            expect(sent[0]!.body).toMatchObject({hears: ['pantry'], dir: '/src/pantry-worktree'})
+        } finally {
+            pantry.folders = ['/src/pantry']
+        }
+    })
+
     it('says how many started when the limit refuses the rest', async () => {
         room = {greenhouse: 1}
         const {wrapper} = await mount('greenhouse')
