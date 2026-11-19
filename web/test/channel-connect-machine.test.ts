@@ -131,9 +131,62 @@ describe('connecting a machine from the install line', () => {
         await expect(connectIfAsked(ORRERY, {env: {ORRERY_CODE: 'c'}, file: keysAt(), fetch, say: () => {}, name: 'm', open: () => {}, ...clock()})).rejects.toThrow(/no agent key/)
     })
 
-    it('says to make a key by hand on an orrery that cannot connect a machine', async () => {
+    it("stops when the line's code is refused for another reason, saying the orrery's own words, keeping nothing (ORR-1312)", async () => {
+        const file = keysAt()
+        const {fetch, calls} = server({good: 'k', answers: {connect: [json(429, {message: 'Too many codes tried'})]}})
+        await expect(connectIfAsked(ORRERY, {env: {ORRERY_CODE: 'abc'}, file, fetch, say: () => {}, name: 'ada-mac', open: () => {}, ...clock()}))
+            .rejects.toThrow(`${ORRERY} couldn't connect ada-mac with this line's code (429: Too many codes tried), so nothing was installed: run this again`)
+        // It doesn't go on to ask instead.
+        expect(calls.filter(c => c.url.endsWith('/api/machines/connect'))).toHaveLength(1)
+        expect(() => readFileSync(file)).toThrow()
+        // An answer with no message says its status alone.
+        const bare = server({good: 'k', answers: {connect: [new Response('<html>Bad gateway</html>', {status: 502})]}})
+        await expect(connectIfAsked(ORRERY, {env: {ORRERY_CODE: 'abc'}, file, fetch: bare.fetch, say: () => {}, name: 'ada-mac', open: () => {}, ...clock()}))
+            .rejects.toThrow(`${ORRERY} couldn't connect ada-mac with this line's code (502), so nothing was installed: run this again`)
+    })
+
+    it("says it couldn't reach the orrery, with the line's code or without (ORR-1312)", async () => {
+        const down = (asked: string) => async (url: string) => {
+            if (url.endsWith('/api/settings')) return json(401, {message: 'Sign in'})
+            throw new TypeError(`fetch failed: ${asked}`)
+        }
+        const line = `couldn't reach ${ORRERY} to connect ada-mac (fetch failed: ECONNREFUSED): run this again once it answers`
+        await expect(connectIfAsked(ORRERY, {env: {ORRERY_CODE: 'abc'}, file: keysAt(), fetch: down('ECONNREFUSED'), say: () => {}, name: 'ada-mac', open: () => {}, ...clock()})).rejects.toThrow(line)
+        await expect(connectIfAsked(ORRERY, {env: {}, file: keysAt(), fetch: down('ECONNREFUSED'), say: () => {}, name: 'ada-mac', open: () => {}, ...clock()})).rejects.toThrow(line)
+    })
+
+    it('keeps asking through a moment it cannot reach the orrery while it waits for Connect', async () => {
+        const file = keysAt()
+        const {fetch: answering} = server({good: 'k', answers: {
+            connect: [json(201, {request: 'r1', secret: 's1', words: 'a b c', url: `${ORRERY}/c`, expires_at: '2026-11-14T10:10:00Z'})],
+            claim: [json(201, {key: 'orrery_agent_k'})],
+        }})
+        let dropped = 0
+        const fetch = async (url: string, init?: RequestInit) => url.endsWith('/claim') && dropped++ < 2 ? Promise.reject(new TypeError('fetch failed')) : answering(url, init)
+        await connectIfAsked(ORRERY, {env: {}, file, fetch, say: () => {}, name: 'ada-mac', open: () => {}, ...clock()})
+        expect(dropped).toBe(3)
+        expect(keyFor(ORRERY, {env: {}, file})).toBe('orrery_agent_k')
+    })
+
+    it('says to make a key, and where to put it, on an orrery that cannot connect a machine (ORR-1312)', async () => {
+        const file = keysAt()
         const {fetch} = server({good: 'k', answers: {connect: [json(404)]}})
-        await expect(connectIfAsked(ORRERY, {env: {}, file: keysAt(), fetch, say: () => {}, name: 'm', open: () => {}, ...clock()})).rejects.toThrow(/make an agent key on its page/)
+        await expect(connectIfAsked(ORRERY, {env: {}, file, fetch, say: () => {}, name: 'm', open: () => {}, ...clock()}))
+            .rejects.toThrow(`${ORRERY} asks for a credential, and can't connect a machine itself: make an agent key on its page, and set ORRERY_KEY (or add it to ${file})`)
+        // Nor after a used code: the 401 falls through to asking, which gets the 404.
+        const used = server({good: 'k', answers: {connect: [json(401), json(404)]}})
+        await expect(connectIfAsked(ORRERY, {env: {ORRERY_CODE: 'old'}, file, fetch: used.fetch, say: () => {}, name: 'm', open: () => {}, ...clock()})).rejects.toThrow(/make an agent key on its page/)
+    })
+
+    it("stops when the orrery won't take the request to connect, saying why (ORR-1312)", async () => {
+        const opened: string[] = []
+        const {fetch} = server({good: 'k', answers: {connect: [json(403, {message: 'Machines connect only from the owner\'s network'})]}})
+        await expect(connectIfAsked(ORRERY, {env: {}, file: keysAt(), fetch, say: () => {}, name: 'ada-mac', open: (u: string) => opened.push(u), ...clock()}))
+            .rejects.toThrow(`${ORRERY} wouldn't take ada-mac's request to connect (403: Machines connect only from the owner's network), so nothing was installed: run this again`)
+        expect(opened).toEqual([])
+        const bare = server({good: 'k', answers: {connect: [new Response('', {status: 500})]}})
+        await expect(connectIfAsked(ORRERY, {env: {}, file: keysAt(), fetch: bare.fetch, say: () => {}, name: 'ada-mac', open: () => {}, ...clock()}))
+            .rejects.toThrow(`${ORRERY} wouldn't take ada-mac's request to connect (500), so nothing was installed: run this again`)
     })
 
     it("won't overwrite a keys file it can't read", () => {
