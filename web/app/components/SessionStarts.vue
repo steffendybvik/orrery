@@ -55,7 +55,7 @@ async function saveStarts(on = !!settings.value.starts) {
       <li class="flex flex-wrap items-center gap-2">
         <span class="w-36">Most running at once:</span>
         <input v-model.number="limit" type="number" min="1" max="20" aria-label="Sessions at once" :class="field" :disabled="!settings.starts" @change="saveStarts()">
-        <span>across all projects</span>
+        <span>across this workspace's projects</span>
       </li>
       <li class="flex flex-wrap items-center gap-2">
         <span class="w-36">Always keep running:</span>
