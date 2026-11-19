@@ -164,3 +164,88 @@ test('a session goes from its start to its stop through the real launcher, chann
         await request.delete(`/api/projects/${project}`, {headers: OWNER})
     }
 })
+
+// The same path in a second workspace (ORR-1311): Start session on a project there starts a session that works in that
+// workspace alone. Its calls land on the issue there, only that workspace's Sessions page lists it, and a project in
+// `default` is refused to it, though nothing but the workspace it was handed stops it asking.
+test('a session started in a second workspace works there, and is refused a project in default', async ({page, request, baseURL}) => {
+    test.setTimeout(120_000)
+    const suffix = Date.now().toString(36)
+    const made = await request.post('/api/workspaces', {data: {name: `Allotment ${suffix}`}, headers: OWNER})
+    expect(made.ok(), await made.text()).toBeTruthy()
+    const {id: workspace, name: workspaceName} = await made.json() as {id: string, name: string}
+    const inWorkspace = {...OWNER, 'Orrery-Workspace': workspace}
+    const boat = await request.post('/api/projects', {data: {name: `Greenhouse ${suffix}`, key: 'GRH'}, headers: {'Orrery-Actor': 'claude', 'Orrery-Workspace': workspace}})
+    expect(boat.ok(), await boat.text()).toBeTruthy()
+    const {id: project, name} = await boat.json() as {id: string, name: string}
+    const {id: home} = await makeProject(request, {name: 'Homeplot', key: 'HMP'})
+    const api = projectApi(project)
+    const issue = async (id: string) => api(request, 'get', `/issues/${id}`) as Promise<{status: string, assignee?: string}>
+    // The limit is the workspace's own (ORR-1313), and a new one starts nothing until the owner lets it.
+    expect((await request.patch('/api/settings', {data: {starts: {limit: 5}}, headers: inWorkspace})).ok()).toBeTruthy()
+    const box = machine(baseURL!, project)
+    const running: ChildProcess[] = []
+    let window: Awaited<ReturnType<typeof claude>> | undefined
+    try {
+        const {id: planted} = await api(request, 'post', '/issues', {title: 'Plant the tomatoes', status: 'todo'}, inWorkspace)
+        expect(planted).toBe('GRH-1')
+        const {id: away} = await projectApi(home)(request, 'post', '/issues', {title: 'Mow the lawn', status: 'todo'}, OWNER)
+        running.push(box.startLauncher())
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers, WAIT).toBeGreaterThan(0)
+
+        await test.step("Start session on the workspace's Sessions page has the launcher start one in it", async () => {
+            await page.goto(`/w/${workspace}/sessions`)
+            await page.getByRole('button', {name: 'Start session'}).first().click()
+            const dialog = page.getByRole('dialog', {name: 'Start session'})
+            // Only this workspace's projects are offered.
+            await expect(dialog.getByRole('checkbox', {name})).toBeVisible()
+            await expect(dialog.getByRole('checkbox', {name: 'Homeplot'})).toHaveCount(0)
+            await dialog.getByRole('checkbox', {name}).check()
+            await dialog.locator('[data-picker="Issue"]').click()
+            await page.getByRole('option', {name: /GRH-1/}).click()
+            await dialog.getByRole('button', {name: /^Start session/}).click()
+            await expect.poll(() => box.calls().filter(call => call[0] === 'new-session').length, WAIT).toBe(1)
+        })
+
+        const started = box.calls().find(call => call[0] === 'new-session')!
+        const handedDown = Object.fromEntries(started.flatMap((word, at) => started[at - 1] === '-e' ? [word.split(/=(.*)/s).slice(0, 2) as [string, string]] : []))
+        expect(handedDown).toMatchObject({ORRERY_WORKSPACE: workspace, ORRERY_PROJECT: project})
+
+        await test.step("its calls land on the workspace's issue", async () => {
+            window = await claude(box.env, handedDown, 'window-1')
+            await window.hook('SessionStart', 'window-1', {source: 'startup'})
+            await expect.poll(async () => (await api(request, 'get', '/sessions') as Listed[]).find(s => s.id === 'window-1'), WAIT).toMatchObject({listening: true})
+            await window.hook('UserPromptSubmit', 'window-1')
+            const answered = await window.client.callTool({name: 'start_issue', arguments: {id: 'GRH-1', comment: 'Seedlings out.'}})
+            expect(answered.isError, JSON.stringify(answered.content)).toBeFalsy()
+            // A workspace's statuses are its own, their ids led by its id (ORR-1107).
+            expect(await issue('GRH-1')).toMatchObject({status: `${workspace}-in-progress`, assignee: 'claude'})
+            expect(await api(request, 'get', '/issues/GRH-1/comments')).toContainEqual(expect.objectContaining({created_by: 'claude', body: 'Seedlings out.'}))
+        })
+
+        await test.step("only the workspace's Sessions page lists it", async () => {
+            await page.goto(`/w/${workspace}/sessions`)
+            await expect(page.locator('#session-window-1')).toBeVisible({timeout: 30_000})
+            await page.goto('/w/default/sessions')
+            await expect(page.getByRole('button', {name: 'Start session'}).first()).toBeVisible({timeout: 30_000})
+            await expect(page.locator('#session-window-1')).toHaveCount(0)
+        })
+
+        await test.step('a project in default is refused to it, read or written', async () => {
+            // What its channel sends on each call: its session, and the workspace the launcher handed it.
+            const as = {'Orrery-Actor': 'claude', 'Orrery-Session': 'window-1', 'Orrery-Workspace': handedDown.ORRERY_WORKSPACE!}
+            const read = await request.get(`/api/projects/${home}/issues/${away}`, {headers: as})
+            expect(read.status()).toBe(403)
+            expect(await read.text()).toContain(`works in workspace ${workspace}`)
+            const wrote = await request.post(`/api/projects/${home}/issues/${away}/comments`, {data: {body: 'Mowed.'}, headers: as})
+            expect(wrote.status()).toBe(403)
+            expect(await projectApi(home)(request, 'get', `/issues/${away}/comments`)).toEqual([])
+        })
+    } finally {
+        await window?.stop().catch(() => {})
+        running.forEach(child => child.kill('SIGKILL'))
+        // Deleting the workspace takes its project with it.
+        await request.delete(`/api/workspaces/${workspace}`, {data: {confirm: workspaceName}, headers: OWNER})
+        await request.delete(`/api/projects/${home}`, {headers: OWNER})
+    }
+})
