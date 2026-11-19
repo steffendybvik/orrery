@@ -2,9 +2,11 @@
 // default branch, and the project's `repo` as orrery has it. The hook adds it to a session's context on
 // `SessionStart`, and the launcher to the system prompt of a session it starts, so it outlasts a `/clear`. Read on the
 // machine, as orrery only knows a folder's name. A folder outside any git repo (the launcher's default folder, say)
-// says there's no repo, so Claude doesn't go looking for one.
+// says there's no repo, so Claude doesn't go looking for one; a folder holding the project's repo one level down (a
+// launcher serving several projects from the folder their repos sit in, ORR-1307) says where it is.
 import {execFileSync} from 'node:child_process'
-import {resolve} from 'node:path'
+import {existsSync, readdirSync} from 'node:fs'
+import {join, resolve} from 'node:path'
 
 /** `git -C dir …`'s output, trimmed; none when it fails (no git, not a repo, no such ref). */
 function git(dir, ...args) {
@@ -35,13 +37,37 @@ export function githubName(address) {
     return match ? `${match[1]}/${match[2]}`.toLowerCase() : undefined
 }
 
+/** The git repos directly inside `dir` whose origin is the GitHub repo `address`: where the project is checked out
+ * when a session starts in the folder its repos sit in (ORR-1307). Only folders with a `.git` of their own are asked. */
+export function checkoutsIn(dir, address, read = repoOf) {
+    const wanted = githubName(address)
+    if (!wanted) return []
+    let entries
+    try {
+        entries = readdirSync(dir, {withFileTypes: true})
+    } catch {
+        return []
+    }
+    return entries
+        .filter(entry => entry.isDirectory() && !entry.name.startsWith('.') && existsSync(join(dir, entry.name, '.git')))
+        .map(entry => join(dir, entry.name))
+        .filter(path => githubName(read(path)?.origin) === wanted)
+}
+
 /** The lines telling Claude where it is: for `dir`, on `project`, whose `repo` orrery has (or none). `repo` is the
  * repo as `repoOf` reads it, passed in by tests. */
-export function repoContext(dir, {project, repo: address, read = repoOf} = {}) {
+export function repoContext(dir, {project, repo: address, read = repoOf, below = checkoutsIn} = {}) {
     const folder = resolve(dir || process.cwd())
     const repo = read(folder)
     const named = address ? `Project "${project}"'s repo in orrery is ${address}` : project ? `Project "${project}" names no repo in orrery` : ''
     if (!repo) {
+        const checkouts = address ? below(folder, address, read) : []
+        if (checkouts.length) {
+            return [
+                `orrery: this session's folder, ${folder}, isn't itself a git repo, but holds the project's.`,
+                `${named}, checked out at ${checkouts.join(', ')}. Work in ${checkouts.length === 1 ? 'that checkout' : 'one of those'} (or a worktree of it), not in this folder.`,
+            ].join('\n')
+        }
         return [
             `orrery: this session's folder, ${folder}, isn't in a git repo. There's no repo to work in here; don't look for one.`,
             ...address ? [`${named}, and it isn't checked out in this folder.`] : [],

@@ -69,6 +69,21 @@ describe('which repo a session is told it is in', () => {
             .toContain(`Project "greenhouse"'s repo in orrery is https://github.com/hati/greenhouse, and it isn't checked out in this folder.`)
     })
 
+    it("says where the project's repo is checked out in a folder that holds it, rather than that there's none (ORR-1307)", () => {
+        const dir = folder()
+        const checkout = repo()
+        const inside = join(dir, 'greenhouse')
+        execFileSync('git', ['clone', '-q', checkout, inside], {stdio: 'ignore'})
+        git(inside, 'remote', 'set-url', 'origin', 'https://github.com/Hati/Greenhouse.git')
+        mkdirSync(join(dir, 'pantry'))
+        expect(repoContext(dir, {project: 'greenhouse', repo: 'https://github.com/hati/greenhouse'})).toBe([
+            `orrery: this session's folder, ${dir}, isn't itself a git repo, but holds the project's.`,
+            `Project "greenhouse"'s repo in orrery is https://github.com/hati/greenhouse, checked out at ${inside}. Work in that checkout (or a worktree of it), not in this folder.`,
+        ].join('\n'))
+        // Another project's repo in the folder isn't taken for this one's.
+        expect(repoContext(dir, {project: 'pantry', repo: 'https://github.com/hati/pantry'})).toContain("isn't checked out in this folder.")
+    })
+
     it('knows a GitHub repo by owner and name in any of its forms', () => {
         for (const address of ['https://github.com/Hati/Greenhouse', 'https://github.com/hati/greenhouse.git', 'git@github.com:hati/greenhouse.git', 'ssh://git@github.com/hati/greenhouse/'])
             expect(githubName(address)).toBe('hati/greenhouse')
