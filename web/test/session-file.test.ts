@@ -1,9 +1,9 @@
-import {mkdtempSync, utimesSync} from 'node:fs'
+import {existsSync, mkdtempSync, utimesSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: plain JavaScript, no types
-import {readSessionFile, waitForSessionFile, writeSessionFile} from '../../channel/session-file.mjs'
+import {pidAlive, readSessionFile, sweepSessionFiles, waitForSessionFile, writeSessionFile} from '../../channel/session-file.mjs'
 // @ts-expect-error: plain JavaScript, no types
 import {sessionHeaders} from '../../channel/mcp-beside.mjs'
 
@@ -50,5 +50,24 @@ describe("a session's file for /mcp", () => {
         setTimeout(() => writeSessionFile(4242, sessionHeaders({session: 's1'}), where), 50)
         expect((await waitForSessionFile(4242, {dir: where, within: 2000, every: 10, started: undefined}))?.['Orrery-Session']).toBe('s1')
         expect(await waitForSessionFile(4243, {dir: where, within: 50, every: 10, started: undefined})).toBeUndefined()
+    })
+})
+
+describe('sweeping the files of sessions that have ended (ORR-1316)', () => {
+    it("takes away a gone pid's file and an old half-written one, and leaves a running one's", () => {
+        const dir = mkdtempSync(join(tmpdir(), 'orrery-sweep-'))
+        writeSessionFile(4242, {'Orrery-Session': 'a'}, dir)
+        writeSessionFile(5151, {'Orrery-Session': 'b'}, dir)
+        writeFileSync(join(dir, '6161.1.part'), '{}')
+        writeFileSync(join(dir, '7171.1.part'), '{}')
+        const hourAgo = (Date.now() - 2 * 60 * 60 * 1000) / 1000
+        utimesSync(join(dir, '6161.1.part'), hourAgo, hourAgo)
+        expect(sweepSessionFiles({dir, alive: pid => pid === 5151})).toBe(2)
+        expect(['4242', '5151', '6161.1.part', '7171.1.part'].map(name => existsSync(join(dir, name)))).toEqual([false, true, false, true])
+        expect(sweepSessionFiles({dir: join(dir, 'none')})).toBe(0)
+    })
+
+    it('knows this process is running', () => {
+        expect(pidAlive(process.pid)).toBe(true)
     })
 })

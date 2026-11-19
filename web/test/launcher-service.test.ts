@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it, vi} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
-import {addToList, adoptable, inWsl, installedFrom, keepingSessions, launcherAlive, listChanges, listIn, pickUp, plist, projectAt, readConfig, RELOADS, removeFromList, servedElsewhere, serviceProblem, skipping, systemdUnit, withAgent, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
+import {addToList, adoptable, answers, inWsl, installedFrom, keepingSessions, launcherAlive, listChanges, listIn, pickUp, plist, orrerysOn, projectAt, pruneList, readConfig, RELOADS, removeFromList, servedElsewhere, serviceProblem, skipping, systemdUnit, unanswered, withAgent, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
 // @ts-expect-error: the same
 import {follow} from '../../channel/sse.mjs'
 
@@ -301,5 +301,43 @@ describe('taking over a running session', () => {
             served.kill()
         }
         expect(launcherAlive(process.pid)).toBe(false)
+    })
+})
+
+describe('orrerys on the list that have gone (ORR-1316)', () => {
+    const listed = () => {
+        const file = join(mkdtempSync(join(tmpdir(), 'orrery-prune-')), 'launcher.json')
+        writeFileSync(file, JSON.stringify({
+            projects: [
+                {url: 'https://orrery.example.com', project: 'shop', dir: '/apps'},
+                {url: 'http://localhost:9010', project: 'shop', dir: '/apps/shop'},
+                {url: 'http://localhost:9020', project: 'hub', dir: '/work/hub'},
+            ],
+            pickUp: true, skip: ['/old'], orreries: ['http://localhost:9010', 'https://orrery.example.com'], agent: 'claude',
+        }))
+        return file
+    }
+
+    it('names each orrery once, its projects\' and those it follows', () => {
+        expect(orrerysOn(readConfig(listed()))).toEqual(['https://orrery.example.com', 'http://localhost:9010', 'http://localhost:9020'])
+    })
+
+    it('finds those nothing answers at, a refusal counting as an answer', async () => {
+        const answer = async (url: string) => url.startsWith('https://')
+        expect(await unanswered(readConfig(listed()), {answer})).toEqual(['http://localhost:9010', 'http://localhost:9020'])
+        expect(await answers('https://orrery.example.com/', {fetcher: async () => new Response('', {status: 401})})).toBe(true)
+        expect(await answers('http://localhost:9010', {fetcher: async () => { throw new TypeError('fetch failed') }})).toBe(false)
+    })
+
+    it("takes their projects off, and them off the orrerys it follows, keeping the rest of the list", () => {
+        const file = listed()
+        const off = pruneList(['http://localhost:9010', 'http://localhost:9020'], {file})
+        expect(off.map(p => `${p.project} ${p.url}`)).toEqual(['shop http://localhost:9010', 'hub http://localhost:9020'])
+        expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({
+            projects: [{url: 'https://orrery.example.com', project: 'shop', dir: '/apps'}],
+            pickUp: true, skip: ['/old'], orreries: ['https://orrery.example.com'], agent: 'claude',
+        })
+        // Nothing more to take off, so the file isn't written again.
+        expect(pruneList(['http://localhost:9010'], {file})).toEqual([])
     })
 })

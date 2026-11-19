@@ -46,7 +46,8 @@ import {connector, pickerFor} from './connect-repo.mjs'
 import {commandsFor, homeFolder, homeProjects, setUpHome} from './home-folder.mjs'
 import {authHeaders, keyFor, keysFile} from './credentials.mjs'
 import {connectIfAsked} from './connect-machine.mjs'
-import {addToList, adoptable, configFile, inWsl, install, listChanges, listIn, readConfig, removeFromList, removeService, restartKeepsSessions, servedElsewhere, serviceProblem, uninstall, wslLocalhost} from './launcher-service.mjs'
+import {addToList, adoptable, configFile, inWsl, install, listChanges, listIn, pruneList, readConfig, removeFromList, removeService, restartKeepsSessions, servedElsewhere, serviceProblem, unanswered, uninstall, wslLocalhost} from './launcher-service.mjs'
+import {sweepSessionFiles} from './session-file.mjs'
 import {agentFor} from './agents.mjs'
 import {repoContext} from './repo-context.mjs'
 import {channelFor, channelsIn, onOrrery, projectsIn, servesEvery} from './repo-channels.mjs'
@@ -110,11 +111,13 @@ const USAGE = `orrery's launcher: starts Claude sessions for orrery's projects, 
                        --no-pick-up       with --install: don't let a Claude session add its repo
                        --agent=<name>     with --install: the agent its sessions run (claude, the default and only one so far)
   node orrery-launcher.mjs --uninstall    in a repo, take its projects off and keep them off; elsewhere, remove the service
-  node orrery-launcher.mjs --list         which projects this repo would add, and with which channel
+  node orrery-launcher.mjs --list         which projects this repo would add, and with which channel, and the
+                                          orrerys on the list that don't answer
+  node orrery-launcher.mjs --prune        take the projects of orrerys that don't answer off the list
   node orrery-launcher.mjs                run in this terminal for this repo's projects, until stopped
 
 Connect the repo first (orrery's Connect an agent page), so its .mcp.json has the channel.`
-const FLAGS = ['--install', '--uninstall', '--no-pick-up', '--list', '--service', '--help', '-h']
+const FLAGS = ['--install', '--uninstall', '--no-pick-up', '--list', '--prune', '--service', '--help', '-h']
 
 // What the service runs: the bootstrap, when it's that that ran this.
 const script = BOOTSTRAP ? [BOOTSTRAP, 'launcher'] : fileURLToPath(import.meta.url)
@@ -128,13 +131,38 @@ if (unknown.length) {
     console.error(`[orrery launcher] doesn't know ${unknown.join(' ')}\n\n${USAGE}`)
     process.exit(1)
 }
+/** What the list holds for orrerys that don't answer now (ORR-1316), as a line, or none. */
+async function goneLine(config = readConfig()) {
+    const gone = await unanswered(config)
+    if (!gone.length) return ''
+    const count = config.projects.filter(p => gone.includes(p.url)).length
+    return `Nothing answers at ${gone.join(', ')}, which the list still serves ${count} project${count === 1 ? '' : 's'} on: --prune takes ${count === 1 ? 'it' : 'them'} off, once ${gone.length === 1 ? "it's" : "they're"} gone for good.`
+}
 if (args.includes('--list')) {
     const served = readConfig().projects
     for (const {url, project, dir} of here()) {
         const elsewhere = servedElsewhere(served, {url, project, dir})
         console.log(`${project} (${url}): sessions load ${channelFor(dir, url, project)?.name ?? 'no channel'}${elsewhere ? `; served from ${elsewhere.dir}, so --install leaves it there` : ''}`)
     }
+    const gone = await goneLine()
+    if (gone) console.log(gone)
     process.exit(0)
+}
+// Orrerys retired or thrown away stay on the list until taken off (ORR-1316): only those nothing answers at, now.
+if (args.includes('--prune')) {
+    try {
+        const gone = await unanswered(readConfig())
+        const off = gone.length ? pruneList(gone) : []
+        const swept = sweepSessionFiles()
+        console.log(gone.length
+            ? `Nothing answers at ${gone.join(', ')}, so ${off.length ? `took ${off.map(p => `${p.project} (${p.url})`).join(', ')} off the launcher` : 'took them off the orrerys it follows'}; the running service lets ${off.length === 1 ? 'it' : 'them'} go.`
+            : 'Every orrery on the list answers, so nothing was taken off.')
+        if (swept) console.log(`Cleared ${swept} session file${swept === 1 ? '' : 's'} left by Claude sessions that have ended.`)
+        process.exit(0)
+    } catch (error) {
+        log(error.message)
+        process.exit(1)
+    }
 }
 if (args.includes('--install') || args.includes('--uninstall')) {
     try {
@@ -171,6 +199,8 @@ if (args.includes('--install') || args.includes('--uninstall')) {
                 ? "Pick-up is on: a Claude session opened in a repo whose .mcp.json registers orrery's channel puts that repo on it. --uninstall in a repo keeps it off."
                 : "Pick-up is off: run this with --install in a project's repo to put its projects on it.")
             console.log(`Its log: ${logs}`)
+            const gone = await goneLine(config)
+            if (gone) console.log(gone)
             if (lineUrl) await setUpMachine(lineUrl)
             process.exit(0)
         }
@@ -222,6 +252,8 @@ if (args.includes('--install') || args.includes('--uninstall')) {
         console.log(`It serves ${config.projects.map(p => p.project).join(', ')}; the list is ${configFile()}.${restarted ? '' : ' The running service picks the change up itself, so its sessions go on.'}`)
         console.log(`Let orrery start sessions on its Sessions page, if it doesn't yet. Its log: ${logs}`)
         console.log(`If claude hasn't run in ${process.cwd()} before, run it there once to trust the folder.`)
+        const gone = await goneLine(config)
+        if (gone) console.log(gone)
         if (inWsl()) console.log('Inside WSL it runs while the distro does: Windows starts the distro when you open it, and can stop it a while after its last window closes.')
         if (lineUrl) await setUpMachine(lineUrl)
         process.exit(0)
@@ -978,6 +1010,9 @@ if (!projects.length && !service) {
 if (!projects.length) log(`no project is on ${configFile()} yet: it serves each one put there`)
 for (const entry of projects) begin(entry)
 if (service) {
+    // The session files of `claude` processes that ended, which nothing else takes away (ORR-1316).
+    const swept = sweepSessionFiles()
+    if (swept) log(`cleared ${swept} session file${swept === 1 ? '' : 's'} left by Claude sessions that have ended`)
     followConnects(readConfig())
     watchFile(configFile(), {interval: 2000}, follows)
     // New projects, and those that gain or lose a repo, are seen within a minute.
