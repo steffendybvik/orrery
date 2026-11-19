@@ -109,6 +109,41 @@ export function withoutProject(config, entry) {
     return {...config, projects: config.projects.filter(p => !same(p, entry))}
 }
 
+/** The orrerys the list names, once each: its projects' and those it was installed for (`orreries`). */
+export const orrerysOn = config => [...new Set([...config.projects.map(p => p.url), ...config.orreries ?? []].filter(url => typeof url === 'string'))]
+
+/** Whether anything answers at the orrery `url` within `timeout` ms: any reply at all, a refusal included, counts, as only
+ * an orrery that's gone (a retired container, a throwaway port) gives none (ORR-1316). */
+export async function answers(url, {timeout = 4000, fetcher = fetch} = {}) {
+    try {
+        await fetcher(`${url.replace(/\/+$/, '')}/llms.txt`, {signal: AbortSignal.timeout(timeout), redirect: 'manual'})
+        return true
+    } catch {
+        return false
+    }
+}
+
+/** The orrerys on the list that don't answer now (ORR-1316), asked all at once. */
+export async function unanswered(config, {answer = answers} = {}) {
+    const urls = orrerysOn(config)
+    const heard = await Promise.all(urls.map(url => answer(url)))
+    return urls.filter((_, i) => !heard[i])
+}
+
+/** `--prune` (ORR-1316): takes every project on the orrerys `urls` off the list, and the orrerys off `orreries`. It writes
+ * the list alone, which the running service follows, letting their projects go. Says which projects it took off. */
+export function pruneList(urls, {file = configFile()} = {}) {
+    const config = listIn(file)
+    if (!config) throw new Error(`${file} can't be read as a list`)
+    const off = config.projects.filter(p => urls.includes(p.url))
+    const orreries = (config.orreries ?? []).filter(url => !urls.includes(url))
+    const {orreries: _was, ...rest} = config
+    if (off.length || orreries.length !== (config.orreries ?? []).length) {
+        writeList({...rest, projects: config.projects.filter(p => !off.includes(p)), ...orreries.length ? {orreries} : {}}, file)
+    }
+    return off
+}
+
 /** Where the project `entry` is served from another repo than its own, if it is (a monorepo's channel to the personal
  * orrery): `--install` leaves it there unless ORRERY_PROJECT names it, and pick-up always does. */
 export const servedElsewhere = (projects, entry) => projects.find(p => same(p, entry) && p.dir !== entry.dir)
