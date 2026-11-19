@@ -66,7 +66,7 @@ const agentKey = (body, url) => {
 
 /** The agent key the orrery at `url` gives this machine: for the line's code, else once its person presses Connect on
  * the page it prints. Throws, saying what to do, when neither comes. */
-export async function connectMachine(url, {env = process.env, fetch = globalThis.fetch, say = console.log, open = openPage, sleep = ms => new Promise(r => setTimeout(r, ms)), now = Date.now, name = machineName()} = {}) {
+export async function connectMachine(url, {env = process.env, file = keysFile(env), fetch = globalThis.fetch, say = console.log, open = openPage, sleep = ms => new Promise(r => setTimeout(r, ms)), now = Date.now, name = machineName()} = {}) {
     const post = (path, body) => fetch(`${url}/api/machines/${path}`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json', Accept: 'application/json'},
@@ -85,7 +85,7 @@ export async function connectMachine(url, {env = process.env, fetch = globalThis
         if (response.status === 401) say(`This line's code has been used or has run out, so ${name} asks to connect instead.`)
     }
     const response = await post('connect', {name}).catch(error => Promise.reject(unreachable(error)))
-    if (response.status === 404) throw new Error(`${url} asks for a credential, and can't connect a machine itself: make an agent key on its page, and set ORRERY_KEY (or add it to ${keysFile(env)})`)
+    if (response.status === 404) throw new Error(`${url} asks for a credential, and can't connect a machine itself: make an agent key on its page, and set ORRERY_KEY (or add it to ${file})`)
     if (response.status !== 201) {
         const message = await messageOf(response)
         throw new Error(`${url} wouldn't take ${name}'s request to connect (${response.status}${message ? `: ${message}` : ''}), so nothing was installed: run this again`)
@@ -114,7 +114,7 @@ export async function connectIfAsked(url, {env = process.env, file = keysFile(en
     if (status !== 401) return false
     const name = rest.name ?? machineName()
     if (keyFor(url, {env, file})) say(`${url} no longer takes this machine's key, so ${name} connects again.`)
-    const {key, person} = await connectMachine(url, {env, fetch, say, ...rest, name})
+    const {key, person} = await connectMachine(url, {env, file, fetch, say, ...rest, name})
     const kept = saveKey(url, key, {env, file})
     // A key given on the line is sent before the file's: this run sends the new one.
     if (env.ORRERY_KEY?.trim()) env.ORRERY_KEY = key
