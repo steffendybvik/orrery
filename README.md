@@ -31,6 +31,10 @@ In practice:
 <td><img alt="A project's docs: a page on how its sieve works, with the project's other docs and new ones listed beside it" src="docs/images/docs-light.png"></td>
 <td><img alt="The Schedules page: a project's schedules, five running and one paused, with when each runs next or what sets it off, and ready-made ones suggested for the project" src="docs/images/schedules-light.png"></td>
 </tr>
+<tr>
+<td><img alt="A release being prepared: its notes and progress, buttons to freeze its features or mark it shipped, a changelog draft, and its issues by status with their sub-issues" src="docs/images/release-light.png"></td>
+<td><img alt="The Events page: what happened across every project, one line each with its time, level and kind, from issues made to sessions connecting" src="docs/images/events-light.png"></td>
+</tr>
 </table>
 
 ## Features
