@@ -1153,10 +1153,13 @@ test('pops out into a window of its own, which the corner button brings back, an
     // While it's open, the corner button goes to it rather than opening a second pane.
     await page.getByRole('button', {name: 'Agent', exact: true}).click()
     await expect(pane).toHaveCount(0)
-    // A link in it to a page of orrery, as a reply's would be, opens in this window, and the chat stays there.
+    // A link in it to a page of orrery, as a reply's is (to open in a new tab, as the pane's are), opens in this
+    // window, and the chat stays there (ORR-1331).
     await popup.evaluate(() => {
         const link = document.createElement('a')
         link.href = '/p/observatory/roadmap'
+        link.target = '_blank'
+        link.rel = 'noopener'
         link.textContent = 'the roadmap'
         document.querySelector('section[aria-label="Chat"] h2')?.after(link)
     })
