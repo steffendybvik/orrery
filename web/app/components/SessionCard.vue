@@ -8,11 +8,11 @@ import {olderVersion} from '#shared/version'
 // one orrery started has Show screen out front and the rest under ⋯ (StartedSession); any other has its Stop under ⋯,
 // as one nothing can reach isn't listed (ORR-716). Only one whose channel runs older code than this orrery says so there too.
 // The name opens the rest (Details): the context it carries, the roles it plays, the projects it hears, its time left
-// (one orrery started with a time), the folder it runs in and the context it was given; a message box for a listening
-// one; then what it's on now (`work`, on `project`): its issues in progress, the rest it worked folded under them, and
+// (one orrery started with a time), the folder it runs in and the context it was given; then what it's on now (`work`, on `project`): its issues in progress, the rest it worked folded under them, and
 // the latest thing it was sent, the rest folded too. One that hears other projects too says which: listed across
 // projects (`spans`), every project it hears as a chip, or All projects; a global one says it has no project of its
-// own; those chips stay on the summary line, as they're why it's listed there. `lit` marks the one a link pointed at, and opens it. On a phone what it's doing takes a row of its own under the
+// own; those chips stay on the summary line, as they're why it's listed there. A listening one's message box stays
+// under the summary line, outside Details, so writing to it takes no click (ORR-1320). `lit` marks the one a link pointed at, and opens it. On a phone what it's doing takes a row of its own under the
 // name, so the name isn't cut to a few letters (ORR-828).
 const props = defineProps<{session: Session, project: string, work?: SessionWork, lit?: boolean, spans?: boolean}>()
 const {who} = useOwner()
@@ -74,7 +74,7 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
           class="-mx-1 flex min-w-0 shrink items-center gap-2 rounded-md px-1 py-0.5 text-left hover:bg-hover"
           :aria-expanded="open"
           :aria-label="`Details for ${session.name}`"
-          :title="open ? 'Hide its details' : 'Its context, folder, projects, message box and what it was sent'"
+          :title="open ? 'Hide its details' : 'Its context, folder, projects and what it was sent'"
           @click="open = !open"
       >
         <svg class="size-3 shrink-0 text-faint transition-transform" :class="open && 'rotate-90'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 6 6 6-6 6" /></svg>
@@ -124,6 +124,7 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
       <StopSession v-if="!session.started && session.reachable" :session="session" class="ml-auto" />
     </div>
     <SessionScreen v-if="viewing && session.started" :session="session" />
+    <SessionMessage v-if="session.listening" :session="session" :project="project" class="pl-5" />
 
     <div v-show="open" class="flex flex-col gap-3 pl-5" data-testid="session-details">
       <p class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-faint">
@@ -150,7 +151,6 @@ const behind = computed(() => props.session.listening && olderVersion(props.sess
           <CopyButton v-if="!session.started" :text="restart(session)" label="Restart command" />
         </span>
       </p>
-      <SessionMessage v-if="session.listening" :session="session" :project="project" />
 
       <div v-if="work?.issues.length || work?.signals.length" class="flex flex-col gap-2 border-t border-line pt-3">
         <div v-if="work.issues.length" class="flex min-w-0 flex-col gap-0.5">
