@@ -24,7 +24,7 @@ async function refresh() {
     logins.value = await apiFetch<LoginRecord[]>('/logins', {headers: await headers()})
     loaded.value = true
 }
-onMounted(() => refresh().catch(error => failed.value = errorMessage(error)))
+onMounted(() => refresh().catch(error => failed.value = errorMessage(error, 'read')))
 
 async function act(what: () => Promise<unknown>) {
     busy.value = true

@@ -17,7 +17,7 @@ export function useAllReleases() {
             cards.value = read
             failed.value = ''
         } catch (error) {
-            if (asked === latest) failed.value = errorMessage(error)
+            if (asked === latest) failed.value = errorMessage(error, 'read')
         }
     }
     const heard = computed(() => JSON.stringify(projects.value.map(p => [p.id, p.release_mode, p.releases_from, p.releases])))

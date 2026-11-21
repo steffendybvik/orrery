@@ -1,6 +1,6 @@
 import {beforeEach, describe, expect, it} from 'vitest'
 import {registerEndpoint} from '@nuxt/test-utils/runtime'
-import {getQuery, readBody} from 'h3'
+import {getQuery, readBody, setResponseStatus} from 'h3'
 import type {Notice} from '#shared/roadmap'
 
 // The bell and the notifications page (useInbox): what's new since the owner last looked, what waits on them, the
@@ -12,12 +12,18 @@ const notice = (id: number, at: string, more: Partial<Notice> = {}) =>
 let bell: Notice[] = []
 let pages: Record<string, Notice[]> = {}
 const asked: {list: string, before?: string}[] = []
+/** A list whose page fails with no reason, as when orrery is down. */
+let down: string | null = null
 const cleared: unknown[] = []
 registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Skoll', named: true}))
 registerEndpoint('/api/notices', event => {
     const {list, before} = getQuery(event) as {list?: string, before?: string}
     if (!list) return bell
     asked.push({list, before})
+    if (list === down) {
+        setResponseStatus(event, 500)
+        return {}
+    }
     return pages[`${list}${before ? `<${before}` : ''}`] ?? []
 })
 const marked: unknown[] = []
@@ -33,6 +39,7 @@ registerEndpoint('/api/notices/clear', {method: 'POST', handler: async event => 
 beforeEach(() => {
     bell = []
     pages = {}
+    down = null
     asked.length = 0
     cleared.length = 0
     marked.length = 0
@@ -80,6 +87,13 @@ describe('useInbox', () => {
         await inbox.arrived(notice(2, '2026-10-29T11:00:00.000Z', {body: 'Taking it.'}))
         expect(inbox.notices.value.map(n => n.id)).toEqual([1])
         expect(inbox.lists.value.inbox.items.map(n => n.id)).toEqual([1])
+    })
+
+    it("says it couldn't load a list, in so many words", async () => {
+        const inbox = useInbox()
+        down = 'cleared'
+        await inbox.load('cleared')
+        expect(inbox.lists.value.cleared.failed).toBe("Couldn't load it. Is orrery running?")
     })
 
     it('loads a list a page at a time, the next from its oldest comment', async () => {

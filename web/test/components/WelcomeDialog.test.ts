@@ -17,7 +17,9 @@ registerEndpoint('/api/owner', {method: 'PUT', handler: async event => {
     useOwner().owner.value = {name: 'skoll_fenrisson', display: body.name, named: true}
     return {name: 'skoll_fenrisson', display: body.name, named: true}
 }})
-registerEndpoint('/api/workspaces', {method: 'GET', handler: () => [{id: 'default', name: 'Default', color: null, role: 'owner'}]})
+/** The workspaces the switcher lists: `Default`, unnamed, unless a test names it. */
+let listed: unknown[] = []
+registerEndpoint('/api/workspaces', {method: 'GET', handler: () => listed})
 registerEndpoint('/api/workspaces/default', {method: 'PATCH', handler: async event => {
     const body = await readBody<{name: string, color: string | null}>(event)
     workspaces.push(body)
@@ -34,6 +36,7 @@ beforeEach(() => {
     renamed = []
     workspaces = []
     made = []
+    listed = [{id: 'default', name: 'Default', color: null, role: 'owner'}]
     localStorage.clear()
     useOwner().owner.value = {name: 'agent', display: '', named: false}
     useState('workspaces-loaded').value = false
@@ -117,6 +120,15 @@ describe('WelcomeDialog', () => {
         await vi.waitFor(() => expect(wrapper.text()).toContain('Connect your AI agent'))
         await back().trigger('click')
         await vi.waitFor(() => expect(wrapper.find('[data-testid="welcome-workspace"]').exists()).toBe(true))
+    })
+
+    it("doesn't ask again for the name of a workspace named already, as one made from the switcher is (ORR-1315)", async () => {
+        useOwner().owner.value = {name: 'ada', display: 'Ada', named: true}
+        listed = [{id: 'default', name: 'Clients', color: 'teal', role: 'owner'}]
+        const {wrapper} = await mount()
+        await vi.waitFor(() => expect(wrapper.text()).toContain('Connect your AI agent'))
+        expect(wrapper.text()).toContain('Step 1 of 2')
+        expect(wrapper.find('[data-testid="welcome-workspace"]').exists()).toBe(false)
     })
 
     it('doesn\'t open for someone named whose workspace has projects', async () => {

@@ -26,7 +26,7 @@ export function useSchedules() {
             byProject.value = Object.groupBy(list, s => s.project) as Record<string, Schedule[]>
             loaded.value = true
         } catch (error) {
-            failed.value = errorMessage(error, 'load them')
+            failed.value = errorMessage(error, 'load')
             return
         }
         await loadAcross()
@@ -90,7 +90,7 @@ export function useSchedules() {
             ranFor = setTimeout(() => ran.value = null, RAN_FOR)
             return null
         } catch (error) {
-            return errorMessage(error)
+            return errorMessage(error, 'run')
         }
     }
 

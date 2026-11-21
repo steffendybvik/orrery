@@ -10,7 +10,7 @@ const {projects, byId} = useRoadmaps()
 const failed = ref('')
 const busy = ref(false)
 const missingKey = ref(false)
-onMounted(() => loadSecrets().catch(error => failed.value = errorMessage(error)))
+onMounted(() => loadSecrets().catch(error => failed.value = errorMessage(error, 'read')))
 
 async function call(name: string, method: 'PUT' | 'PATCH' | 'DELETE', body?: Record<string, unknown>) {
     busy.value = true

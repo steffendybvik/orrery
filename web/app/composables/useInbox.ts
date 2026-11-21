@@ -190,7 +190,7 @@ export function useInbox() {
         try {
             items = await apiFetch<Notice[]>('/notices', {query: {list, before, limit: PAGE}})
         } catch (error) {
-            lists.value[list] = {...lists.value[list], failed: errorMessage(error, 'load them')}
+            lists.value[list] = {...lists.value[list], failed: errorMessage(error, 'load')}
             return
         }
         lists.value[list] = {items: older ? [...loaded.items, ...items] : items, more: list !== 'waiting' && items.filter(n => !n.proposal).length === PAGE, loaded: true}

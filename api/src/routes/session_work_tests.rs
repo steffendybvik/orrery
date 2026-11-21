@@ -180,6 +180,26 @@ async fn unheard_signals_for_the_pool_or_scheduled_are_the_last_days() {
 }
 
 #[tokio::test]
+async fn a_waiting_focus_on_an_issue_closed_since_isnt_handed_out() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    api.post(
+        &format!("/api/projects/{project}/signals"),
+        json!({"kind": "focus", "issue": issue, "created_by": "owner", "owned": true, "note": "It was just made urgent (P0)."}),
+    )
+    .send()
+    .await;
+    let waiting = || async { api.get(&format!("/api/projects/{project}/signals?waiting=pooled")).send().await.body.as_array().unwrap().len() };
+    assert_eq!(waiting().await, 1);
+    // Closed before a session took it (ORR-1317), it waits for nobody; opened again, it's work again.
+    for (status, left) in [("canceled", 0), ("done", 0), ("todo", 1)] {
+        let reply = api.patch(&format!("/api/projects/{project}/issues/{issue}"), json!({"status": status})).send().await;
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        assert_eq!(waiting().await, left, "{status}");
+    }
+}
+
+#[tokio::test]
 async fn working_an_issue_ties_it_to_the_session_and_keeps_since_while_its_the_same_one() {
     let api = TestApi::new().await;
     let (project, issue) = api.board().await;

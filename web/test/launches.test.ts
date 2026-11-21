@@ -12,6 +12,8 @@ let noted: {level: string, kind: string, message: string}[]
 let sent: {type: string, project?: string, id?: string, after?: number, minutes?: number, stops_at?: string}[]
 let listeners: number
 let started: {greenhouse: number, all: number}
+/** The workspace each project is in: `default` for any not named (ORR-1313). */
+let workspaceOf: Record<string, string>
 let starts: Starts | undefined
 let session: {name?: string, state?: string, started?: {launch: string, tmux: string, stops_at?: string, context?: {presets: string[], text: string}, untrusted?: boolean}} | undefined
 /** What the sessions are on, for stopping those that are done: issues in progress, and signals waiting, by session. */
@@ -40,6 +42,7 @@ beforeEach(async () => {
     kinds = WORK_KINDS
     listeners = 0
     started = {greenhouse: 0, all: 0}
+    workspaceOf = {}
     starts = {limit: 2, minutes: 30}
     session = undefined
     adopted = []
@@ -53,6 +56,8 @@ beforeEach(async () => {
     vi.stubGlobal('counter', counter)
     vi.stubGlobal('listening', () => listeners)
     vi.stubGlobal('startedSessions', (project?: string) => project ? started.greenhouse : started.all)
+    // The sessions running on other projects than greenhouse are pantry's.
+    vi.stubGlobal('startedProjects', () => [...Array(started.greenhouse).fill('greenhouse'), ...Array(started.all - started.greenhouse).fill('pantry')])
     vi.stubGlobal('sessionOfLaunch', () => session)
     connected = true
     endedLaunches = []
@@ -77,6 +82,7 @@ beforeEach(async () => {
     scoped = []
     messages = []
     vi.stubGlobal('useStore', () => ({ownerOf: async () => ({name: 'skoll'}), workKinds: async () => kinds,
+        projectWorkspace: async (project: string) => workspaceOf[project] ?? 'default',
         starts: () => new Promise(resolve => setTimeout(() => resolve(starts), 0)),
         lastSignal: async () => 41,
         issue: async (_project: string, id: string) => {
@@ -127,7 +133,7 @@ describe('starting a session', () => {
         launches.addLauncher('greenhouse')
         expect(await launches.considerLaunch(signal(5))).toBeNull()
         expect(sent).toEqual([])
-        expect(launches.launchState('greenhouse').starting).toBe(0)
+        expect((await launches.launchState('greenhouse')).starting).toBe(0)
         // Focus on this, pressed with nobody listening.
         expect(await launches.startAsked.run(true, () => launches.considerLaunch(signal(6)))).toMatchObject({after: 5, minutes: 30})
     })
@@ -162,39 +168,39 @@ describe('starting a session', () => {
         expect(sent).toEqual([{type: 'launch', after: 6, minutes: 30}])
         // The launch on its way covers what comes after it, until its session connects.
         expect(await launches.considerLaunch(signal(8))).toBeNull()
-        expect(launches.launchState('greenhouse')).toEqual({launchers: 1, versions: [''], folders: [], repos: [], every: false, started: 0, starting: 1, total: 1})
+        expect((await launches.launchState('greenhouse'))).toEqual({launchers: 1, versions: [''], folders: [], repos: [], every: false, started: 0, starting: 1, total: 1})
         expect(launches.launched(launch!.id)).toMatchObject({launch: launch!.id, tmux: launch!.tmux})
         started = {greenhouse: 1, all: 1}
         expect(await launches.considerLaunch(signal(9))).not.toBeNull()
         done()
-        expect(launches.launchState('greenhouse').launchers).toBe(0)
+        expect((await launches.launchState('greenhouse')).launchers).toBe(0)
     })
 
-    it('knows the version each launcher runs, until it goes', () => {
+    it('knows the version each launcher runs, until it goes', async () => {
         const old = launches.addLauncher('greenhouse', '/repo', false, '1.0.0-rc.9')
         const now = launches.addLauncher('greenhouse', '/repo', false, '1.0.0-rc.10')
         const unsaid = launches.addLauncher('greenhouse')
-        expect(launches.launchState('greenhouse').versions).toEqual(['1.0.0-rc.9', '1.0.0-rc.10', ''])
+        expect((await launches.launchState('greenhouse')).versions).toEqual(['1.0.0-rc.9', '1.0.0-rc.10', ''])
         old()
         old()
-        expect(launches.launchState('greenhouse').versions).toEqual(['1.0.0-rc.10', ''])
+        expect((await launches.launchState('greenhouse')).versions).toEqual(['1.0.0-rc.10', ''])
         unsaid()
         now()
-        expect(launches.launchState('greenhouse').versions).toEqual([])
+        expect((await launches.launchState('greenhouse')).versions).toEqual([])
     })
 
-    it('knows which folders a channel picked up, and when, until their launchers go (ORR-605)', () => {
+    it('knows which folders a channel picked up, and when, until their launchers go (ORR-605)', async () => {
         const picked = launches.addLauncher('greenhouse', '/code/greenhouse', false, '', {picked_at: '2026-10-29T20:00:00.000Z'})
         const installed = launches.addLauncher('greenhouse', '/code/monorepo')
         const connected = launches.addLauncher('greenhouse', '/code/connected', false, '', {connected_at: '2026-10-30T20:00:00.000Z'})
-        expect(launches.launchState('greenhouse').repos).toEqual([{dir: '/code/greenhouse', picked_at: '2026-10-29T20:00:00.000Z'}, {dir: '/code/monorepo'}, {dir: '/code/connected', connected_at: '2026-10-30T20:00:00.000Z'}])
+        expect((await launches.launchState('greenhouse')).repos).toEqual([{dir: '/code/greenhouse', picked_at: '2026-10-29T20:00:00.000Z'}, {dir: '/code/monorepo'}, {dir: '/code/connected', connected_at: '2026-10-30T20:00:00.000Z'}])
         picked()
         installed()
         connected()
-        expect(launches.launchState('greenhouse').repos).toEqual([])
+        expect((await launches.launchState('greenhouse')).repos).toEqual([])
         // Installed by hand there later, it isn't taken for picked up.
         const again = launches.addLauncher('greenhouse', '/code/greenhouse')
-        expect(launches.launchState('greenhouse').repos).toEqual([{dir: '/code/greenhouse'}])
+        expect((await launches.launchState('greenhouse')).repos).toEqual([{dir: '/code/greenhouse'}])
         again()
     })
 
@@ -203,7 +209,7 @@ describe('starting a session', () => {
         const {startsNone} = await import('../server/utils/starts-none')
         expect(await startsNone.run(true, () => launches.considerLaunch(signal(5)))).toBeNull()
         expect(sent).toEqual([])
-        expect(launches.launchState('greenhouse').starting).toBe(0)
+        expect((await launches.launchState('greenhouse')).starting).toBe(0)
         // Real work after it still starts one.
         expect(await launches.considerLaunch(signal(6))).not.toBeNull()
         done()
@@ -241,7 +247,7 @@ describe('starting a session', () => {
         const home = launches.addLauncher('greenhouse', undefined, false, '', {}, true)
         const repo = launches.addLauncher('greenhouse', '/code/greenhouse')
         // A default folder isn't one of the project's repos.
-        expect(launches.launchState('greenhouse').folders).toEqual(['/code/greenhouse'])
+        expect((await launches.launchState('greenhouse')).folders).toEqual(['/code/greenhouse'])
         const first = (await launches.considerLaunch(signal(1)))!
         expect(launches.claim('greenhouse', first.id, home.token)).toBe(false)
         expect(launches.claim('greenhouse', first.id, repo.token)).toBe(true)
@@ -256,7 +262,7 @@ describe('starting a session', () => {
     it("gives a member's launcher none of the owner's launches, to hear, claim or tell about (ORR-963)", async () => {
         const member = launches.addMemberLauncher('greenhouse', 'hati')
         // It isn't one of the project's launchers, so the owner's work doesn't wait on it.
-        expect(launches.launchState('greenhouse').launchers).toBe(0)
+        expect((await launches.launchState('greenhouse')).launchers).toBe(0)
         const {token} = launches.addLauncher('greenhouse')
         const launch = (await launches.considerLaunch(signal(1)))!
         expect(launches.hearsLaunch('hati', launch.id)).toBe(false)
@@ -300,7 +306,7 @@ describe('starting a session', () => {
         // The launcher restarted on new code takes it, and has the usual minutes from now for its session to connect.
         expect(launches.claim('greenhouse', launch.id, launches.addLauncher('greenhouse').token)).toBe(true)
         expect(launches.unclaimedLaunches('greenhouse')).toEqual([])
-        expect(launches.launchState('greenhouse').starting).toBe(1)
+        expect((await launches.launchState('greenhouse')).starting).toBe(1)
     })
 
     it('lets a refused launch go once nobody takes it for half an hour', async () => {
@@ -309,7 +315,7 @@ describe('starting a session', () => {
         expect(launches.claim('greenhouse', launch.id, undefined)).toBe(false)
         vi.useFakeTimers({now: Date.now() + 31 * 60 * 1000, toFake: ['Date']})
         expect(launches.unclaimedLaunches('greenhouse')).toEqual([])
-        expect(launches.launchState('greenhouse').starting).toBe(0)
+        expect((await launches.launchState('greenhouse')).starting).toBe(0)
     })
 
     it("clears a refused chat's problem once a launcher takes it, and keeps it waiting until then", async () => {
@@ -333,7 +339,7 @@ describe('starting a session', () => {
         started = {greenhouse: 0, all: 1}
         expect(await launches.considerLaunch(signal(3))).not.toBeNull()
         // A refused launch isn't left holding the project's place.
-        expect(launches.launchState('greenhouse').starting).toBe(1)
+        expect((await launches.launchState('greenhouse')).starting).toBe(1)
     })
 
     it("is still the launch's when its hook asks before its channel connects, so it counts and stops (ORR-468)", async () => {
@@ -344,7 +350,7 @@ describe('starting a session', () => {
         expect(launches.launchUntrusted('greenhouse', launch.id)).toBe(false)
         expect(launches.launchUntrusted('greenhouse', launch.id)).toBe(false)
         // Still on its way, so it holds its place under the limit.
-        expect(launches.launchState('greenhouse').starting).toBe(1)
+        expect((await launches.launchState('greenhouse')).starting).toBe(1)
         // The channel connecting gets what it was started as: a stop time and its context.
         expect(launches.launched(launch.id)).toMatchObject({launch: launch.id, stops_at: expect.any(String), context})
     })
@@ -361,7 +367,7 @@ describe('starting a session', () => {
         launches.addLauncher('greenhouse')
         const launch = (await launches.considerLaunch(signal(1)))!
         launches.launchGone(launch.id)
-        expect(launches.launchState('greenhouse').starting).toBe(0)
+        expect((await launches.launchState('greenhouse')).starting).toBe(0)
         expect(await launches.considerLaunch(signal(2))).not.toBeNull()
     })
 })
@@ -390,34 +396,46 @@ describe('the owner starting a session by hand', () => {
         launches.addLauncher('greenhouse')
         started = {greenhouse: 0, all: 2}
         await expect(launches.startLaunch('greenhouse')).rejects.toThrow('orrery already has its 2 sessions at once')
-        expect(launches.launchState('greenhouse')).toEqual({launchers: 1, versions: [''], folders: [], repos: [], every: false, started: 0, starting: 0, total: 2})
+        expect((await launches.launchState('greenhouse'))).toEqual({launchers: 1, versions: [''], folders: [], repos: [], every: false, started: 0, starting: 0, total: 2})
+    })
+
+    it("counts only its own workspace's sessions against the limit, not another's (ORR-1313)", async () => {
+        launches.addLauncher('greenhouse')
+        workspaceOf = {pantry: 'work'}
+        started = {greenhouse: 0, all: 2}
+        expect(await launches.launchState('greenhouse')).toMatchObject({started: 0, starting: 0, total: 0})
+        const launch = await launches.startLaunch('greenhouse')
+        expect(launch).toMatchObject({project: 'greenhouse'})
+        // Its own launch on its way counts in its workspace, and pantry's two in theirs.
+        expect((await launches.launchState('greenhouse')).total).toBe(1)
+        expect((await launches.launchState('pantry')).total).toBe(2)
     })
 
     it('starts one session hearing several projects only when their launchers share a folder', async () => {
         const greenhouse = launches.addLauncher('greenhouse', '/src/mono')
         launches.addLauncher('pantry', '/src/mono')
         launches.addLauncher('shop', '/src/shop')
-        expect(launches.launchState('greenhouse').folders).toEqual(['/src/mono'])
+        expect((await launches.launchState('greenhouse')).folders).toEqual(['/src/mono'])
         await expect(launches.startLaunch('greenhouse', {hears: ['pantry', 'shop']})).rejects.toThrow("shop isn't served from greenhouse's repo")
-        expect(launches.launchState('greenhouse').starting).toBe(0)
+        expect((await launches.launchState('greenhouse')).starting).toBe(0)
         // Its own project first, once, whatever order they're sent in.
         expect(await launches.startLaunch('greenhouse', {hears: ['pantry', 'greenhouse', 'pantry']})).toMatchObject({hears: ['greenhouse', 'pantry']})
         // One project alone needs no folder in common, nor a launcher that says its folder (an older one).
         launches.addLauncher('attic')
         expect(await launches.startLaunch('attic', {hears: ['attic']})).toMatchObject({hears: ['attic']})
         greenhouse()
-        expect(launches.launchState('greenhouse').folders).toEqual([])
+        expect((await launches.launchState('greenhouse')).folders).toEqual([])
     })
 
     it('says when a launcher serves every project, so a launch without hears hears them all', async () => {
         const plain = launches.addLauncher('greenhouse', '/src/mono')
-        expect(launches.launchState('greenhouse').every).toBe(false)
+        expect((await launches.launchState('greenhouse')).every).toBe(false)
         const every = launches.addLauncher('greenhouse', '/src/mono', true)
-        expect(launches.launchState('greenhouse').every).toBe(true)
+        expect((await launches.launchState('greenhouse')).every).toBe(true)
         expect(await launches.startLaunch('greenhouse')).not.toHaveProperty('hears')
         every()
         every()
-        expect(launches.launchState('greenhouse')).toMatchObject({launchers: 1, every: false, folders: ['/src/mono']})
+        expect((await launches.launchState('greenhouse'))).toMatchObject({launchers: 1, every: false, folders: ['/src/mono']})
         plain()
     })
 
@@ -425,7 +443,7 @@ describe('the owner starting a session by hand', () => {
         launches.addLauncher('greenhouse')
         await expect(launches.startLaunch('greenhouse', {issue: 'GRE-404'})).rejects.toThrow('No issue GRE-404')
         // A refused focus doesn't hold the project's place.
-        expect(launches.launchState('greenhouse').starting).toBe(0)
+        expect((await launches.launchState('greenhouse')).starting).toBe(0)
         const launch = await launches.startLaunch('greenhouse', {issue: 'GRE-7'})
         expect(focused).toEqual([{issue: 'GRE-7', session: `launch-${launch.id}`}])
         // It catches up from the focus made for it.
@@ -897,7 +915,7 @@ describe("the owner's chat", () => {
         starts = {limit: 1}
         started = {greenhouse: 1, all: 1}
         await launches.startChat('greenhouse', context)
-        expect(launches.launchState('greenhouse')).toMatchObject({starting: 0, total: 1})
+        expect((await launches.launchState('greenhouse'))).toMatchObject({starting: 0, total: 1})
     })
 
     describe('written in again once ended (ORR-884)', () => {

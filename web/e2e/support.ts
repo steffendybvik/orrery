@@ -1,5 +1,6 @@
 import type {APIRequestContext, Locator, Page} from '@playwright/test'
 import {expect, test} from '@playwright/test'
+import {slugify} from '../shared/roadmap/board'
 
 // What the spec files split from the first-run story share: a project of their own made through the API, the API as
 // an agent or as the owner (named Ada Lovelace by first-run.spec.ts, which runs before them all), a stream held open
@@ -34,7 +35,8 @@ export function projectApi(project: string) {
 export async function makeProject(request: APIRequestContext, data: {name: string, key?: string, [field: string]: unknown}) {
     const made = await request.post('/api/projects', {data, headers: AGENT})
     if (made.status() === 409) {
-        const found = await request.get(`/api/projects/${data.name.toLowerCase()}`)
+        // Found by its id, as the server made it from the name: a retry meets the first try's project.
+        const found = await request.get(`/api/projects/${String(data.id ?? slugify(data.name))}`)
         const project = found.ok() ? await found.json() : null
         if (project && (test.info().retry > 0 || (data.key && project.key === data.key))) return project
     }

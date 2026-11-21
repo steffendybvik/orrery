@@ -281,8 +281,32 @@ function send(held: Held, cause?: number): Launch {
     return launch
 }
 
-/** How many more sessions the limit has room for: those running and on their way count, on every project. */
-const room = (limit: number) => limit - startedSessions() - pendingOn()
+/** The workspace each project is in, asked once per count: `default` for one that's gone. */
+function workspaces(): (project: string) => Promise<string> {
+    const known = new Map<string, Promise<string>>()
+    return project => {
+        let workspace = known.get(project)
+        if (!workspace) known.set(project, workspace = useStore().projectWorkspace(project).catch(() => 'default'))
+        return workspace
+    }
+}
+
+/** The sessions orrery started that are running and the launches on their way, in the project's workspace, leaving
+ * out the running ones `dying` names (by project): the limit and the minimum are the workspace's, so another's
+ * sessions don't count against it (ORR-1313). */
+async function busyIn(project: string, dying: string[] = []): Promise<number> {
+    pendingOn()
+    const of = workspaces()
+    const workspace = await of(project)
+    const counted = [...startedProjects(), ...[...pending.values()].filter(l => !l.chat).map(l => l.project)]
+    let busy = 0
+    for (const p of counted) if (await of(p) === workspace) busy++
+    for (const p of dying) if (await of(p) === workspace) busy--
+    return busy
+}
+
+/** How many more sessions the limit has room for: those running and on their way in the project's workspace count. */
+const room = async (limit: number, project: string) => limit - await busyIn(project)
 
 /** The project's launches no launcher has taken on yet, to offer a launcher as it connects: one refused for an outdated
  * launcher is started once that launcher restarts on new code (ORR-471). */
@@ -431,12 +455,12 @@ export async function resumeChat(project: string, id: string, context: SessionCo
 const noLauncher = (project: string) => conflict(`No launcher is running for ${project}: install it once with node ~/.orrery/bootstrap.mjs launcher --install, then open a Claude session in its repo, or run that in the repo`)
 
 /** The project's starts, if it may have one more session started now: the owner lets orrery start them, a launcher is
- * there, and the sessions running and on their way, on every project, are under the limit. */
+ * there, and the sessions running and on their way, in its workspace, are under the limit. */
 async function roomFor(project: string): Promise<Starts> {
     const starts = await useStore().starts(project)
     if (!starts) throw conflict(`orrery doesn't start sessions; turn it on in App settings`)
     if (!launchersOf(project)) throw noLauncher(project)
-    if (room(starts.limit) < 1) throw conflict(`orrery already has its ${starts.limit} session${starts.limit === 1 ? '' : 's'} at once`)
+    if (await room(starts.limit, project) < 1) throw conflict(`orrery already has its ${starts.limit} session${starts.limit === 1 ? '' : 's'} at once`)
     return starts
 }
 
@@ -521,11 +545,11 @@ export function launchUntrusted(project: string, id: string): boolean {
 export const SCOPE_STATUSES = ['todo', 'started']
 
 /** What a new session on the project gets; none when the owner hasn't let it have sessions started, or the
- * limit is reached by the sessions running and on their way on every project, the one asking for it among them. */
+ * limit is reached by the sessions running and on their way in its workspace, the one asking for it among them. */
 async function allowedStarts(project: string): Promise<Starts | null> {
     const starts = await useStore().starts(project)
     // Its own launch is held already, so it's among those counted.
-    return starts && room(starts.limit) >= 0 ? starts : null
+    return starts && await room(starts.limit, project) >= 0 ? starts : null
 }
 
 /** A launcher taking the launch on: only the first gets it, so several launchers start one session between them. Only
@@ -712,8 +736,8 @@ const ended = new Map<string, number>()
 const ENDED_FOR = 5 * 60 * 1000
 let filling: Promise<Launch[]> | null = null
 
-/** Starts sessions in place of those stopped as done that have ended, until `min` are running and on their way over
- * every project, within the limit. One waits while its project has no launcher or there's no room, and is tried again
+/** Starts sessions in place of those stopped as done that have ended, until `min` are running and on their way in
+ * the project's workspace, within the limit. One waits while its project has no launcher or there's no room, and is tried again
  * at the next check; it's dropped once the minimum is met without it, or taken away. One fill at a time, so a check and
  * a session ending together don't both start one. Says the launches it started. */
 export function keepMinimum(): Promise<Launch[]> {
@@ -729,11 +753,11 @@ async function fill(): Promise<Launch[]> {
     // it isn't counted towards the minimum: counted, the one replacing it would be dropped, and nothing would
     // take its place once it's gone (ORR-481).
     for (const [id, at] of ended) if (Date.now() - at > ENDED_FOR) ended.delete(id)
-    const dying = listSessions().filter(s => s.started && !s.started.chat && s.listening && ended.has(s.started.launch)).length
+    const dying = listSessions().filter(s => s.started && !s.started.chat && s.listening && ended.has(s.started.launch)).map(s => s.project)
     for (const [id, {project, context, hears, global, model, effort, ended}] of replacing) {
         if (!ended) continue
         const starts = await useStore().starts(project).catch(() => undefined)
-        if (!starts?.min || startedSessions() - dying + pendingOn() >= starts.min) {
+        if (!starts?.min || await busyIn(project, dying) >= starts.min) {
             replacing.delete(id)
             continue
         }
@@ -900,6 +924,6 @@ export function extendLaunchBy(project: string, id: string, minutes: number): Se
 
 /** For the project's settings: its launchers and the versions they run, the sessions it has started and on their way,
  * and those on every project, which the limit counts. */
-export function launchState(project: string): {launchers: number, versions: string[], folders: string[], repos: LauncherRepo[], every: boolean, started: number, starting: number, total: number} {
-    return {launchers: launchersOf(project), versions: [...versions.get(project) ?? []], folders: foldersOf(project), repos: reposOf(project), every: everywhere.count(project) > 0, started: startedSessions(project), starting: pendingOn(project), total: startedSessions() + pendingOn()}
+export async function launchState(project: string): Promise<{launchers: number, versions: string[], folders: string[], repos: LauncherRepo[], every: boolean, started: number, starting: number, total: number}> {
+    return {launchers: launchersOf(project), versions: [...versions.get(project) ?? []], folders: foldersOf(project), repos: reposOf(project), every: everywhere.count(project) > 0, started: startedSessions(project), starting: pendingOn(project), total: await busyIn(project)}
 }

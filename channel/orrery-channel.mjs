@@ -25,6 +25,7 @@ import {narrowed} from './repo-channels.mjs'
 import {addToList, projectAt, readConfig} from './launcher-service.mjs'
 import {appNamed, appsHere, askToChoose, choiceFor, choseOther, tellChose, writeChoice} from './app-choice.mjs'
 import {legacyServerName} from './server-name.mjs'
+import {channelIn, serversElsewhere} from './own-log.mjs'
 import {signalWords} from './signal-words.mjs'
 import {claudeWindow} from './session.mjs'
 import {writeSessionFile} from './session-file.mjs'
@@ -187,14 +188,17 @@ await new Promise(resolve => setTimeout(resolve, 300))
  * `unknown` when it can't be found or doesn't say). The log is kept by the server's name in .mcp.json,
  * which this server can't see, so it reads the newest log under the names it might have: its projects'
  * (`orrery-hub`, `hub`) and its orrery's (`orrery-work`), and only without one of those the bare `orrery`, which in a
- * repo with a channel per project can be another orrery's. The name that log is under is the server's, as far as it
- * can tell, for the command that restarts its session with the channel. */
+ * repo with a channel per project can be another orrery's. It skips a name Claude Code's config points at another
+ * orrery, and reads only this session's lines (own-log.mjs, ORR-1321). The name that log is under is the server's, as
+ * far as it can tell, for the command that restarts its session with the channel. */
 function registered() {
     try {
         const cache = join(claudeCache(), process.cwd().replace(/[^a-zA-Z0-9]/g, '-'))
         // Its orrery's from before ORR-1193 (`orrery-work`) too, which an older setup still has.
         const own = [...projects.flatMap(p => [`orrery-${p}`, p]), ...orrery.environment ? [legacyServerName(orrery.environment)] : []]
-        const logsOf = names => [...new Set(names)].flatMap(name => {
+        // A name Claude Code's config points at another orrery is that one's channel, never this (ORR-1321).
+        const elsewhere = serversElsewhere(process.cwd(), {url: base, id: orrery.id ?? process.env.ORRERY_ID})
+        const logsOf = names => [...new Set(names)].filter(name => !elsewhere.has(name)).flatMap(name => {
             try {
                 const dir = join(cache, `mcp-logs-${name}`)
                 return readdirSync(dir).map(file => ({name, file: join(dir, file), at: statSync(join(dir, file)).mtimeMs}))
@@ -202,13 +206,11 @@ function registered() {
                 return []
             }
         })
-        const logs = logsOf(own)
-        const newest = (logs.length ? logs : logsOf(['orrery'])).sort((a, b) => b.at - a.at)[0]
-        const text = newest ? readFileSync(newest.file, 'utf8') : ''
-        const server = newest?.name
-        if (text.includes('Channel notifications registered')) return {channel: 'yes', server}
-        if (text.includes('Channel notifications skipped')) return {channel: 'no', server}
-        return {channel: 'unknown', server}
+        // The newest few are enough: this session's is among them, as it has just started.
+        const read = logs => logs.sort((a, b) => b.at - a.at).slice(0, 20).map(log => ({...log, text: readFileSync(log.file, 'utf8')}))
+        // This session's lines only: the folder's newest log can be another session's (ORR-1321).
+        const found = channelIn(read(logsOf(own)), window.id)
+        return found.server ? found : channelIn(read(logsOf(['orrery'])), window.id)
     } catch {
         // Claude Code keeps its logs elsewhere now.
     }

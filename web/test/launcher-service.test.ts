@@ -1,10 +1,10 @@
 import {execFileSync, spawn} from 'node:child_process'
-import {mkdtempSync, readFileSync, writeFileSync} from 'node:fs'
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {describe, expect, it, vi} from 'vitest'
 // @ts-expect-error: the launcher is plain JavaScript, run by node on the host
-import {addToList, adoptable, inWsl, installedFrom, keepingSessions, launcherAlive, listChanges, listIn, pickUp, plist, projectAt, readConfig, RELOADS, removeFromList, servedElsewhere, serviceProblem, skipping, systemdUnit, withAgent, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
+import {addToList, adoptable, answers, inWsl, install, installedFrom, keepingSessions, launcherAlive, listChanges, listIn, pickUp, plist, orrerysOn, projectAt, pruneList, readConfig, RELOADS, removeFromList, removeService, restartKeepsSessions, platform, servedElsewhere, serviceProblem, skipping, systemdUnit, unanswered, uninstall, withAgent, withProject, withoutProject, wslLocalhost} from '../../channel/launcher-service.mjs'
 // @ts-expect-error: the same
 import {follow} from '../../channel/sse.mjs'
 
@@ -301,5 +301,188 @@ describe('taking over a running session', () => {
             served.kill()
         }
         expect(launcherAlive(process.pid)).toBe(false)
+    })
+})
+
+describe('orrerys on the list that have gone (ORR-1316)', () => {
+    const listed = () => {
+        const file = join(mkdtempSync(join(tmpdir(), 'orrery-prune-')), 'launcher.json')
+        writeFileSync(file, JSON.stringify({
+            projects: [
+                {url: 'https://orrery.example.com', project: 'shop', dir: '/apps'},
+                {url: 'http://localhost:9010', project: 'shop', dir: '/apps/shop'},
+                {url: 'http://localhost:9020', project: 'hub', dir: '/work/hub'},
+            ],
+            pickUp: true, skip: ['/old'], orreries: ['http://localhost:9010', 'https://orrery.example.com'], agent: 'claude',
+        }))
+        return file
+    }
+
+    it('names each orrery once, its projects\' and those it follows', () => {
+        expect(orrerysOn(readConfig(listed()))).toEqual(['https://orrery.example.com', 'http://localhost:9010', 'http://localhost:9020'])
+    })
+
+    it('finds those nothing answers at, a refusal counting as an answer', async () => {
+        const answer = async (url: string) => url.startsWith('https://')
+        expect(await unanswered(readConfig(listed()), {answer})).toEqual(['http://localhost:9010', 'http://localhost:9020'])
+        expect(await answers('https://orrery.example.com/', {fetcher: async () => new Response('', {status: 401})})).toBe(true)
+        expect(await answers('http://localhost:9010', {fetcher: async () => { throw new TypeError('fetch failed') }})).toBe(false)
+    })
+
+    it("takes their projects off, and them off the orrerys it follows, keeping the rest of the list", () => {
+        const file = listed()
+        const off = pruneList(['http://localhost:9010', 'http://localhost:9020'], {file})
+        expect(off.map(p => `${p.project} ${p.url}`)).toEqual(['shop http://localhost:9010', 'hub http://localhost:9020'])
+        expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({
+            projects: [{url: 'https://orrery.example.com', project: 'shop', dir: '/apps'}],
+            pickUp: true, skip: ['/old'], orreries: ['https://orrery.example.com'], agent: 'claude',
+        })
+        // Nothing more to take off, so the file isn't written again.
+        expect(pruneList(['http://localhost:9010'], {file})).toEqual([])
+    })
+})
+
+describe('installing and removing the service (ORR-1312)', () => {
+    const script = '/code/orrery/channel/orrery-launcher.mjs'
+    const line = {node: '/opt/homebrew/bin/node', script, path: '/opt/homebrew/bin:/usr/bin'}
+    const shop = {url: 'http://localhost:9000', project: 'shop', dir: '/code/shop'}
+
+    /** A machine in a temporary home whose commands only get written down: `answer` says what each gives back,
+     * throwing for one that fails. */
+    function machine(os: string, answer: (command: string) => string = () => '', env: Record<string, string> = {}) {
+        const home = mkdtempSync(join(tmpdir(), 'orrery-home-'))
+        const ran: string[] = []
+        const paused: number[] = []
+        const run = (...args: string[]) => {
+            const command = args.join(' ')
+            ran.push(command)
+            return answer(command)
+        }
+        return {ran, paused, home, machine: {os, home, env, uid: 501, run, pause: (ms: number) => paused.push(ms), problem: null}}
+    }
+    const listOf = (home: string) => JSON.parse(readFileSync(join(home, '.config', 'orrery', 'launcher.json'), 'utf8'))
+
+    it('writes the plist on macOS and boots it in, trying again while the old one is still going', () => {
+        let bootstraps = 0
+        const mac = machine('darwin', command => {
+            if (command.startsWith('launchctl bootout')) throw new Error('Boot-out failed: 3: No such process')
+            if (command.startsWith('launchctl bootstrap') && ++bootstraps < 3) throw new Error('Bootstrap failed: 5: Input/output error')
+            return ''
+        })
+        const done = install([shop], {...line, dir: '/code/shop', orrery: 'http://localhost:9000/', machine: mac.machine})
+        const file = join(mac.home, 'Library', 'LaunchAgents', 'orrery.launcher.plist')
+        const log = join(mac.home, 'Library', 'Logs', 'orrery-launcher.log')
+        expect(done).toMatchObject({file, logs: log, restarted: true})
+        expect(readFileSync(file, 'utf8')).toBe(plist({...line, log}))
+        expect(mac.ran).toEqual([
+            'launchctl bootout gui/501/orrery.launcher',
+            'launchctl bootstrap gui/501 ' + file,
+            'launchctl bootstrap gui/501 ' + file,
+            'launchctl bootstrap gui/501 ' + file,
+        ])
+        expect(mac.paused).toEqual([500, 500])
+        expect(listOf(mac.home)).toEqual({projects: [shop], pickUp: true, skip: [], orreries: ['http://localhost:9000']})
+    })
+
+    it('gives up booting it in after ten tries, saying why', () => {
+        const mac = machine('darwin', command => {
+            if (command.startsWith('launchctl bootstrap')) throw new Error('Bootstrap failed: 5: Input/output error')
+            return ''
+        })
+        expect(() => install([], {...line, machine: mac.machine})).toThrow('Bootstrap failed: 5')
+        expect(mac.ran.filter(c => c.startsWith('launchctl bootstrap'))).toHaveLength(10)
+        expect(mac.paused).toHaveLength(9)
+    })
+
+    it('leaves a running service on the same file alone, and starts one that has stopped', () => {
+        let state = 'state = running'
+        const mac = machine('darwin', command => {
+            if (command.startsWith('launchctl print')) return `gui/501/orrery.launcher = {\n\t${state}\n}`
+            return ''
+        })
+        install([shop], {...line, dir: '/code/shop', machine: mac.machine})
+        mac.ran.length = 0
+        const again = install([{...shop, project: 'hub'}], {...line, dir: '/code/shop', machine: mac.machine})
+        expect(again.restarted).toBe(false)
+        expect(mac.ran).toEqual(['launchctl print gui/501/orrery.launcher'])
+        // Only the list changed, which the running service follows.
+        expect(listOf(mac.home).projects.map((p: {project: string}) => p.project)).toEqual(['shop', 'hub'])
+        state = 'state = not running'
+        mac.ran.length = 0
+        expect(install([], {...line, machine: mac.machine}).restarted).toBe(true)
+        expect(mac.ran.slice(1)).toEqual(['launchctl bootout gui/501/orrery.launcher', `launchctl bootstrap gui/501 ${join(mac.home, 'Library', 'LaunchAgents', 'orrery.launcher.plist')}`])
+    })
+
+    it('writes the systemd unit on Linux, in its own config folder, and enables and restarts it', () => {
+        const linux = machine('linux', () => '', {WSL_DISTRO_NAME: 'Ubuntu'})
+        const done = install([shop], {...line, dir: '/code/shop', pickUp: false, agent: 'codex', machine: linux.machine})
+        const file = join(linux.home, '.config', 'systemd', 'user', 'orrery-launcher.service')
+        expect(done).toMatchObject({file, logs: 'journalctl --user -u orrery-launcher -f', restarted: true})
+        expect(readFileSync(file, 'utf8')).toBe(systemdUnit({...line, distro: 'Ubuntu'}))
+        expect(linux.ran).toEqual(['systemctl --user daemon-reload', 'systemctl --user enable orrery-launcher', 'systemctl --user restart orrery-launcher'])
+        expect(listOf(linux.home)).toEqual({projects: [shop], pickUp: false, skip: [], agent: 'codex'})
+        // XDG_CONFIG_HOME moves the unit and the list with it.
+        const xdg = machine('linux')
+        const config = join(xdg.home, 'config')
+        install([], {...line, machine: {...xdg.machine, env: {XDG_CONFIG_HOME: config}}})
+        expect(existsSync(join(config, 'systemd', 'user', 'orrery-launcher.service'))).toBe(true)
+        expect(existsSync(join(config, 'orrery', 'launcher.json'))).toBe(true)
+    })
+
+    it('installs nothing where the service has no home, saying what to do', () => {
+        const linux = machine('linux')
+        expect(() => install([shop], {...line, machine: {...linux.machine, problem: serviceProblem({platform: 'linux', wsl: true, systemd: false})}})).toThrow(/systemd=true/)
+        expect(linux.ran).toEqual([])
+        expect(existsSync(join(linux.home, '.config'))).toBe(false)
+    })
+
+    it('keeps the service on uninstall while pick-up is on, keeping the repo off the list', () => {
+        const linux = machine('linux', command => command.endsWith('is-active orrery-launcher') ? 'active' : '')
+        install([shop], {...line, dir: '/code/shop', machine: linux.machine})
+        linux.ran.length = 0
+        const {config, file} = uninstall([shop], {...line, dir: '/code/shop', machine: linux.machine})
+        expect(config).toMatchObject({projects: [], pickUp: true, skip: ['/code/shop']})
+        expect(linux.ran).toEqual(['systemctl --user is-active orrery-launcher'])
+        expect(existsSync(file)).toBe(true)
+    })
+
+    it('removes the service with the last project when pick-up is off, keeping the list', () => {
+        const linux = machine('linux')
+        install([shop], {...line, dir: '/code/shop', pickUp: false, machine: linux.machine})
+        linux.ran.length = 0
+        const {file} = uninstall([shop], {...line, dir: '/code/shop', machine: linux.machine})
+        expect(linux.ran).toEqual(['systemctl --user disable --now orrery-launcher'])
+        expect(existsSync(file)).toBe(false)
+        expect(listOf(linux.home)).toEqual({projects: [], pickUp: false, skip: ['/code/shop']})
+    })
+
+    it('removes the service whatever is on the list, one that was not running too, and turns pick-up off', () => {
+        const mac = machine('darwin', command => {
+            if (command.startsWith('launchctl bootout')) throw new Error('Boot-out failed: 3: No such process')
+            return ''
+        })
+        install([shop], {...line, dir: '/code/shop', machine: mac.machine})
+        mac.ran.length = 0
+        const {file} = removeService(platform(mac.machine))
+        expect(mac.ran).toEqual(['launchctl bootout gui/501/orrery.launcher'])
+        expect(existsSync(file)).toBe(false)
+        expect(listOf(mac.home)).toEqual({projects: [shop], pickUp: false, skip: []})
+    })
+
+    it("brings an older unit up to keeping its sessions, with no restart (ORR-686)", () => {
+        expect(restartKeepsSessions(machine('darwin').machine)).toBe(true)
+        const linux = machine('linux')
+        // No unit at all: nothing to keep them.
+        expect(restartKeepsSessions(linux.machine)).toBe(false)
+        const file = join(linux.home, '.config', 'systemd', 'user', 'orrery-launcher.service')
+        const unit = systemdUnit(line)
+        mkdirSync(join(linux.home, '.config', 'systemd', 'user'), {recursive: true})
+        writeFileSync(file, unit.replace('KillMode=process\n', ''))
+        expect(restartKeepsSessions(linux.machine)).toBe(true)
+        expect(readFileSync(file, 'utf8')).toBe(unit)
+        expect(linux.ran).toEqual(['systemctl --user daemon-reload'])
+        // Up to date already: nothing to reload.
+        expect(restartKeepsSessions(linux.machine)).toBe(true)
+        expect(linux.ran).toHaveLength(1)
     })
 })

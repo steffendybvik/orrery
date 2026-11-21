@@ -7,10 +7,12 @@
 // a resumed chat fresh, told what was said. `?global=yes` says it starts a global session in the orrery's default
 // folder (ORR-1079); only such a launcher gets one. A claim granted brings the project's `repo` (its address, or null), which the
 // launcher tells the session with the folder's own repo (ORR-1070),
-// and its `workspace`, which the launcher puts in the session's environment for its calls to say (ORR-1109).
+// and its `workspace` (a project whose workspace can't be read is refused before it's claimed), which the launcher puts in the session's environment for its calls to say (ORR-1109).
 export default defineEventHandler(async event => {
     const query = getQuery(event)
     const project = param(event, 'project')
+    // Read before claiming: a project whose workspace can't be read is refused, not started in `default` (ORR-1309).
+    const workspace = await useStore().projectWorkspace(project)
     const claimed = claim(project, param(event, 'launch'), getHeader(event, 'orrery-launcher'), query.untrusted === 'no-bash', query.chat === 'yes', query.model === 'yes', query.resume === 'yes', query.global === 'yes')
-    return claimed ? {claimed, repo: await projectRepo(project), workspace: await useStore().projectWorkspace(project).catch(() => 'default')} : {claimed}
+    return claimed ? {claimed, repo: await projectRepo(project), workspace} : {claimed}
 })

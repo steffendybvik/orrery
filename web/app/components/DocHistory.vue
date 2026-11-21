@@ -21,7 +21,7 @@ watch([base, () => props.updatedAt], async (_, __, onCleanup) => {
         revisions.value = list
         if (!list.some(r => r.id === picked.value)) picked.value = list[0]?.id ?? null
     } catch (error) {
-        if (!left) failed.value = errorMessage(error)
+        if (!left) failed.value = errorMessage(error, 'read')
     }
 }, {immediate: true})
 
@@ -50,7 +50,7 @@ watch([picked, older], async ([id, before], _, onCleanup) => {
         const [to, from] = await Promise.all([text(id), before ? text(before.id) : null])
         if (!left) shown.value = {to, from}
     } catch (error) {
-        if (!left) failed.value = errorMessage(error)
+        if (!left) failed.value = errorMessage(error, 'read')
     }
 }, {immediate: true})
 

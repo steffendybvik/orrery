@@ -14,7 +14,7 @@ import {homedir} from 'node:os'
 import {dirname, join, sep} from 'node:path'
 
 const LABEL = 'orrery.launcher'
-export const configFile = () => join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'orrery', 'launcher.json')
+export const configFile = ({env = process.env, home = homedir()} = {}) => join(env.XDG_CONFIG_HOME || join(home, '.config'), 'orrery', 'launcher.json')
 
 /** Whether this is Linux inside WSL on Windows: WSL's own variables say so, or its kernel's name. */
 export function inWsl({env = process.env, kernel = () => readFileSync('/proc/version', 'utf8')} = {}) {
@@ -107,6 +107,41 @@ export function withProject(config, entry) {
 /** The list without the project. */
 export function withoutProject(config, entry) {
     return {...config, projects: config.projects.filter(p => !same(p, entry))}
+}
+
+/** The orrerys the list names, once each: its projects' and those it was installed for (`orreries`). */
+export const orrerysOn = config => [...new Set([...config.projects.map(p => p.url), ...config.orreries ?? []].filter(url => typeof url === 'string'))]
+
+/** Whether anything answers at the orrery `url` within `timeout` ms: any reply at all, a refusal included, counts, as only
+ * an orrery that's gone (a retired container, a throwaway port) gives none (ORR-1316). */
+export async function answers(url, {timeout = 4000, fetcher = fetch} = {}) {
+    try {
+        await fetcher(`${url.replace(/\/+$/, '')}/llms.txt`, {signal: AbortSignal.timeout(timeout), redirect: 'manual'})
+        return true
+    } catch {
+        return false
+    }
+}
+
+/** The orrerys on the list that don't answer now (ORR-1316), asked all at once. */
+export async function unanswered(config, {answer = answers} = {}) {
+    const urls = orrerysOn(config)
+    const heard = await Promise.all(urls.map(url => answer(url)))
+    return urls.filter((_, i) => !heard[i])
+}
+
+/** `--prune` (ORR-1316): takes every project on the orrerys `urls` off the list, and the orrerys off `orreries`. It writes
+ * the list alone, which the running service follows, letting their projects go. Says which projects it took off. */
+export function pruneList(urls, {file = configFile()} = {}) {
+    const config = listIn(file)
+    if (!config) throw new Error(`${file} can't be read as a list`)
+    const off = config.projects.filter(p => urls.includes(p.url))
+    const orreries = (config.orreries ?? []).filter(url => !urls.includes(url))
+    const {orreries: _was, ...rest} = config
+    if (off.length || orreries.length !== (config.orreries ?? []).length) {
+        writeList({...rest, projects: config.projects.filter(p => !off.includes(p)), ...orreries.length ? {orreries} : {}}, file)
+    }
+    return off
 }
 
 /** Where the project `entry` is served from another repo than its own, if it is (a monorepo's channel to the personal
@@ -214,18 +249,32 @@ WantedBy=default.target
 `
 }
 
-const run = (command, ...args) => execFileSync(command, args, {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim()
+const runCommand = (command, ...args) => execFileSync(command, args, {encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe']}).trim()
+
+/** The machine the service installs on: this one, unless a test hands in its own (a temporary home, `run` stood in). */
+function machineOf(machine = {}) {
+    const os = machine.os ?? process.platform
+    return {
+        os,
+        home: machine.home ?? homedir(),
+        env: machine.env ?? process.env,
+        uid: 'uid' in machine ? machine.uid : process.getuid?.(),
+        run: machine.run ?? runCommand,
+        pause: machine.pause ?? (ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)),
+        problem: 'problem' in machine ? machine.problem : serviceProblem({platform: os}),
+    }
+}
 
 /** Where the service's file goes, and how it's (re)started and removed, on this machine. */
-function platform() {
-    const problem = serviceProblem()
+export function platform(machine) {
+    const {os, home, env, uid, run, pause, problem} = machineOf(machine)
     if (problem) throw new Error(problem)
-    const uid = process.getuid?.()
-    if (process.platform === 'darwin') {
-        const file = join(homedir(), 'Library', 'LaunchAgents', `${LABEL}.plist`)
-        const log = join(homedir(), 'Library', 'Logs', 'orrery-launcher.log')
+    const list = configFile({env, home})
+    if (os === 'darwin') {
+        const file = join(home, 'Library', 'LaunchAgents', `${LABEL}.plist`)
+        const log = join(home, 'Library', 'Logs', 'orrery-launcher.log')
         return {
-            file, logs: log, render: opts => plist({...opts, log}),
+            file, list, run, logs: log, render: opts => plist({...opts, log}),
             start: () => {
                 try {
                     run('launchctl', 'bootout', `gui/${uid}/${LABEL}`)
@@ -239,7 +288,7 @@ function platform() {
                         return run('launchctl', 'bootstrap', `gui/${uid}`, file)
                     } catch (error) {
                         if (tries === 10) throw error
-                        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
+                        pause(500)
                     }
                 }
             },
@@ -255,9 +304,9 @@ function platform() {
         }
     }
     // Linux, WSL's included: systemd.
-    const file = join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'systemd', 'user', 'orrery-launcher.service')
+    const file = join(env.XDG_CONFIG_HOME || join(home, '.config'), 'systemd', 'user', 'orrery-launcher.service')
     return {
-        file, logs: 'journalctl --user -u orrery-launcher -f', render: opts => systemdUnit({...opts, distro: process.env.WSL_DISTRO_NAME}),
+        file, list, run, logs: 'journalctl --user -u orrery-launcher -f', render: opts => systemdUnit({...opts, distro: env.WSL_DISTRO_NAME}),
         start: () => {
             run('systemctl', '--user', 'daemon-reload')
             run('systemctl', '--user', 'enable', 'orrery-launcher')
@@ -277,7 +326,7 @@ function platform() {
 /** Writes the list, then the service's file, (re)starting the service only when that file changed or it isn't
  * running: a running one picks the new list up itself. Says whether it restarted. */
 function apply(where, config, opts) {
-    writeList(config)
+    writeList(config, where.list)
     const text = where.render(opts)
     let was = ''
     try {
@@ -301,9 +350,9 @@ export function installedFrom(orreries, orrery) {
 /** Adds the projects of the repo at `dir` to the list (none, and no `dir`, to install the service alone), sets
  * pick-up, and the agent when one is named, and starts the service if it isn't running on the same file. A restart
  * stops the sessions it was running. */
-export function install(entries, {node = process.execPath, script, path = process.env.PATH ?? '', dir, pickUp = true, orrery, agent}) {
-    const where = platform()
-    const before = readConfig()
+export function install(entries, {node = process.execPath, script, path = process.env.PATH ?? '', dir, pickUp = true, orrery, agent, machine}) {
+    const where = platform(machine)
+    const before = readConfig(where.list)
     const listed = {...withAgent(entries.reduce(withProject, before), agent), pickUp, ...orrery ? {orreries: installedFrom(before.orreries, orrery)} : {}}
     const config = dir ? skipping(listed, dir, false) : listed
     const restarted = apply(where, config, {node, script, path})
@@ -321,9 +370,9 @@ export function withAgent(config, agent) {
 
 /** Takes the projects of the repo at `dir` off the list and keeps the repo off it, which the running service follows.
  * With pick-up off, the last project takes the service with it; with it on, the service stays to be handed repos. */
-export function uninstall(entries, {node = process.execPath, script, path = process.env.PATH ?? '', dir}) {
-    const where = platform()
-    const config = skipping(entries.reduce(withoutProject, readConfig()), dir, true)
+export function uninstall(entries, {node = process.execPath, script, path = process.env.PATH ?? '', dir, machine}) {
+    const where = platform(machine)
+    const config = skipping(entries.reduce(withoutProject, readConfig(where.list)), dir, true)
     if (config.projects.length || config.pickUp) {
         apply(where, config, {node, script, path})
     } else {
@@ -335,10 +384,10 @@ export function uninstall(entries, {node = process.execPath, script, path = proc
 /** Whether the sessions outlive the service restarting itself (ORR-686). On a Mac they do, as launchd kills only its
  * job's process group and the tmux server has its own. systemd needs telling, so an older unit is brought up to date
  * here, which takes effect with no restart. */
-export function restartKeepsSessions() {
-    if (process.platform === 'darwin') return true
+export function restartKeepsSessions(machine) {
+    if (machineOf(machine).os === 'darwin') return true
     try {
-        const {file} = platform()
+        const {file, run} = platform(machine)
         const unit = readFileSync(file, 'utf8')
         const kept = keepingSessions(unit)
         if (kept !== unit) {
@@ -353,8 +402,8 @@ export function restartKeepsSessions() {
 
 /** Stops the service and removes its file, whatever is on the list, which stays for the next `--install`. Pick-up goes
  * off with it, so no channel puts a repo on a list nothing serves. */
-export function removeService(where = platform(), config = readConfig()) {
-    writeList({...config, pickUp: false})
+export function removeService(where = platform(), config = readConfig(where.list)) {
+    writeList({...config, pickUp: false}, where.list)
     try {
         where.stop()
     } catch {

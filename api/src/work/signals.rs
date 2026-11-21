@@ -125,10 +125,14 @@ impl<'c> Signals<'c> {
                 rows.reverse();
                 rows
             }
+            // A focus on an issue closed since it was sent isn't handed out (ORR-1317): one made when a P0 was new could
+            // otherwise wait most of a day for a session, and reach it after the issue was done or canceled.
             Which::Pooled => {
                 sqlx::query(&sql(&format!(
-                    "SELECT {COLUMNS} FROM signals WHERE project = ? AND (owned = 1 OR person IS NOT NULL) AND delivered_to = '[]' \
-                     AND target IS NULL AND created_at >= ? ORDER BY id"
+                    "SELECT {COLUMNS} FROM signals s WHERE s.project = ? AND (s.owned = 1 OR s.person IS NOT NULL) AND s.delivered_to = '[]' \
+                     AND s.target IS NULL AND s.created_at >= ? \
+                     AND NOT (s.kind = 'focus' AND EXISTS (SELECT 1 FROM issues i WHERE i.project = s.project AND i.id = s.issue \
+                       AND i.status IN (SELECT id FROM statuses WHERE kind IN ('done', 'canceled')))) ORDER BY s.id"
                 )))
                 .bind(project)
                 .bind(a_day_ago())

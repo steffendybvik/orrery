@@ -61,14 +61,14 @@ test("shows a listening session on the Sessions page, and sends it a message onl
         await expect(card).toContainText('kitchen shelves')
         await expect.poll(() => asked).toContain('/api/sessions/work')
         expect(asked.filter(path => path !== '/api/sessions/work')).toEqual([])
-        // Its message box is under Details, which its name opens (ORR-1220).
+        // Its message box is on the card with Details folded, so writing takes no click (ORR-1320); what it was sent
+        // is under Details, which its name opens (ORR-1220).
         const details = card.getByRole('button', {name: 'Details for kitchen shelves'})
         await expect(details).toHaveAttribute('aria-expanded', 'false')
-        await expect(card.getByLabel('Message kitchen shelves')).toBeHidden()
-        await details.click()
         await card.getByLabel('Message kitchen shelves').fill('Use the oak hinges, not pine.')
         await card.getByRole('button', {name: 'Send'}).click()
         await expect.poll(() => channel.said.text).toContain('ada_lovelace (to you): Use the oak hinges, not pine.')
+        await details.click()
         await expect(card.getByText(/message: Use the oak hinges/)).toBeVisible()
         // ⌘K finds it by name, from any page, and sends the same way, closing once sent (ORR-679).
         await page.goto('/mine')
@@ -84,7 +84,6 @@ test("shows a listening session on the Sessions page, and sends it a message onl
         await expect.poll(() => channel.said.text).toContain('(to you): Palette says hello.')
         await expect(dialog).toBeHidden()
         await page.goto('/sessions')
-        await details.click()
         // ⌘/Ctrl-Enter sends as well, and Shift-Enter is a new line (ORR-514).
         const box = card.getByLabel('Message kitchen shelves')
         await box.fill('Sand first.')
