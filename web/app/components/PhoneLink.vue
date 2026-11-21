@@ -24,7 +24,7 @@ async function signInLink() {
         code.value = made.code
         renew = setTimeout(signInLink, Math.max(new Date(made.expires_at).getTime() - Date.now() - 30_000, 10_000))
     } catch (error) {
-        failed.value = errorMessage(error)
+        failed.value = errorMessage(error, 'make')
     }
 }
 onMounted(async () => {
@@ -33,7 +33,7 @@ onMounted(async () => {
         chosen.value = links.value.addresses[0]?.url ?? ''
         if (links.value.phone && links.value.reach === 'network') await signInLink()
     } catch (error) {
-        failed.value = errorMessage(error)
+        failed.value = errorMessage(error, 'read')
     }
 })
 onBeforeUnmount(() => clearTimeout(renew))
