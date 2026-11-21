@@ -196,7 +196,7 @@ export default defineNuxtPlugin(() => {
     async function first() {
         failed.value = ''
         await load().catch(error => {
-            failed.value = errorMessage(error, 'load them')
+            failed.value = errorMessage(error, 'load')
         })
     }
     watch(retries, first)
