@@ -449,11 +449,13 @@ function dockBack() {
     window.close()
 }
 /** In the window, a click on a link to another page of orrery opens it in the window it came from, so the chat stays
- * here; with that window gone, in a new tab. */
+ * here; with that window gone, in a new tab. A reply's link is one of these though it says to open in a new tab (the
+ * pane's), and so is a card's, which would move this window: it's heard before its link's own click (ORR-1331). A
+ * picture's, into the API, opens as it would anywhere. */
 function followLink(event: MouseEvent) {
     if (!props.standalone || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     const link = (event.target as Element | null)?.closest('a[href]') as HTMLAnchorElement | null
-    if (!link || link.target || link.origin !== location.origin || link.pathname === location.pathname) return
+    if (!link || link.origin !== location.origin || link.pathname === location.pathname || link.href.startsWith(new URL(apiUrl('/'), location.origin).href)) return
     event.preventDefault()
     const path = link.pathname + link.search + link.hash
     const from = window.opener as Window | null
@@ -512,7 +514,7 @@ onBeforeUnmount(() => window.removeEventListener('message', heard))
       aria-label="Chat"
       v-on="drop"
       @keydown.esc="!standalone && shut()"
-      @click="followLink"
+      @click.capture="followLink"
   >
     <ImageDropOverlay v-if="over" />
     <!-- Over the chat, a tap anywhere outside the list closes it, as Esc does (ORR-899). -->
