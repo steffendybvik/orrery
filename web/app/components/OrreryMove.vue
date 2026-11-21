@@ -68,7 +68,7 @@ async function lookUp() {
         }
     } catch (error) {
         remotes.value = []
-        failed.value = errorMessage(error)
+        failed.value = errorMessage(error, 'reach')
     }
 }
 watch(from, id => {
@@ -83,7 +83,7 @@ async function check() {
     try {
         preview.value = await apiFetch<{summary: string, report: Report}>('/orrery-moves', {method: 'POST', body: {...ask(), dryRun: true}})
     } catch (error) {
-        failed.value = errorMessage(error)
+        failed.value = errorMessage(error, 'check')
     } finally {
         previewing.value = false
     }
@@ -101,7 +101,7 @@ async function go() {
         preview.value = null
         await follow(id)
     } catch (error) {
-        failed.value = errorMessage(error)
+        failed.value = errorMessage(error, 'start')
     } finally {
         moving.value = false
     }

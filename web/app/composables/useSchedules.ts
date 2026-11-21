@@ -90,7 +90,7 @@ export function useSchedules() {
             ranFor = setTimeout(() => ran.value = null, RAN_FOR)
             return null
         } catch (error) {
-            return errorMessage(error)
+            return errorMessage(error, 'run')
         }
     }
 

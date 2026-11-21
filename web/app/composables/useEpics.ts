@@ -15,7 +15,7 @@ export function useEpics() {
             epics.value = read
             failed.value = ''
         } catch (error) {
-            if (asked === latest.value) failed.value = errorMessage(error)
+            if (asked === latest.value) failed.value = errorMessage(error, 'read')
         }
     }
     const byId = (id: number) => epics.value?.find(e => e.id === id)

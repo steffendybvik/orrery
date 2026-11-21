@@ -16,7 +16,7 @@ async function stop() {
             method: 'POST',
         })
     } catch (error) {
-        failed.value = errorMessage(error)
+        failed.value = errorMessage(error, 'stop')
         busy.value = false
     }
 }
