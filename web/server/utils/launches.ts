@@ -47,6 +47,9 @@ export interface Launch {
     /** The Claude Code session to take up again (`claude --resume`): an ended chat written in again (ORR-884). Only a
      * launcher that says it can (`?resume=yes` on its claim) gets it; to an older one it's started fresh, on `fresh`. */
     resume?: string
+    /** The folder it's to start in, picked on Start session when the project is served from several (ORR-1314): only
+     * a launcher serving it from there may take it. None, the first launcher to claim it. */
+    dir?: string
 }
 
 /** What goes down a project's launcher stream: a session to start, or one of its sessions to stop, keep longer,
@@ -107,7 +110,7 @@ const everywhere = counter('everywhere')
 const versions = new Map<string, string[]>()
 /** Each connected launcher's token, to the project it serves: its stream hands it over (`ready`), and a claim counts
  * only with one, so nothing but a launcher on its stream can take a launch and keep it from starting (ORR-443). */
-const tokens = new Map<string, {project: string, person?: string, home?: boolean}>()
+const tokens = new Map<string, {project: string, person?: string, home?: boolean, dir?: string}>()
 /** How many of each project's launchers serve it from their machine's default folder (`?home=1`, ORR-1066), as it has no
  * repo there: one in the project's repo is given its sessions first. */
 const homeLaunchers = counter('home-launchers')
@@ -152,7 +155,7 @@ export function addMemberLauncher(project: string, person: string): (() => void)
  * project from its machine's default folder, with no repo (ORR-1066). */
 export function addLauncher(project: string, dir?: string, every = false, version = '', how: RepoAdded = {}, home = false): (() => void) & {token: string} {
     const token = randomBytes(18).toString('base64url')
-    tokens.set(token, {project, ...home ? {home: true} : {}})
+    tokens.set(token, {project, ...home ? {home: true} : {}, ...dir ? {dir} : {}})
     const gone = launchers.add(project)
     const homeGone = home ? homeLaunchers.add(project) : () => {}
     const away = every ? everywhere.add(project) : () => {}
@@ -375,11 +378,14 @@ export const launchTarget = (launch: string) => `launch-${launch}`
  * (`statuses`, `release`), from a focus on the project's issues in it, made the same way. Needs the
  * owner's opt-in and a launcher, and counts the sessions on their way against the limit, as it doesn't stand
  * in for them the way a signal's launch does. */
-export async function startLaunch(project: string, {issue, statuses, release: version, context, hears, model, effort, global, actor}: {issue?: string, statuses?: string[], release?: string, context?: SessionContext, hears?: string[], model?: string, effort?: Effort, global?: boolean, actor?: Actor} = {}): Promise<Launch> {
+export async function startLaunch(project: string, {issue, statuses, release: version, context, hears, model, effort, global, dir, actor}: {issue?: string, statuses?: string[], release?: string, context?: SessionContext, hears?: string[], model?: string, effort?: Effort, global?: boolean, dir?: string, actor?: Actor} = {}): Promise<Launch> {
     // A global session hears every project already (ORR-1079).
     if (global && hears) throw badRequest('Send {global} or {hears}, not both: a global session hears every project')
+    // A global session starts in the orrery's default folder, never a repo's.
+    if (global && dir) throw badRequest("Send {global} or {dir}, not both: a global session starts in orrery's default folder")
+    if (dir && !foldersOf(project).includes(dir)) throw conflict(`No launcher serves ${project} from ${dir}: pick one of the folders it's served from${foldersOf(project).length ? ` (${foldersOf(project).join(', ')})` : ''}`)
     if (hears) hears = [project, ...new Set(hears.filter(p => p !== project))]
-    const apart = hears?.filter(p => p !== project && !foldersOf(project).some(dir => foldersOf(p).includes(dir)))
+    const apart = hears?.filter(p => p !== project && !(dir ? [dir] : foldersOf(project)).some(at => foldersOf(p).includes(at)))
     if (apart?.length) throw conflict(`${apart.join(', ')} ${apart.length === 1 ? "isn't" : "aren't"} served from ${project}'s repo, so one session there can't hear ${apart.length === 1 ? 'it' : 'them'}: start a session for each`)
     const starts = await roomFor(project)
     // Focused on an issue with no model asked for, it starts on what the issue's kind is set to (ORR-868). `best` is
@@ -389,7 +395,7 @@ export async function startLaunch(project: string, {issue, statuses, release: ve
         if (picked.model !== 'best') ({model, effort} = picked)
     }
     // Held from here, so the limit counts it while its focus is made.
-    const held = hold(project, {after: 0, ...starts.minutes ? {minutes: starts.minutes} : {}, ...context ? {context} : {}, ...hears ? {hears} : {}, ...model ? {model} : {}, ...effort ? {effort} : {}, ...global ? {global} : {}, ...actor?.owner ? {person: actor.name} : {}})
+    const held = hold(project, {after: 0, ...starts.minutes ? {minutes: starts.minutes} : {}, ...context ? {context} : {}, ...hears ? {hears} : {}, ...model ? {model} : {}, ...effort ? {effort} : {}, ...global ? {global} : {}, ...dir ? {dir} : {}, ...actor?.owner ? {person: actor.name} : {}})
     try {
         const session = launchTarget(held.id)
         held.after = issue
@@ -475,13 +481,16 @@ export interface StartInput {
     hears?: string[]
     /** A global session (ORR-1079). */
     global?: boolean
+    /** The folder to start it in, of those the project is served from (ORR-1314). */
+    dir?: string
     /** The model and effort to start it on; none, Claude Code's default (ORR-868). */
     model?: string
     effort?: Effort
 }
 
 export function startInput(body: unknown): StartInput {
-    const {issue, statuses, release, presets, instructions, hears, model, effort, global} = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>
+    const {issue, statuses, release, presets, instructions, hears, model, effort, global, dir} = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>
+    if (dir !== undefined && dir !== null && (typeof dir !== 'string' || !dir)) throw badRequest("Send {dir}: the folder to start it in, one of the project's launchers' (GET …/launches), or nothing")
     if (global !== undefined && global !== null && typeof global !== 'boolean') throw badRequest('Send {global}: true for a global session, hearing every project, or nothing')
     if (issue !== undefined && issue !== null && typeof issue !== 'string') throw badRequest('Send {issue}: the id of an issue for the session to focus on, or nothing')
     if (statuses !== undefined && statuses !== null && (!Array.isArray(statuses) || statuses.some(s => typeof s !== 'string' || !s))) {
@@ -510,6 +519,7 @@ export function startInput(body: unknown): StartInput {
         instructions: (instructions as string | null) ?? '',
         ...hears ? {hears: hears as string[]} : {},
         ...global ? {global: true} : {},
+        ...dir ? {dir: dir as string} : {},
     }
 }
 
@@ -565,6 +575,8 @@ export function claim(project: string, id: string, token: string | undefined, lo
     }
     // A member's launcher takes only that person's launches, never the owner's (ORR-963).
     if (launcher.person && launch.person !== launcher.person) return false
+    // One started in a folder goes only to a launcher there (ORR-1314).
+    if (launch.dir && launcher.dir !== launch.dir) return false
     // One in the default folder leaves it to one in the project's repo, while there is one (ORR-1066).
     if (launcher.home && launchers.count(project) > homeLaunchers.count(project)) return false
     if (launch.untrusted && !locksDown || launch.chat && !chats) {
