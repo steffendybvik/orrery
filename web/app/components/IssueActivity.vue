@@ -137,7 +137,7 @@ async function answerSchedule(id: number, allow: boolean) {
             {method: 'POST', body: {allow}})
         comments.value = comments.value.map(c => c.id === comment.id ? comment : c)
     } catch (error) {
-        scheduleFailed.value = {id, message: errorMessage(error, allow ? 'allow it' : 'deny it')}
+        scheduleFailed.value = {id, message: errorMessage(error, allow ? 'allow' : 'deny')}
     } finally {
         answeringSchedule.value = null
     }
