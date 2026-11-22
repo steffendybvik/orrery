@@ -71,3 +71,30 @@ async fn a_cleared_session_keeps_its_record_under_its_new_id() {
     assert_eq!(status, 409, "{refused}");
     assert_eq!(keep(&api, "old", json!({"kind": "chat"})).await.0, 409);
 }
+
+// ORR-1324: how a request's session ids are read, and what an untrusted request keeps when its record says chat.
+
+#[test]
+fn a_session_named_twice_by_one_request_is_one_id() {
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("orrery-session", "orrery%20%C2%B7%20Mime".parse().unwrap());
+    headers.insert("orrery-worked-by", " orrery%20%C2%B7%20Mime ".parse().unwrap());
+    assert_eq!(crate::access::session_records::named_ids(&headers), ["orrery · Mime"]);
+    headers.insert("orrery-worked-by", "  ".parse().unwrap());
+    assert_eq!(crate::access::session_records::named_ids(&headers), ["orrery · Mime"], "a blank one names nobody");
+}
+
+#[tokio::test]
+async fn an_untrusted_request_stays_untrusted_and_not_the_chat_when_its_record_says_chat() {
+    let api = TestApi::new().await;
+    assert_eq!(keep(&api, "c", json!({"kind": "chat"})).await.0, 200);
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("orrery-session", "c".parse().unwrap());
+    let mut conn = api.app.pool.acquire().await.unwrap();
+    let asking = crate::write::Actor { name: "claude".into(), untrusted: true, ..Default::default() };
+    let (held, own) = crate::access::session_records::as_recorded(&mut conn, &headers, &asking).await.unwrap();
+    assert_eq!((held.untrusted, held.chat, own), (true, false, None));
+    let trusted = crate::write::Actor { name: "claude".into(), ..Default::default() };
+    let (held, _) = crate::access::session_records::as_recorded(&mut conn, &headers, &trusted).await.unwrap();
+    assert!(held.chat, "a trusted one is the chat, as its record says");
+}

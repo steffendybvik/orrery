@@ -245,3 +245,36 @@ async fn a_signal_written_or_heard_is_in_the_outbox() {
     let actor: Option<String> = sqlx::query_scalar("SELECT actor FROM changes ORDER BY id DESC LIMIT 1").fetch_one(&api.app.pool).await.unwrap();
     assert_eq!(actor, None, "orrery's own");
 }
+
+// ORR-1324: a receipt that loses every race to mark its signal gives up with a 409, leaving the signal as it was.
+#[tokio::test]
+async fn a_receipt_that_loses_every_race_says_to_try_again() {
+    let api = TestApi::new().await;
+    let (project, _) = api.board().await;
+    let written =
+        api.post(&format!("/api/projects/{project}/signals"), json!({"kind": "message", "note": "Hi", "created_by": "owner", "owned": true})).send().await;
+    let id = written.body["id"].as_i64().unwrap();
+    // Each write is passed over, as one another session's receipt got in first would be.
+    if std::env::var("TEST_POSTGRES_URL").is_ok_and(|url| !url.is_empty()) {
+        api.run("CREATE FUNCTION pass_over() RETURNS trigger AS $body$ BEGIN RETURN NULL; END $body$ LANGUAGE plpgsql", &[]).await;
+        api.run("CREATE TRIGGER pass_over BEFORE UPDATE ON signals FOR EACH ROW EXECUTE FUNCTION pass_over()", &[]).await;
+    } else {
+        api.run("CREATE TRIGGER pass_over BEFORE UPDATE ON signals BEGIN SELECT RAISE(IGNORE); END", &[]).await;
+    }
+    let reply = api.post(&format!("/api/projects/{project}/signals/{id}/receipts"), json!({"to": "Siv"})).send().await;
+    assert_eq!(reply.status, 409, "{}", reply.body);
+    assert_eq!(reply.body["message"], format!("Signal {id} is being marked by too many sessions at once; try again"));
+    assert_eq!(api.get(&format!("/api/projects/{project}/signals")).send().await.body[0]["delivered_to"], json!([]));
+}
+
+#[tokio::test]
+async fn a_signals_list_kept_as_broken_json_reads_as_empty() {
+    let api = TestApi::new().await;
+    let (project, _) = api.board().await;
+    let path = format!("/api/projects/{project}/signals");
+    api.post(&path, json!({"kind": "message", "note": "Hi", "created_by": "owner", "instructions": ["Be brief"]})).send().await;
+    api.run("UPDATE signals SET instructions = ?", &["[not json"]).await;
+    let read = api.get(&path).send().await;
+    assert_eq!(read.status, 200, "{}", read.body);
+    assert_eq!(read.body[0]["instructions"], json!([]), "{}", read.body);
+}
