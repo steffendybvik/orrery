@@ -7,6 +7,65 @@ Each version's changes are grouped under **Features**, **Changes** and **Fixes**
 **Internal** where they help, with **Upgrading** first when an update needs a step of you. A group with nothing
 in it is left out. 1.0.0, the first release's overview, is one list.
 
+## 1.0.0-rc.22 (2026-11-22)
+
+### Upgrading
+
+- **Restart the sessions that were running before the upgrade.** A session keeps the channel it started with, so
+  until it's restarted it misses the receipt fix below, and a message it was sent can still keep it waiting.
+
+### Features
+
+- **Pick the folder a session starts in:** a project served from several folders asks which one in **Start
+  session**, and only the launcher there claims it, so a session no longer lands in whichever checkout got it first.
+
+### Changes
+
+- **Your sessions take up what's nobody's:** with more than one person on an orrery, your own agents may start,
+  assign, close, move and delete an issue assigned to nobody, give it to `claude` or to you, and file one already
+  started. `next`, pick lists and the Todo hand-outs offer them those issues. Another person's issue, and giving one
+  to another person, stay refused, as before.
+
+### Fixes
+
+- **A session no longer stops getting work after one lost receipt:** the channel sends a receipt orrery didn't take
+  (it was restarting, say) again until it lands, and an unheard message aimed at a session counts as waiting for a
+  day only, so it can't keep the session busy for good.
+- **Tools that `more_tools` adds can be called:** its answer tells the client the tool list changed, so the
+  schedules, releases and other groups become callable in the same session.
+- **A launched session hears its messages when another orrery's channel is installed too:** the channel reads only
+  its own log lines, not the other orrery's "skipped" line.
+- **A session's message box is on its card again,** not folded under Details.
+- **A session holds to its workspace** on the routes the Nuxt server still answers itself (launches, sessions,
+  context), as on the Rust API's.
+- **A workspace's session limit counts its own sessions,** not every workspace's.
+- **A waiting focus on an issue closed since isn't handed out.**
+- **A session points at the project's checkout one folder down** when its launcher serves a folder of repos.
+- **The launcher drops orrerys that no longer answer:** `--list` and `--install` name them, `--prune` takes them off,
+  and the service sweeps away dead session files as it starts.
+- **Welcome skips the naming step for a workspace that's already named.**
+- **Failures say what failed:** a read, a run, a message or a delete that fails says so, not "Couldn't save it", and
+  a failed schedule answer no longer says "Couldn't allow it it". The schedule dialog says "Couldn't pause it",
+  "Couldn't resume it" or "Couldn't remove it".
+- **Links in the popped-out chat open in the window it came from,** and leave the chat where it is.
+- **What the owner made is listed in a fixed order** when an agent is refused for changing it, the same on SQLite and
+  Postgres.
+
+### Docs
+
+- **The README's images retaken for rc.22,** with the release and events pages added.
+
+### Internal
+
+- **Session, signal and chat code covered:** every line of the Rust API's session, signal and chat files runs in its
+  tests, CI holds them at 100%, and its floor for the whole crate is 95.6%. Writing to a session has route tests, and
+  the channel's receipts a test against a stand-in orrery.
+- **More of the page covered:** the chat, the schedule dialog, the sidebar, issue activity, threads, doc history, the
+  board's columns and images, a whole import between two orrerys, the launcher's service install, and a whole session
+  in a second workspace.
+- **Steadier browser runs:** the chat spec waits for its session to start under a full run's load, and a spec's
+  retry finds its own project by its id.
+
 ## 1.0.0-rc.21 (2026-11-18)
 
 ### Features
