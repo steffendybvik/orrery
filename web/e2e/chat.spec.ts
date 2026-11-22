@@ -2,6 +2,10 @@ import type {APIRequestContext} from '@playwright/test'
 import {expect, test} from './test'
 import {OWNER, hold, makeProject} from './support'
 
+/** How long the chat may take to start its session: it waits for the owner to stop typing, then the launch has to
+ * reach the launcher's stream, which in a whole run, with every worker busy, is often past the 5s default (ORR-1335). */
+const CHAT_STARTS = 20_000
+
 // The owner's chat, with a fake launcher and a fake chat session on the API where Claude would be: the first message
 // in the pane starts one with starts turned off (a chat counts towards nothing), the owner's words reach its session
 // alone, its answer shows in the pane, it isn't listed on the Sessions page, closing the pane (× or Esc) only hides it,
@@ -64,7 +68,7 @@ test('chats with a session that answers on the page, and is listed nowhere', asy
         // The first message starts the chat, and reaches its session once it connects.
         await pane.getByLabel('Message').fill('What is on the top shelf?')
         await pane.getByLabel('Message').press('Enter')
-        await expect.poll(() => launcher.said.text).toContain('"chat":true')
+        await expect.poll(() => launcher.said.text, {timeout: CHAT_STARTS}).toContain('"chat":true')
         // Nothing says it's starting, or ready once it has (ORR-883): the spinner shows the turn.
         await expect(pane.getByLabel('Thinking…')).toBeVisible()
         // It says who's answering once it has connected, not before (ORR-811).
@@ -605,7 +609,7 @@ test('lands the issues it makes in Todo or Backlog, as picked beside Send', asyn
 
         await pane.getByLabel('Message').fill('File one for the jam jars')
         await pane.getByLabel('Message').press('Enter')
-        await expect.poll(() => launcher.said.text).toContain('"chat":true')
+        await expect.poll(() => launcher.said.text, {timeout: CHAT_STARTS}).toContain('"chat":true')
         const [chat] = await (await request.get('/api/chats')).json()
         expect(chat.issues).toBe('backlog')
         const jars = await (await request.post('/api/projects/observatory/issues', {data: {title: 'Jam jars', status: 'todo'}, headers: chatSays(chat.id)})).json()
@@ -639,7 +643,7 @@ test("clears its session's context on /clear, marking the cut and keeping what w
         const pane = page.getByRole('region', {name: 'Chat'})
         await pane.getByLabel('Message').fill('What is in the cellar?')
         await pane.getByLabel('Message').press('Enter')
-        await expect.poll(() => launcher.said.text).toContain('"chat":true')
+        await expect.poll(() => launcher.said.text, {timeout: CHAT_STARTS}).toContain('"chat":true')
         const [chat] = await (await request.get('/api/chats')).json()
         const after = launcher.said.text.match(/"after":(\d+)/)![1]
         session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-clear&name=e2e-clear&started=${chat.id}&chat=yes&after=${after}&format=text`)
@@ -698,7 +702,7 @@ test('holds a run of messages and sends them together, at once on ⌘-Enter', as
         await box.fill('')
 
         // Once the owner stops typing, both go as one message, still shown as two.
-        await expect.poll(() => launcher.said.text, {timeout: 8000}).toContain('"chat":true')
+        await expect.poll(() => launcher.said.text, {timeout: CHAT_STARTS}).toContain('"chat":true')
         const [chat] = await (await request.get('/api/chats')).json()
         const after = launcher.said.text.match(/"after":(\d+)/)![1]
         session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-run&name=e2e-run&started=${chat.id}&chat=yes&after=${after}&format=text`)
@@ -738,7 +742,7 @@ test("holds a run that couldn't go until the owner tries again, and keeps a slas
     await box.fill('what about the jam')
     await box.press('Enter')
     await expect(pane.getByLabel('Conversation', {exact: true}).getByText('what about the jam', {exact: true})).toBeVisible()
-    await expect(pane.getByText('Not sent')).toBeVisible({timeout: 5000})
+    await expect(pane.getByText('Not sent')).toBeVisible({timeout: CHAT_STARTS})
     await expect(pane.getByLabel('Thinking…')).toHaveCount(0)
     // It says how to install the launcher, the command to copy, rather than the server's error line (ORR-591).
     await expect(pane.getByText('No launcher is running for Observatory.')).toBeVisible()
@@ -760,7 +764,7 @@ test("holds a run that couldn't go until the owner tries again, and keeps a slas
     try {
         await expect.poll(async () => (await (await request.get('/api/projects/observatory/launches')).json()).launchers).toBe(1)
         await pane.getByRole('button', {name: 'Retry'}).click()
-        await expect.poll(() => launcher.said.text).toContain('"chat":true')
+        await expect.poll(() => launcher.said.text, {timeout: CHAT_STARTS}).toContain('"chat":true')
         await expect(pane.getByLabel('Conversation', {exact: true}).getByText('Not sent')).toHaveCount(0)
         await expect(pane.getByText('No launcher is running for Observatory.')).toHaveCount(0)
         await endChats(request)
@@ -1014,7 +1018,7 @@ test('asks for permission in its own pane, with Allow and Deny, and starts a ses
         const pane = page.getByRole('region', {name: 'Chat'})
         await pane.getByLabel('Message').fill('What is on the top shelf?')
         await pane.getByLabel('Message').press('Enter')
-        await expect.poll(() => launcher.said.text).toContain('"chat":true')
+        await expect.poll(() => launcher.said.text, {timeout: CHAT_STARTS}).toContain('"chat":true')
         const [chat] = await (await request.get('/api/chats')).json()
         const after = launcher.said.text.match(/"after":(\d+)/)![1]
         session = hold(baseURL!, `/api/projects/observatory/signals/stream?session=e2e-ask&name=e2e-ask&started=${chat.id}&chat=yes&after=${after}&format=text`)
