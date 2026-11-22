@@ -507,3 +507,46 @@ async fn a_claude_session_that_chose_another_orrery_is_refused_its_tools() {
     api.post("/mcp", json!({"jsonrpc": "2.0", "method": "notifications/orrery/chose", "params": {}})).header("orrery-session", "c3").send().await;
     assert!(guide("c3").send().await.body["result"]["isError"].is_null());
 }
+
+// ORR-1323: a client that takes a stream hears its tools changed on `more_tools`'s own answer, then lists them again.
+#[tokio::test]
+async fn more_tools_says_the_tools_changed_on_the_answers_stream() {
+    let api = TestApi::new().await;
+    let id = session(&api).await;
+    let init = rpc(&api, "initialize", json!({"protocolVersion": "2025-06-18"})).send().await;
+    assert_eq!(init.body["result"]["capabilities"]["tools"]["listChanged"], true);
+    let call = |group: &str, accept: &str| {
+        rpc(&api, "tools/call", json!({"name": "more_tools", "arguments": {"group": group}})).header("mcp-session-id", &id).header("accept", accept)
+    };
+    let streamed = call("schedules", "application/json, text/event-stream").send().await;
+    assert_eq!(streamed.status, 200);
+    assert_eq!(streamed.header("content-type"), Some("text/event-stream"));
+    let events: Vec<Value> = streamed
+        .body
+        .as_str()
+        .expect("a stream, as text")
+        .lines()
+        .filter_map(|line| line.strip_prefix("data: "))
+        .map(|data| serde_json::from_str(data).unwrap())
+        .collect();
+    assert_eq!(events[0], json!({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}), "first, that the tools changed");
+    assert_eq!(events[1]["id"], 1);
+    assert_eq!(events[1]["result"]["content"][0]["text"], "Added create_schedule, update_schedule to your tools.");
+    assert_eq!(events.len(), 2);
+    let listed = rpc(&api, "tools/list", json!({})).header("mcp-session-id", &id).send().await;
+    assert!(names(&listed).contains(&"update_schedule".into()));
+    // One that takes only JSON gets JSON, and a group there isn't changes nothing, so it isn't streamed.
+    let plain = call("secrets", "application/json").send().await;
+    assert_eq!((plain.header("content-type"), said(&plain)), (Some("application/json"), "Added secrets to your tools."));
+    let wrong = call("nope", "application/json, text/event-stream").send().await;
+    assert_eq!(wrong.header("content-type"), Some("application/json"));
+    assert_eq!(wrong.body["result"]["isError"], true);
+    let batch = api
+        .post("/mcp", json!([{"jsonrpc": "2.0", "id": "a", "method": "tools/call", "params": {"name": "more_tools", "arguments": {"group": "debug"}}}]))
+        .header("mcp-session-id", &id)
+        .header("accept", "text/event-stream")
+        .send()
+        .await;
+    let last = batch.body.as_str().unwrap().lines().filter_map(|l| l.strip_prefix("data: ")).last().unwrap();
+    assert_eq!(serde_json::from_str::<Value>(last).unwrap()[0]["id"], "a", "a batch's answers come as their list");
+}

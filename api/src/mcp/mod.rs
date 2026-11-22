@@ -103,7 +103,8 @@ impl Call<'_> {
                     id,
                     json!({
                         "protocolVersion": version,
-                        "capabilities": {"tools": {"listChanged": false}},
+                        // A group `more_tools` loads is said on the answer's own stream (routes/mcp.rs, ORR-1323).
+                        "capabilities": {"tools": {"listChanged": true}},
                         "serverInfo": {"name": "orrery", "version": ORRERY_VERSION.as_str()},
                         "instructions": "orrery keeps the roadmap: projects, issues, comments and docs. Name the project on a call when there are several; how orrery itself works is the guide tool.",
                     }),

@@ -826,7 +826,10 @@ for a project that doesn't exist yet `?name=` names it and the brief has the age
 channel's `guide` tool answers from: its contents, or the one section or page asked for. `GET /api/mcp` → `{groups, requests, env}`: what the channel's MCP server offers, from its own code: its tools by what they do and who gets each, what the chat asks the owner first, and the environment it reads. The MCP server tab on Connect shows it. A Claude session with orrery's server in its `.mcp.json` also
 gets it as tools (`issue`, `start_issue`, `comment`, `finish_issue`, … see Connecting a repo), which
 make these calls for it. The same tools are served at the root, `/mcp` (not under `/api`), as MCP over streamable HTTP (ORR-1098): `POST` takes
-one JSON-RPC message or a batch and answers as JSON (a notification alone: 202, no body), `DELETE` with
+one JSON-RPC message or a batch and answers as JSON (a notification alone: 202, no body), except a `more_tools` call
+that loads its group, from a client that accepts `text/event-stream`: that one is answered as a stream, with
+`notifications/tools/list_changed` first and then the answer, so the client lists the tools again and can call them
+(`initialize` says `listChanged: true`, ORR-1323). `DELETE` with
 `Mcp-Session-Id` ends the client's session, and `GET` is a 405, as it streams nothing. It's for agents: a browser's
 login gets a 403, so with login on a session sends its agent key as the bearer. `Orrery-Session` ties its writes to the
 Claude session, as the channel's do; the launcher and the install line set it (see Connecting a repo). The notification
