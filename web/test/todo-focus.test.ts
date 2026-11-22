@@ -98,10 +98,20 @@ describe('with more than one person (ORR-656)', () => {
         sessions = [owners, hatis]
     })
 
-    it('hands the owner\'s move into Todo to the assignee\'s session, and leaves what\'s nobody\'s', async () => {
-        board = [issue('ORR-1', 'todo', {assignee: 'hati'}), issue('ORR-2'), issue('ORR-3', 'todo', {assignee: 'claude'})]
-        await hear(moved('ORR-1'), moved('ORR-2'), moved('ORR-3'))
+    it('hands the owner\'s move into Todo to the assignee\'s session', async () => {
+        board = [issue('ORR-1', 'todo', {assignee: 'hati'}), issue('ORR-3', 'todo', {assignee: 'claude'})]
+        await hear(moved('ORR-1'), moved('ORR-3'))
         expect(sent.map(s => [s.issue, s.session]).sort()).toEqual([['ORR-1', 'hatis'], ['ORR-3', 'owners']])
+    })
+
+    it('hands what\'s nobody\'s to the owner\'s session, never another person\'s (ORR-1332)', async () => {
+        board = [issue('ORR-2')]
+        await hear(moved('ORR-2'))
+        expect(sent.map(s => [s.issue, s.session])).toEqual([['ORR-2', 'owners']])
+        sent = []
+        sessions = [hatis]
+        await hear(moved('ORR-2'))
+        expect(sent).toEqual([])
     })
 
     it('spreads one person\'s issues across their own sessions, and holds what they\'ve no room for', async () => {

@@ -63,6 +63,29 @@ describe('with two people', () => {
             }
         })
 
+        it('lets the owner\'s agent take up, assign and close what\'s nobody\'s, but not another person\'s (ORR-1332)', async () => {
+            const nobodys = await add()
+            expect(await store.updateIssue('greenhouse', nobodys, {status: 'in-progress', assignee: 'claude'}, skolls)).toMatchObject({status: 'in-progress', assignee: 'claude'})
+            await refused(() => store.updateIssue('greenhouse', nobodys, {title: 'Mine now'}, hatis), 'assigned to skoll')
+            expect(await store.updateIssue('greenhouse', nobodys, {status: 'done'}, skolls)).toMatchObject({status: 'done'})
+            const assigned = await add()
+            expect((await store.updateIssue('greenhouse', assigned, {assignee: 'claude'}, skolls)).assignee).toBe('claude')
+            const taken = await add()
+            expect((await store.claimIssue('greenhouse', taken, skolls)).claimed_by).toBe('skoll')
+            const focused = await add()
+            await store.focus('greenhouse', focused, {}, skolls)
+            const theirs = await add({assignee: 'hati'})
+            for (const patch of [{status: 'in-progress'}, {assignee: 'claude'}, {status: 'done'}]) await refused(() => store.updateIssue('greenhouse', theirs, patch, skolls), 'assigned to hati')
+            const loose = await add()
+            await refused(() => store.updateIssue('greenhouse', loose, {assignee: 'hati'}, skolls), 'Only people assign')
+        })
+
+        it('lets the owner\'s agent file an issue for claude, already started, but give it to nobody else (ORR-1332)', async () => {
+            expect(await store.createIssue('greenhouse', {title: 'Mine', assignee: 'claude', status: 'in-progress'}, skolls)).toMatchObject({assignee: 'claude', status: 'in-progress'})
+            expect((await store.createIssue('greenhouse', {title: 'Shipped', status: 'done'}, skolls)).status).toBe('done')
+            await refused(() => store.createIssue('greenhouse', {title: 'Theirs', assignee: 'hati'}, skolls), 'Only people assign')
+        })
+
         it('counts an assignee who isn\'t a person as nobody\'s', async () => {
             const id = await add({assignee: 'somebody'})
             await refused(() => store.updateIssue('greenhouse', id, {status: 'in-progress'}, hatis), 'assigned to nobody')

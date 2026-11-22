@@ -317,7 +317,8 @@ impl<'c> IssueWrites<'c> {
         Ok((row.get("assignee"), row.get("claimed_by")))
     }
 
-    /// Refuses an agent an issue that isn't its person's, naming who has it (`mustHold`), or one that names nobody.
+    /// Refuses an agent an issue that isn't its person's, naming who has it (`mustHold`), or one that names nobody. One
+    /// assigned to nobody is the owner's agents' to take up (ORR-1332), as the owner could themselves.
     pub(crate) async fn must_hold(&mut self, person: Option<&str>, issue: &str, assignee: Option<&str>, what: &str) -> Result<()> {
         let Some(person) = person else {
             return Err(ApiError::conflict(format!(
@@ -325,7 +326,7 @@ impl<'c> IssueWrites<'c> {
             )));
         };
         let holder = self.holder_of(assignee).await?;
-        if holder.as_deref() == Some(person) {
+        if holder.as_deref() == Some(person) || holder.is_none() && person == self.owner_id().await? {
             return Ok(());
         }
         let (with, instead) = match &holder {

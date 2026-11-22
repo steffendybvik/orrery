@@ -53,11 +53,12 @@ export abstract class ClaimStore extends EpicStore {
         throw conflict(`This session names nobody on this orrery, so it can read and comment, but can't ${what}. Set ORRERY_PERSON to your id (GET /api/people) where you start Claude Code, or send Orrery-Person.`)
     }
 
-    /** Refuses an agent an issue that isn't its person's, naming who has it. */
+    /** Refuses an agent an issue that isn't its person's, naming who has it. One assigned to nobody is the owner's
+     * agents' to take up (ORR-1332), as the owner could themselves. */
     protected async mustHold(rails: {person: string | undefined}, issue: string, assignee: string | null, what: string) {
         const person = this.personOrRefuse(rails, what)
         const holder = await this.holderOf(assignee)
-        if (holder === person) return
+        if (holder === person || !holder && person === await this.ownerId()) return
         throw conflict(`${issue} is ${holder ? `assigned to ${holder}` : 'assigned to nobody'}, and this session is ${person}'s, so it can't ${what}; ${holder ? 'comment on it instead, or pick another issue' : 'a person has to assign it first'}`)
     }
 
@@ -67,12 +68,14 @@ export abstract class ClaimStore extends EpicStore {
     }
 
     /** An agent's assignee: what it may hand on (back to the owner, or letting go), with `claude` and its own person
-     * being who the issue is with already. Nobody else, as people assign. */
+     * being who the issue is with already. The owner's agents may give it to `claude` too, which is theirs (ORR-1332).
+     * Nobody else, as people assign. */
     protected async railedAssignee(rails: {person: string | undefined}, issue: string, assignee: string | null | undefined): Promise<string | null | undefined> {
         if (!assignee) return assignee
         const id = assignee.toLowerCase()
+        const owner = await this.ownerId()
+        if (id === owner || id === 'claude' && rails.person === owner) return assignee
         if (id === 'claude' || id === rails.person) return undefined
-        if (id === await this.ownerId()) return assignee
         throw conflict(`Only people assign: this session can't give ${issue} to ${assignee}`)
     }
 
