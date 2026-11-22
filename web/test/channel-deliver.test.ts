@@ -27,6 +27,8 @@ type Asked = {method: string, url: URL, headers: IncomingHttpHeaders}
  * and `delivered`. A request with no `session` is only the channel's check that the stream exists. */
 async function standInOrrery() {
     const asked: Asked[] = []
+    /** How many `delivered` it answers with a 503 before it takes them, as one restarting would. */
+    let refuse = 0
     const streams = new Set<ServerResponse>()
     const sent: {id: number, text: string}[] = []
     let lastId = 0
@@ -42,6 +44,10 @@ async function standInOrrery() {
             streams.add(res)
             req.on('close', () => streams.delete(res))
             return
+        }
+        if (req.method === 'POST' && url.pathname.endsWith('/delivered') && refuse > 0) {
+            refuse--
+            return void res.writeHead(503).end()
         }
         if (req.method === 'POST') return void res.writeHead(200).end()
         res.writeHead(404).end()
@@ -64,6 +70,8 @@ async function standInOrrery() {
         listening: () => streams.size,
         listeners: () => asked.filter(a => a.url.pathname === '/api/signals/stream' && a.url.searchParams.has('session')),
         delivered: () => asked.filter(a => a.method === 'POST' && a.url.pathname.endsWith('/delivered')),
+        /** Answers the next `count` receipts with a 503. */
+        refuseReceipts: (count: number) => void (refuse = count),
         close: () => {
             server.closeAllConnections()
             server.close()
@@ -328,6 +336,32 @@ describe("the owner's chat", {timeout: 30_000}, () => {
         expect(orrery.delivered()[0]!.url.pathname).toContain(`/signals/${id}/delivered`)
         expect(heard).toHaveLength(1)
         expect(orrery.listeners()[0]!.url.searchParams.get('chat')).toBe('yes')
+        await stop()
+        orrery.close()
+    })
+})
+
+describe('a receipt orrery doesn\'t take', {timeout: 30_000}, () => {
+    // A receipt lost while orrery restarts left the owner's message to the session unheard for good, so the session
+    // counted as waiting on it and was handed no more work (ORR-1324).
+    it('is sent again until it lands, and again after its stream comes back', async () => {
+        const orrery = await standInOrrery()
+        const {nth, stop} = await startChannel(orrery)
+        orrery.refuseReceipts(2)
+        const id = orrery.signal({kind: 'message', note: 'Water them.'})
+        await nth(1)
+        await vi.waitFor(() => expect(orrery.delivered().length).toBe(3), {timeout: 15_000, interval: 50})
+        expect(orrery.delivered().every(d => d.url.pathname.endsWith(`/signals/${id}/delivered`))).toBe(true)
+        // One refused just before the stream drops goes once it's back, not after a long wait.
+        orrery.refuseReceipts(1)
+        const next = orrery.signal({kind: 'message', note: 'And the jars.'})
+        await nth(2)
+        await vi.waitFor(() => expect(orrery.delivered().length).toBe(4), WAIT)
+        orrery.drop()
+        await vi.waitFor(() => expect(orrery.delivered().length).toBe(5), WAIT)
+        expect(orrery.delivered().at(-1)!.url.pathname).toContain(`/signals/${next}/delivered`)
+        await new Promise(resolve => setTimeout(resolve, 300))
+        expect(orrery.delivered()).toHaveLength(5)
         await stop()
         orrery.close()
     })
