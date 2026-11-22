@@ -1106,6 +1106,34 @@ async fn an_agent_takes_up_its_persons_issue_but_not_one_thats_nobodys() {
 }
 
 #[tokio::test]
+async fn the_owners_agent_takes_up_assigns_and_closes_what_is_nobodys() {
+    // ORR-1332: what's nobody's is the owner's agents' to work, as the owner could; another person's stays theirs.
+    let api = TestApi::new().await;
+    api.team().await;
+    let board = Board::new(&api).await;
+    let nobodys = board.issue(json!({"title": "Wheel"})).await;
+    let reply = api.patch(&board.at(&nobodys), json!({"status": "in-progress", "assignee": "claude"})).agent_of("sam").send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    assert_eq!((&reply.body["status"], &reply.body["assignee"]), (&json!("in-progress"), &json!("claude")));
+    let reply = api.patch(&board.at(&nobodys), json!({"title": "Mine now"})).agent_of("ana").send().await;
+    assert!(message(&reply).starts_with("PRI-1 is assigned to sam"), "{}", reply.body);
+    let reply = api.patch(&board.at(&nobodys), json!({"status": "done"})).agent_of("sam").send().await;
+    assert_eq!((reply.status.as_u16(), &reply.body["status"]), (200, &json!("done")));
+    let claimed = board.issue(json!({"title": "Spoke"})).await;
+    let reply = api.post(&format!("{}/claim", board.at(&claimed)), json!({})).agent_of("sam").send().await;
+    assert_eq!((reply.status.as_u16(), &reply.body["claimed_by"]), (200, &json!("sam")), "{}", reply.body);
+    let anas = board.assigned("Sieve", "ana").await;
+    for patch in [json!({"status": "in-progress"}), json!({"assignee": "claude"}), json!({"status": "done"})] {
+        let reply = api.patch(&board.at(&anas), patch).agent_of("sam").send().await;
+        assert_eq!(reply.status, 409);
+        assert!(message(&reply).contains("is assigned to ana"), "{}", reply.body);
+    }
+    let loose = board.issue(json!({"title": "Rim"})).await;
+    let reply = api.patch(&board.at(&loose), json!({"assignee": "ana"})).agent_of("sam").send().await;
+    assert_eq!((reply.status.as_u16(), message(&reply)), (409, format!("Only people assign: this session can't give {loose} to ana").as_str()));
+}
+
+#[tokio::test]
 async fn an_agent_cant_take_up_another_persons_issue() {
     let api = TestApi::new().await;
     api.team().await;
@@ -1351,6 +1379,21 @@ async fn an_agents_new_issue_at_the_top_stays_nobodys() {
             format!("A new issue is assigned to nobody, so this session can't make it {status}; leave it in Todo or Backlog for a person to assign")
         );
     }
+}
+
+#[tokio::test]
+async fn the_owners_agent_files_an_issue_for_claude_already_started_but_for_nobody_else() {
+    // ORR-1332.
+    let api = TestApi::new().await;
+    api.team().await;
+    let board = Board::new(&api).await;
+    let reply = api.post(&board.issues(), json!({"title": "Mine", "assignee": "claude", "status": "in-progress"})).agent_of("sam").send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert_eq!((&reply.body["assignee"], &reply.body["status"]), (&json!("claude"), &json!("in-progress")));
+    let reply = api.post(&board.issues(), json!({"title": "Shipped", "status": "done"})).agent_of("sam").send().await;
+    assert_eq!((reply.status.as_u16(), &reply.body["status"]), (201, &json!("done")), "{}", reply.body);
+    let reply = api.post(&board.issues(), json!({"title": "Theirs", "assignee": "ana"})).agent_of("sam").send().await;
+    assert_eq!((reply.status.as_u16(), message(&reply)), (409, "Only people assign: this session can't give a new issue to ana"));
 }
 
 #[tokio::test]

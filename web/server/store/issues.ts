@@ -110,7 +110,7 @@ export abstract class IssueStore extends ClaimStore {
                 if (!person) await this.mustHold(rails, 'a new issue', null, 'make one')
                 if (!proposed) {
                     if (await this.railedAssignee(rails, 'a new issue', assigned) === undefined && assigned) throw conflict('Only people assign: a new issue stays unassigned until one does')
-                    if (kind && (kind === 'started' || CLOSED.includes(kind))) throw conflict(`A new issue is assigned to nobody, so this session can't make it ${status}; leave it in Todo or Backlog for a person to assign`)
+                    if (person !== await this.ownerId() && kind && (kind === 'started' || CLOSED.includes(kind))) throw conflict(`A new issue is assigned to nobody, so this session can't make it ${status}; leave it in Todo or Backlog for a person to assign`)
                 }
             }
         }

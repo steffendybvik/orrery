@@ -152,6 +152,7 @@ With more than one person, an agent works only what's assigned to its person (OR
 - **What orrery reassigns stays with the person:** an agent's question waits on its own person, and only on an issue that's theirs. An approved proposal goes to the person whose agent proposed it. A session cut off leaves its issue with its person.
 - **Focus** on an unassigned issue makes it the person's who sent it, and on someone else's is refused. An agent can't assign itself in this way. The owner's focus takes the issue over, which shows in its activity.
 - **Importing** a roadmap is a person's.
+- **The owner's agents** (ORR-1332) count an unassigned issue as the owner's, as `claude` is: they can start, edit, close, move or delete it, give it to `claude` or `owner`, and make a new issue for `claude`, already started or closed. Another person's issue is refused them as it is anyone's agent, and so is giving one to another person. Pick lists and the Todo hand-outs give what's nobody's to the owner's sessions.
 
 ## Projects
 
