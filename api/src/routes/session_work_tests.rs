@@ -396,3 +396,34 @@ async fn the_owners_unanswered_comments_are_those_no_agent_answered_nor_session_
     api.run("UPDATE comments SET created_at = '2020-01-01T00:00:00.000Z' WHERE body = 'Still waiting'", &[]).await;
     assert_eq!(api.get(&path).send().await.body, json!([]));
 }
+
+// ORR-1324: what a session's work leaves out, and a started issue nobody has commented on.
+
+#[tokio::test]
+async fn a_session_whose_issues_arent_started_has_none_and_one_with_no_comments_has_no_last() {
+    let api = TestApi::new().await;
+    let (project, sieve) = api.board().await;
+    let wheel = api.issue(&project, json!({"title": "Wheel"})).await;
+    worked(&api, &project, &sieve, "s").await;
+    let path = format!("/api/projects/{project}/issue-sessions?sessions=s");
+    assert_eq!(api.get(&path).send().await.body["issues"], json!([]), "worked, but not started");
+    worked(&api, &project, &wheel, "s").await;
+    start(&api, &project, &wheel).await;
+    let reply = api.get(&path).send().await;
+    assert_eq!(ids(&reply.body["issues"]), [wheel.as_str()]);
+    assert!(reply.body["issues"][0].get("last").is_none(), "{}", reply.body);
+}
+
+#[tokio::test]
+async fn the_sessions_page_shows_no_since_for_work_kept_without_one() {
+    let api = TestApi::new().await;
+    let (project, sieve) = api.board().await;
+    let now = stamp();
+    api.run("INSERT INTO issue_sessions (project, issue, session, at, since) VALUES (?, ?, ?, ?, ?)", &[&project, &sieve, "s", &now, ""]).await;
+    let mut conn = api.app.pool.acquire().await.unwrap();
+    let asked = [crate::work::session_work::Asked { id: "s".into(), name: String::new(), ids: vec![] }];
+    let work = crate::work::session_work::SessionWork::new(&mut conn).work(&project, &asked, 5).await.unwrap();
+    let issue = &work["s"]["issues"][0];
+    assert_eq!(issue["id"], json!(sieve), "{work}");
+    assert!(issue.get("since").is_none(), "{work}");
+}

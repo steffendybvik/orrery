@@ -421,10 +421,8 @@ impl<'c> Chats<'c> {
             return Err(ApiError::forbidden(format!("The owner's chat offers an issue's {}, not its {}", CHAT_ISSUE_FIELDS.join(", "), refused.join(", "))));
         }
         let words = crate::board::issue_edits::check_new(&Value::Object(fields.clone()))?;
+        // `check_new` has refused one with no title, or a blank one.
         let title = words.title.unwrap_or_default();
-        if title.is_empty() {
-            return Err(ApiError::bad_request("An issue needs a title"));
-        }
         let mut request = json!({"title": title, "state": "asked"});
         if let Some(notes) = words.notes.flatten().filter(|n| !n.is_empty()) {
             request["notes"] = json!(notes);
@@ -598,17 +596,14 @@ impl<'c> Chats<'c> {
                     urgent.extend(made_urgent);
                     moved.push(issue.clone());
                 }
+                // The first failing, nothing has moved, and the error is its own.
+                Err(error) if moved.is_empty() => return Err(error),
                 Err(mut error) => {
-                    if !moved.is_empty() {
-                        error.message = format!("{} ({} moved already)", error.message, moved.join(", "));
-                    }
+                    error.message = format!("{} ({} moved already)", error.message, moved.join(", "));
                     failed = Some(error);
                     break;
                 }
             }
-        }
-        if moved.is_empty() {
-            return Err(failed.unwrap_or_else(|| ApiError::internal("an issue to move")));
         }
         let place = move_to(&to);
         let mut details = serde_json::Map::new();
@@ -778,3 +773,7 @@ impl<'c> Chats<'c> {
         chat_of(&row, messages)
     }
 }
+
+#[cfg(test)]
+#[path = "chats_tests.rs"]
+mod tests;

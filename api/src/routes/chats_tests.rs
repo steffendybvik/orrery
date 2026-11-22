@@ -734,3 +734,134 @@ async fn the_chat_moves_no_proposal_nothing_that_would_stay_and_only_while_it_ru
     assert_eq!(ask(json!({"move": {"ids": ["PRI-1"], "status": "done"}})).await.status, 404);
     assert_eq!(column_of(&api, &project, "PRI-1").await.0, json!("backlog"));
 }
+
+// ORR-1324: what the tests above leave out, so every line of the chat's routes and work is run.
+
+#[tokio::test]
+async fn a_message_changed_into_one_missing_its_parts_is_refused() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    api.post("/api/chats/c1/lines", said("owner", "Hi")).send().await;
+    let reply = api.put("/api/chats/c1/lines/1", json!({"from": "agent", "text": 3})).send().await;
+    assert_eq!(reply.status, 400);
+    assert_eq!(reply.body["data"]["problems"].as_array().map(Vec::len), Some(3), "{}", reply.body);
+    assert_eq!(api.get("/api/chats/c1").send().await.body["messages"][0]["text"], "Hi", "it stays as it was");
+}
+
+#[tokio::test]
+async fn the_chat_asks_to_clear_the_handle() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    let asked = api.post("/api/chats/c1/setting-requests", json!({"setting": "handle", "value": null})).send().await;
+    assert_eq!(asked.status, 201, "{}", asked.body);
+    assert_eq!(asked.body["request"], json!({"setting": "handle", "from": null, "to": null, "state": "asked"}));
+}
+
+#[tokio::test]
+async fn the_chat_asks_for_a_release_on_another_project_it_names() {
+    let api = TestApi::new().await;
+    releasing(&api).await;
+    let other = api.project("Evens").await;
+    api.patch(&format!("/api/projects/{other}"), json!({"release_mode": "own"})).send().await;
+    let asked = api.post("/api/chats/c1/release-requests", json!({"release": {"version": "1.0.0"}, "project": other})).send().await;
+    assert_eq!(asked.status, 201, "{}", asked.body);
+    assert_eq!(asked.body["release"]["project"], json!(other));
+}
+
+#[tokio::test]
+async fn a_move_takes_a_status_only_as_text_and_an_assignee_as_a_name_or_nobody() {
+    let (api, project) = moving().await;
+    owner_said(&api, "Tidy the board", None).await;
+    let ask = |body: Value| api.post("/api/chats/c1/move-requests", body).send();
+    let number = ask(json!({"move": {"ids": ["PRI-1"], "status": 5}})).await;
+    assert_eq!((number.status.as_u16(), number.body["message"].as_str()), (400, Some("Send \"status\" as a status's id or a kind")));
+    let named = ask(json!({"move": {"ids": ["PRI-1"], "assignee": " bo "}})).await;
+    assert_eq!(named.status, 201, "{}", named.body);
+    assert_eq!(named.body["move"]["body"]["assignee"], "bo");
+    api.patch(&format!("/api/projects/{project}/issues/PRI-2"), json!({"assignee": "bo"})).send().await;
+    let blank = ask(json!({"move": {"ids": ["PRI-2"], "assignee": "  "}})).await;
+    assert_eq!(blank.status, 201, "{}", blank.body);
+    assert_eq!(blank.body["move"]["changes"][0], json!({"issue": "PRI-2", "title": "Wheel", "field": "assignee", "from": "bo", "to": null}));
+}
+
+#[tokio::test]
+async fn the_chat_asks_to_move_issues_on_another_project_it_names() {
+    let (api, _) = moving().await;
+    let other = api.project("Evens").await;
+    let theirs = api.issue(&other, json!({"title": "Pairs"})).await;
+    owner_said(&api, "Tidy the board", None).await;
+    let asked = api.post("/api/chats/c1/move-requests", json!({"move": {"ids": [theirs], "status": "todo"}, "project": other})).send().await;
+    assert_eq!(asked.status, 201, "{}", asked.body);
+    assert_eq!(asked.body["move"]["project"], json!(other));
+}
+
+#[tokio::test]
+async fn a_move_that_reopens_urgent_work_says_so_for_the_local_app_to_push() {
+    let (api, project) = moving().await;
+    let urgent = api.issue(&project, json!({"title": "Overflow", "priority": "P0", "status": "done"})).await;
+    owner_said(&api, &format!("Reopen {urgent}"), None).await;
+    let moved = api.post("/api/chats/c1/move-requests", json!({"move": {"ids": [urgent], "status": "todo"}})).send().await;
+    assert_eq!(moved.status, 201, "{}", moved.body);
+    assert_eq!(moved.header("orrery-urgent"), Some(format!("primes {}", urgent.replace('-', "%2D")).as_str()));
+    let calm = api.post("/api/chats/c1/move-requests", json!({"move": {"ids": ["PRI-1"], "status": "todo"}})).send().await;
+    assert_eq!(calm.header("orrery-urgent"), None, "PRI-1 isn't named, and isn't urgent: {}", calm.body);
+}
+
+/// Makes every write to `issue`'s row fail, or with `table` "events" every line written to the event log, as a
+/// database refusing it would, on SQLite or Postgres.
+async fn refuse_writes(api: &TestApi, table: &str, issue: Option<&str>) {
+    let when = issue.map(|i| format!("WHEN (OLD.id = '{i}')")).unwrap_or_default();
+    let event = if issue.is_some() { "UPDATE" } else { "INSERT" };
+    if std::env::var("TEST_POSTGRES_URL").is_ok_and(|url| !url.is_empty()) {
+        api.run("CREATE FUNCTION refuse_it() RETURNS trigger AS $body$ BEGIN RAISE EXCEPTION 'refused'; END $body$ LANGUAGE plpgsql", &[]).await;
+        api.run(&format!("CREATE TRIGGER refuse BEFORE {event} ON {table} FOR EACH ROW {when} EXECUTE FUNCTION refuse_it()"), &[]).await;
+    } else {
+        let when = when.replace(['(', ')'], "");
+        api.run(&format!("CREATE TRIGGER refuse BEFORE {event} ON {table} {when} BEGIN SELECT RAISE(ABORT, 'refused'); END"), &[]).await;
+    }
+}
+
+#[tokio::test]
+async fn a_move_that_fails_part_way_keeps_what_moved_and_says_so() {
+    let (api, project) = moving().await;
+    refuse_writes(&api, "issues", Some("PRI-2")).await;
+    owner_said(&api, "Close PRI-1 and PRI-2", None).await;
+    let failed = api.post("/api/chats/c1/move-requests", json!({"move": {"ids": ["PRI-1", "PRI-2"], "status": "done"}})).send().await;
+    assert!(failed.status.is_server_error(), "{} {}", failed.status, failed.body);
+    assert!(failed.body["message"].as_str().unwrap().ends_with("(PRI-1 moved already)"), "{}", failed.body);
+    assert_eq!(column_of(&api, &project, "PRI-1").await.0, json!("done"), "what moved stays moved");
+    assert_eq!(column_of(&api, &project, "PRI-2").await.0, json!("backlog"));
+    let messages = api.get("/api/chats/c1").send().await.body["messages"].clone();
+    assert_eq!(messages.as_array().map(Vec::len), Some(1), "the chat says nothing it didn't do whole: {messages}");
+    // The first failing, nothing moves, and the error is its own.
+    let first = api.post("/api/chats/c1/move-requests", json!({"move": {"ids": ["PRI-2"], "status": "done"}})).send().await;
+    assert!(first.status.is_server_error(), "{}", first.body);
+    assert!(!first.body["message"].as_str().unwrap().contains("moved already"), "{}", first.body);
+}
+
+#[tokio::test]
+async fn a_move_still_lands_when_the_event_log_cant_be_written() {
+    let (api, project) = moving().await;
+    refuse_writes(&api, "events", None).await;
+    owner_said(&api, "Close PRI-1", None).await;
+    let moved = api.post("/api/chats/c1/move-requests", json!({"move": {"ids": ["PRI-1"], "status": "done"}})).send().await;
+    assert_eq!(moved.status, 201, "{}", moved.body);
+    assert_eq!(column_of(&api, &project, "PRI-1").await.0, json!("done"));
+}
+
+#[tokio::test]
+async fn a_chat_or_message_kept_as_broken_json_is_a_server_error() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    api.put("/api/chats/c1", chat("c1", &project, "2026-11-01T10:00:00.000Z")).send().await;
+    api.post("/api/chats/c1/lines", said("owner", "Hi")).send().await;
+    api.run("UPDATE chat_messages SET message = ?", &["{not json"]).await;
+    let message = api.get("/api/chats/c1").send().await;
+    assert_eq!((message.status.as_u16(), message.body["message"].as_str()), (500, Some("Expected a chat's message kept as JSON")), "{}", message.body);
+    api.run("DELETE FROM chat_messages", &[]).await;
+    api.run("UPDATE chats SET chat = ?", &["{not json"]).await;
+    let chat = api.get("/api/chats/c1").send().await;
+    assert_eq!((chat.status.as_u16(), chat.body["message"].as_str()), (500, Some("Expected a chat kept as JSON")), "{}", chat.body);
+}

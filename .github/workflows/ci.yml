@@ -103,7 +103,7 @@ jobs:
       # Its own tests, with their coverage (ORR-1053): on SQLite, then again on Postgres, each in a schema of its own
       # (ORR-1057), so the Postgres side of db.rs and migrate.rs counts too (ORR-1128). The floor is what the two cover of
       # the code itself, the test files left out and without the parity tests below, and it only goes up (95.25% on
-      # 12 Nov 2026). Raise it as tests are added: the same three commands in api/ say where it stands.
+      # 12 Nov 2026, 95.6% on 22 Nov). Raise it as tests are added: the same three commands in api/ say where it stands.
       - run: rustup component add llvm-tools-preview
       - uses: taiki-e/install-action@v2
         with:
@@ -114,8 +114,25 @@ jobs:
         working-directory: api
         env:
           TEST_POSTGRES_URL: postgres://orrery:orrery@localhost:5432/orrery
-      - run: cargo llvm-cov report --summary-only --ignore-filename-regex '(testing|_tests)\.rs$' --fail-under-lines 95
+      - run: cargo llvm-cov report --summary-only --ignore-filename-regex '(testing|_tests)\.rs$' --fail-under-lines 95.6
         working-directory: api
+      # Every session, signal and chat file is held at 100% of its lines (ORR-1324): llvm-cov's floor is for the whole
+      # report, so this reads each file's own figure from its JSON.
+      - name: Session, signal and chat files at 100% of lines
+        working-directory: api
+        run: |
+          cargo llvm-cov report --json --summary-only --ignore-filename-regex '(testing|_tests)\.rs$' --output-path target/session-coverage.json
+          python3 - <<'PY'
+          import json, re
+          held = re.compile(r'src/(access|routes|work|mcp)/(chats|sessions|session_[a-z_]+|signals|presence)\.rs$')
+          files = [f for f in json.load(open('target/session-coverage.json'))['data'][0]['files'] if held.search(f['filename'])]
+          short = [(f['filename'].split('src/')[-1], f['summary']['lines']) for f in files if f['summary']['lines']['covered'] < f['summary']['lines']['count']]
+          print(f"{len(files)} session, signal and chat files")
+          for name, lines in short:
+              print(f"::error file=api/src/{name}::{lines['count'] - lines['covered']} of {lines['count']} lines aren't covered")
+          if not files or short:
+              raise SystemExit(1)
+          PY
       - run: cargo build --locked
         working-directory: api
       # The binary the browser suites and the perf run start the server with, when they run.
