@@ -144,14 +144,16 @@ impl<'c> SessionWork<'c> {
     }
 
     /// Whether a signal of the owner's waits to reach one of `ids`: `any`, sent to it, every session or the one orrery
-    /// picks (`waiting`); `own`, sent to it by name (`waitingFor`).
+    /// picks (`waiting`); `own`, sent to it by name (`waitingFor`). One sent to it counts for a day, as the others do:
+    /// a message only goes to a session that's listening, so one unheard that long is a receipt that was lost, and it
+    /// mustn't keep the session busy for good, handed no more work (ORR-1334).
     pub(crate) async fn waiting(&mut self, project: &str, ids: &[String]) -> Result<(bool, bool)> {
         let unheard = "SELECT 1 FROM signals WHERE project = ? AND owned = 1 AND delivered_to = '[]'";
         if ids.is_empty() {
             return Ok((self.any_waiting(project, unheard).await?, false));
         }
-        let text = sql(&format!("{unheard} AND target IN ({}) LIMIT 1", marks(ids.len())));
-        let mut own = sqlx::query(&text).bind(project);
+        let text = sql(&format!("{unheard} AND created_at >= ? AND target IN ({}) LIMIT 1", marks(ids.len())));
+        let mut own = sqlx::query(&text).bind(project).bind(crate::work::signals::a_day_ago());
         for id in ids {
             own = own.bind(id);
         }

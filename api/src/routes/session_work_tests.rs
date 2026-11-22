@@ -100,12 +100,15 @@ async fn an_owners_signal_for_any_session_stops_waiting_once_its_too_old_to_hand
     let reply = api.get(&path).send().await;
     assert_eq!((&reply.body["waiting"], &reply.body["waiting_for"]), (&json!(false), &json!(false)), "{}", reply.body);
     assert_eq!(api.get(&format!("/api/projects/{project}/issue-sessions")).send().await.body["waiting"], false);
-    // One sent to the session by name still waits, however old: it's the session's own to hear.
+    // One sent to the session by name waits while it's fresh, as it's on its way.
     let own = json!({"kind": "message", "note": "Yours", "created_by": "owner", "owned": true, "target": "sess-1"});
     api.post(&format!("/api/projects/{project}/signals"), own).send().await;
-    api.run("UPDATE signals SET created_at = '2026-10-24T20:13:41.490Z'", &[]).await;
     let reply = api.get(&path).send().await;
     assert_eq!((&reply.body["waiting"], &reply.body["waiting_for"]), (&json!(true), &json!(true)));
+    // Unheard for a day, its receipt was lost (ORR-1334): it doesn't keep the session busy for good.
+    api.run("UPDATE signals SET created_at = '2026-10-24T20:13:41.490Z'", &[]).await;
+    let reply = api.get(&path).send().await;
+    assert_eq!((&reply.body["waiting"], &reply.body["waiting_for"]), (&json!(false), &json!(false)), "{}", reply.body);
 }
 
 #[tokio::test]
