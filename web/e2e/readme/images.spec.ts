@@ -106,3 +106,24 @@ test('new-issue', async ({page}) => {
     await dialog.getByLabel('Description').fill('The segmented sieve keeps every segment it has made. Keep only the one it is on, and count as it goes.')
     await shoot(page, 'new-issue')
 })
+
+test('release', async ({page}) => {
+    await open(page, '/p/primes/releases/1.0.0')
+    await expect(page.getByRole('heading', {name: /1\.0\.0/}).first()).toBeVisible()
+    await shoot(page, 'release')
+})
+
+test('events', async ({page}) => {
+    await open(page, '/events')
+    await expect(page.getByRole('heading', {name: 'Events'}).first()).toBeVisible()
+    // Each line says when the seed ran, so the image would change every run: the same clock each time, 7 ms apart.
+    await page.evaluate(() => {
+        const stamps = [...document.querySelectorAll('span')].filter(s => /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}$/.test(s.textContent ?? ''))
+        stamps.forEach((s, i) => {
+            const ms = 9 * 3600_000 + 41 * 60_000 + i * 7
+            const time = new Date(Date.UTC(2026, 10, 18) + ms).toISOString().slice(0, 23).replace('T', ' ')
+            s.textContent = time
+        })
+    })
+    await shoot(page, 'events')
+})

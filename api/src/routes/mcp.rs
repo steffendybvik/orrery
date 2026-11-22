@@ -38,7 +38,17 @@ fn kind_of(headers: &HeaderMap) -> Kind {
     }
 }
 
-/// `POST /mcp`: one JSON-RPC message, or a batch of them, answered as JSON. Only notifications: 202 and no body.
+/// Whether `message` is a call of `more_tools` that `answer` says loaded its group: the session's tool list changed.
+fn loaded_tools(message: &Value, answer: &Value) -> bool {
+    message["method"] == "tools/call" && message["params"]["name"] == "more_tools" && answer["result"]["isError"] != true
+}
+
+/// The notification that the session's tools changed, so the client lists them again (ORR-1323).
+const LIST_CHANGED: &str = r#"{"jsonrpc":"2.0","method":"notifications/tools/list_changed"}"#;
+
+/// `POST /mcp`: one JSON-RPC message, or a batch of them, answered as JSON. Only notifications: 202 and no body. One
+/// that loaded tools with `more_tools`, from a client that takes a stream, is answered as one instead: the
+/// notification that its tools changed, then the answer, as this server has no stream of its own to say it on.
 async fn post_mcp(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
     agents_only(&headers)?;
     let Ok(sent) = serde_json::from_slice::<Value>(&body) else {
@@ -57,13 +67,20 @@ async fn post_mcp(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result
     let call = Call { app: &app, headers: &headers, kind: kind_of(&headers), session: session.as_deref(), relay: &relay };
     let mut conn = app.pool.acquire().await?;
     let mut answers = Vec::new();
+    let mut changed = false;
     for message in &messages {
         if let Some(answer) = call.answer(&mut conn, message).await? {
+            changed |= loaded_tools(message, &answer);
             answers.push(answer);
         }
     }
+    let streams = header(&headers, "accept").is_some_and(|accept| accept.contains("text/event-stream"));
     let mut response = if answers.is_empty() {
         StatusCode::ACCEPTED.into_response()
+    } else if changed && streams {
+        let answer = if batch { Value::Array(answers) } else { answers.remove(0) };
+        let events = format!("event: message\ndata: {LIST_CHANGED}\n\nevent: message\ndata: {answer}\n\n");
+        ([("content-type", "text/event-stream"), ("cache-control", "no-cache")], events).into_response()
     } else if batch {
         Json(Value::Array(answers)).into_response()
     } else {

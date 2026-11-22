@@ -4,7 +4,7 @@
 // `~/.orrery/sessions/<claude pid>`; the helper (mcp-headers.mjs), started by the same `claude`, waits for that file
 // and prints them.
 import {execFileSync} from 'node:child_process'
-import {mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync} from 'node:fs'
+import {mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync} from 'node:fs'
 import {homedir} from 'node:os'
 import {join} from 'node:path'
 
@@ -62,4 +62,40 @@ export async function waitForSessionFile(pid, {within = 5000, every = 100, dir, 
         if (headers || Date.now() >= until) return headers
         await new Promise(resolve => setTimeout(resolve, every))
     }
+}
+
+/** Whether a process `pid` is running: one this user may not signal is someone else's, and running. */
+export function pidAlive(pid) {
+    try {
+        process.kill(pid, 0)
+        return true
+    } catch (error) {
+        return error?.code === 'EPERM'
+    }
+}
+
+/** Takes away the files of `claude` processes that have gone (ORR-1316): a channel that crashed or was killed leaves its
+ * own behind, and the next process given that pid is the only thing that would replace it. A half-written `.part` an
+ * hour old goes too. Says how many it took away. */
+export function sweepSessionFiles({dir = sessionsDir(), alive = pidAlive, now = Date.now()} = {}) {
+    let names
+    try {
+        names = readdirSync(dir)
+    } catch {
+        return 0
+    }
+    let swept = 0
+    for (const name of names) {
+        const path = join(dir, name)
+        const pid = Number(name)
+        try {
+            const gone = /^\d+$/.test(name) ? !alive(pid) : name.endsWith('.part') && now - statSync(path).mtimeMs > 60 * 60 * 1000
+            if (!gone) continue
+            unlinkSync(path)
+            swept++
+        } catch {
+            // Gone already, or not ours to remove.
+        }
+    }
+    return swept
 }

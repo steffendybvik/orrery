@@ -35,7 +35,7 @@ async function type(send: {text?: string, keys?: string[]}) {
         clearTimeout(timer)
         timer = setTimeout(poll, 300)
     } catch (error) {
-        failed.value = errorMessage(error)
+        failed.value = errorMessage(error, 'send')
     } finally {
         typing.value = false
     }
@@ -63,7 +63,7 @@ async function poll() {
             at.value = shot.at ?? ''
             failed.value = ''
         } catch (error) {
-            failed.value = errorMessage(error)
+            failed.value = errorMessage(error, 'read')
         }
     }
     if (!stopped) timer = setTimeout(poll, 1000)

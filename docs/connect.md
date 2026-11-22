@@ -272,7 +272,10 @@ pick one, name it with `ORRERY_PROJECT`. `ORRERY_URL` stands in for a channel's 
 one out (`${ORRERY_URL:-…}`); a written address wins, so a session's own `ORRERY_URL` can't send a monorepo's projects to
 another orrery. A project no channel names goes on `ORRERY_URL`, else the first channel's orrery. A project already served from another repo (a monorepo's channel to your
 personal orrery) is left there unless `ORRERY_PROJECT` names it. `--list` shows what a repo would register, and
-with which channel, without changing anything. The list is kept in `~/.config/orrery/launcher.json`, which the
+with which channel, without changing anything, and names the orrerys on the list that nothing answers at (a
+retired container, a throwaway port); `--install` names them too. `--prune` takes those orrerys' projects off the list,
+and the orrerys off the ones it follows, while the running service lets them go (ORR-1316). It, and the service as it
+starts, also clear `~/.orrery/sessions` of the files left by `claude` processes that have ended. The list is kept in `~/.config/orrery/launcher.json`, which the
 running launcher follows: a project added there is served within a few seconds, and one taken off is let go, with its
 sessions, while every other project's sessions go on. `--install` restarts the service only the first time, or when its
 service file changes (a new `node` or `PATH`). Its log is

@@ -100,12 +100,15 @@ async fn an_owners_signal_for_any_session_stops_waiting_once_its_too_old_to_hand
     let reply = api.get(&path).send().await;
     assert_eq!((&reply.body["waiting"], &reply.body["waiting_for"]), (&json!(false), &json!(false)), "{}", reply.body);
     assert_eq!(api.get(&format!("/api/projects/{project}/issue-sessions")).send().await.body["waiting"], false);
-    // One sent to the session by name still waits, however old: it's the session's own to hear.
+    // One sent to the session by name waits while it's fresh, as it's on its way.
     let own = json!({"kind": "message", "note": "Yours", "created_by": "owner", "owned": true, "target": "sess-1"});
     api.post(&format!("/api/projects/{project}/signals"), own).send().await;
-    api.run("UPDATE signals SET created_at = '2026-10-24T20:13:41.490Z'", &[]).await;
     let reply = api.get(&path).send().await;
     assert_eq!((&reply.body["waiting"], &reply.body["waiting_for"]), (&json!(true), &json!(true)));
+    // Unheard for a day, its receipt was lost (ORR-1334): it doesn't keep the session busy for good.
+    api.run("UPDATE signals SET created_at = '2026-10-24T20:13:41.490Z'", &[]).await;
+    let reply = api.get(&path).send().await;
+    assert_eq!((&reply.body["waiting"], &reply.body["waiting_for"]), (&json!(false), &json!(false)), "{}", reply.body);
 }
 
 #[tokio::test]
@@ -177,6 +180,26 @@ async fn unheard_signals_for_the_pool_or_scheduled_are_the_last_days() {
     api.run("UPDATE signals SET created_at = '2020-01-01T00:00:00.000Z' WHERE note = 'Anyone'", &[]).await;
     assert_eq!(notes(&api.get(&format!("/api/projects/{project}/signals?waiting=pooled")).send().await.body), ["focus"]);
     assert_eq!(api.get(&format!("/api/projects/{project}/signals?waiting=soon")).send().await.status, 400);
+}
+
+#[tokio::test]
+async fn a_waiting_focus_on_an_issue_closed_since_isnt_handed_out() {
+    let api = TestApi::new().await;
+    let (project, issue) = api.board().await;
+    api.post(
+        &format!("/api/projects/{project}/signals"),
+        json!({"kind": "focus", "issue": issue, "created_by": "owner", "owned": true, "note": "It was just made urgent (P0)."}),
+    )
+    .send()
+    .await;
+    let waiting = || async { api.get(&format!("/api/projects/{project}/signals?waiting=pooled")).send().await.body.as_array().unwrap().len() };
+    assert_eq!(waiting().await, 1);
+    // Closed before a session took it (ORR-1317), it waits for nobody; opened again, it's work again.
+    for (status, left) in [("canceled", 0), ("done", 0), ("todo", 1)] {
+        let reply = api.patch(&format!("/api/projects/{project}/issues/{issue}"), json!({"status": status})).send().await;
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        assert_eq!(waiting().await, left, "{status}");
+    }
 }
 
 #[tokio::test]
@@ -375,4 +398,35 @@ async fn the_owners_unanswered_comments_are_those_no_agent_answered_nor_session_
     // One older than the signals kept isn't carried.
     api.run("UPDATE comments SET created_at = '2020-01-01T00:00:00.000Z' WHERE body = 'Still waiting'", &[]).await;
     assert_eq!(api.get(&path).send().await.body, json!([]));
+}
+
+// ORR-1324: what a session's work leaves out, and a started issue nobody has commented on.
+
+#[tokio::test]
+async fn a_session_whose_issues_arent_started_has_none_and_one_with_no_comments_has_no_last() {
+    let api = TestApi::new().await;
+    let (project, sieve) = api.board().await;
+    let wheel = api.issue(&project, json!({"title": "Wheel"})).await;
+    worked(&api, &project, &sieve, "s").await;
+    let path = format!("/api/projects/{project}/issue-sessions?sessions=s");
+    assert_eq!(api.get(&path).send().await.body["issues"], json!([]), "worked, but not started");
+    worked(&api, &project, &wheel, "s").await;
+    start(&api, &project, &wheel).await;
+    let reply = api.get(&path).send().await;
+    assert_eq!(ids(&reply.body["issues"]), [wheel.as_str()]);
+    assert!(reply.body["issues"][0].get("last").is_none(), "{}", reply.body);
+}
+
+#[tokio::test]
+async fn the_sessions_page_shows_no_since_for_work_kept_without_one() {
+    let api = TestApi::new().await;
+    let (project, sieve) = api.board().await;
+    let now = stamp();
+    api.run("INSERT INTO issue_sessions (project, issue, session, at, since) VALUES (?, ?, ?, ?, ?)", &[&project, &sieve, "s", &now, ""]).await;
+    let mut conn = api.app.pool.acquire().await.unwrap();
+    let asked = [crate::work::session_work::Asked { id: "s".into(), name: String::new(), ids: vec![] }];
+    let work = crate::work::session_work::SessionWork::new(&mut conn).work(&project, &asked, 5).await.unwrap();
+    let issue = &work["s"]["issues"][0];
+    assert_eq!(issue["id"], json!(sieve), "{work}");
+    assert!(issue.get("since").is_none(), "{work}");
 }

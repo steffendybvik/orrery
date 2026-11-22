@@ -25,6 +25,7 @@ import {narrowed} from './repo-channels.mjs'
 import {addToList, projectAt, readConfig} from './launcher-service.mjs'
 import {appNamed, appsHere, askToChoose, choiceFor, choseOther, tellChose, writeChoice} from './app-choice.mjs'
 import {legacyServerName} from './server-name.mjs'
+import {channelIn, serversElsewhere} from './own-log.mjs'
 import {signalWords} from './signal-words.mjs'
 import {claudeWindow} from './session.mjs'
 import {writeSessionFile} from './session-file.mjs'
@@ -187,14 +188,17 @@ await new Promise(resolve => setTimeout(resolve, 300))
  * `unknown` when it can't be found or doesn't say). The log is kept by the server's name in .mcp.json,
  * which this server can't see, so it reads the newest log under the names it might have: its projects'
  * (`orrery-hub`, `hub`) and its orrery's (`orrery-work`), and only without one of those the bare `orrery`, which in a
- * repo with a channel per project can be another orrery's. The name that log is under is the server's, as far as it
- * can tell, for the command that restarts its session with the channel. */
+ * repo with a channel per project can be another orrery's. It skips a name Claude Code's config points at another
+ * orrery, and reads only this session's lines (own-log.mjs, ORR-1321). The name that log is under is the server's, as
+ * far as it can tell, for the command that restarts its session with the channel. */
 function registered() {
     try {
         const cache = join(claudeCache(), process.cwd().replace(/[^a-zA-Z0-9]/g, '-'))
         // Its orrery's from before ORR-1193 (`orrery-work`) too, which an older setup still has.
         const own = [...projects.flatMap(p => [`orrery-${p}`, p]), ...orrery.environment ? [legacyServerName(orrery.environment)] : []]
-        const logsOf = names => [...new Set(names)].flatMap(name => {
+        // A name Claude Code's config points at another orrery is that one's channel, never this (ORR-1321).
+        const elsewhere = serversElsewhere(process.cwd(), {url: base, id: orrery.id ?? process.env.ORRERY_ID})
+        const logsOf = names => [...new Set(names)].filter(name => !elsewhere.has(name)).flatMap(name => {
             try {
                 const dir = join(cache, `mcp-logs-${name}`)
                 return readdirSync(dir).map(file => ({name, file: join(dir, file), at: statSync(join(dir, file)).mtimeMs}))
@@ -202,13 +206,11 @@ function registered() {
                 return []
             }
         })
-        const logs = logsOf(own)
-        const newest = (logs.length ? logs : logsOf(['orrery'])).sort((a, b) => b.at - a.at)[0]
-        const text = newest ? readFileSync(newest.file, 'utf8') : ''
-        const server = newest?.name
-        if (text.includes('Channel notifications registered')) return {channel: 'yes', server}
-        if (text.includes('Channel notifications skipped')) return {channel: 'no', server}
-        return {channel: 'unknown', server}
+        // The newest few are enough: this session's is among them, as it has just started.
+        const read = logs => logs.sort((a, b) => b.at - a.at).slice(0, 20).map(log => ({...log, text: readFileSync(log.file, 'utf8')}))
+        // This session's lines only: the folder's newest log can be another session's (ORR-1321).
+        const found = channelIn(read(logsOf(own)), window.id)
+        return found.server ? found : channelIn(read(logsOf(['orrery'])), window.id)
     } catch {
         // Claude Code keeps its logs elsewhere now.
     }
@@ -286,7 +288,36 @@ async function deliver(project, signal, query) {
     await server.notification({method: 'notifications/claude/channel', params: {content, meta: {project, ...about, kind: signal.kind, ...named ? {session: named} : {}}}})
     log(`delivered ${signal.kind} ${signal.issue ?? (signal.milestone ? `milestone ${signal.milestone}` : signal.schedule ? `from schedule ${signal.schedule}` : 'to this session')}`)
     // Tells orrery it got here, so the owner sees which window has it.
-    await fetch(`${api}/signals/${signal.id}/delivered?${query}`, {method: 'POST', headers: personHeaders}).catch(() => {})
+    await receipt(`${api}/signals/${signal.id}/delivered?${query}`)
+}
+
+/** Receipts orrery didn't take (it was restarting, say), by their address: each is sent again until it lands, as an
+ * unheard message to this session would keep it waiting for good, and handed no more work (ORR-1333). */
+const unsent = new Map()
+/** The waits between a receipt's tries: growing, then once a minute. */
+const RETRY = [1000, 2000, 5000, 15000, 60000]
+
+/** Sends a receipt; one that doesn't land is kept and tried again. An answer that the signal is gone (404), or that it
+ * won't be taken (another 4xx), ends it. */
+async function receipt(url) {
+    const answer = await fetch(url, {method: 'POST', headers: personHeaders}).then(r => r.status, () => 0)
+    const kept = unsent.get(url)
+    if (answer && answer < 500) {
+        if (kept) clearTimeout(kept.timer)
+        unsent.delete(url)
+        return
+    }
+    const tries = (kept?.tries ?? 0) + 1
+    if (kept) clearTimeout(kept.timer)
+    if (tries === 1) log(`orrery didn't take a receipt (${answer || "couldn't reach it"}); sending it again until it does`)
+    const timer = setTimeout(() => receipt(url), RETRY[Math.min(tries, RETRY.length) - 1])
+    timer.unref?.()
+    unsent.set(url, {tries, timer})
+}
+
+/** Sends every kept receipt now: the stream is back, so orrery is too. */
+function resendReceipts() {
+    for (const url of unsent.keys()) receipt(url)
 }
 
 /** What orrery calls this session (`orrery · …`), as its stream says: every signal carries it, and Claude hears it
@@ -341,7 +372,10 @@ function listen({url, started, label}) {
             if (last || catchUp) asked.set('after', String(last))
             return url(asked)
         },
-        onOpen: () => log(`listening for ${label}'s signals at ${base}`),
+        onOpen: () => {
+            log(`listening for ${label}'s signals at ${base}`)
+            resendReceipts()
+        },
         onEvent: async ({event, data, id}) => {
             if (event === 'stop') return quit()
             if (event === 'name') return nameIs(JSON.parse(data).name)

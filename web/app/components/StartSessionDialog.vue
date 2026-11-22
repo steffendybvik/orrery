@@ -37,6 +37,9 @@ const instructions = ref('')
 const together = ref<'one' | 'each'>('one')
 /** How many sessions to start of each: every project's, or the one for all. */
 const count = ref(1)
+/** The folder each project's session starts in, picked when it's served from several (ORR-1314); empty, whichever
+ * launcher takes it first. */
+const folder = ref<Record<string, string>>({})
 
 /** Whether a launcher is there and how many are running, for each project that lets orrery start sessions. */
 async function loadStates() {
@@ -55,6 +58,7 @@ watch(target, now => {
     picked.value = []
     together.value = 'one'
     count.value = 1
+    folder.value = {}
     statuses.value = open.value.filter(p => p.kind === 'todo' || p.kind === 'started').map(p => p.id)
     loadStates()
 }, {immediate: true})
@@ -138,6 +142,24 @@ const shared = computed(() => {
         && (states.value[first.id]?.folders ?? []).some(dir => rest.every(p => states.value[p.id]?.folders.includes(dir)))
 })
 const oneSession = computed(() => shared.value && together.value === 'one')
+
+/** The launches whose project is served from more than one folder, each with the folders it can start in: the first
+ * project's that every one picked shares, for one session hearing them all (ORR-1314). None for a global session. */
+const folderChoices = computed(() => {
+    if (!projects.value.length) return []
+    const [first, ...rest] = projects.value
+    const asked = oneSession.value && first
+        ? [{project: first, dirs: (states.value[first.id]?.folders ?? []).filter(dir => rest.every(p => states.value[p.id]?.folders.includes(dir)))}]
+        : projects.value.map(p => ({project: p, dirs: states.value[p.id]?.folders ?? []}))
+    return asked.filter(c => c.dirs.length > 1)
+})
+// A folder picked that no launcher serves from any more is dropped.
+watch(folderChoices, now => {
+    folder.value = Object.fromEntries(Object.entries(folder.value).filter(([id, dir]) => now.some(c => c.project.id === id && c.dirs.includes(dir))))
+})
+const folderOptions = (dirs: string[]) => [{value: '', label: 'Any: the first launcher to take it'}, ...dirs.map(dir => ({value: dir, label: dir}))]
+/** The folder to send for the project's launch, when one's picked. */
+const dirOf = (project: string) => folder.value[project] ? {dir: folder.value[project]} : {}
 const ways = computed(() => [{value: 'one' as const, label: `One session for all ${projects.value.length}`}, {value: 'each' as const, label: 'A session each'}])
 
 /** With nothing ticked, the project whose launcher starts a global session (ORR-1079), kept under it: the first that
@@ -179,6 +201,7 @@ async function start() {
         presets: picked.value.filter(id => presets.value.some(p => p.id === id && (!p.project || p.project === project))),
         ...own,
         ...model.value ? {model: model.value} : {},
+        ...dirOf(project),
     })
     const refused = new Map<string, string>()
     // The count of them through the project's launcher, stopping at the first refused, as the rest would be too.
@@ -254,6 +277,19 @@ async function start() {
     <div v-if="shared" class="flex items-center gap-2 px-1">
       <SegmentedControl v-model="together" :options="ways" class="shrink-0 [&_[role=radio]]:whitespace-nowrap" />
       <span class="text-xs text-faint">{{ oneSession ? 'They share a repo, so one session there can work them all.' : 'Each hears only its own project.' }}</span>
+    </div>
+
+    <div v-for="c in folderChoices" :key="c.project.id" class="flex flex-col gap-1" data-testid="start-folder">
+      <span class="label px-1">Folder<template v-if="folderChoices.length > 1 || projects.length > 1"> · {{ c.project.name }}</template> <span class="font-normal normal-case text-faint">· served from {{ c.dirs.length }}</span></span>
+      <PropertyPicker
+          :model-value="folder[c.project.id] ?? ''"
+          :options="folderOptions(c.dirs)"
+          :label="`Folder for ${c.project.name}`"
+          wide
+          @update:model-value="(dir: string | string[]) => folder = {...folder, [c.project.id]: String(dir)}"
+      >
+        <span class="truncate" :class="folder[c.project.id] ? 'font-mono text-xs' : 'text-faint'">{{ folder[c.project.id] || 'Any: the first launcher to take it' }}</span>
+      </PropertyPicker>
     </div>
 
     <div v-if="one" class="flex flex-col gap-1">

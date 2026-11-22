@@ -39,7 +39,7 @@ export function useDemoProject() {
             await post(`${at}/issues/${encodeURIComponent(asking.id)}/comments`, {body: 'Should lists show 25 or 50 rows by default? Answer here and I carry on.', asks: 'decision'}, claude)
             return project.id
         } catch (error) {
-            failed.value = errorMessage(error, 'make the demo')
+            failed.value = errorMessage(error, 'make')
         } finally {
             making.value = false
         }

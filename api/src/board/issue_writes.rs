@@ -250,14 +250,14 @@ impl<'c> IssueWrites<'c> {
     pub(crate) async fn owned_under(&mut self, project: &str, issues: &[String]) -> Result<Vec<String>> {
         let marks = vec!["?"; issues.len()].join(", ");
         let mut out = vec![];
-        let query = format!("SELECT id FROM issues WHERE project = ? AND owned = 1 AND id IN ({marks})");
+        let query = format!("SELECT id FROM issues WHERE project = ? AND owned = 1 AND id IN ({marks}) ORDER BY id");
         let query = sql(&query);
         let mut find = sqlx::query(&query).bind(project);
         for id in issues {
             find = find.bind(id);
         }
         out.extend(find.fetch_all(&mut *self.conn).await?.iter().map(|r| r.get::<String, _>("id")));
-        let query = format!("SELECT CAST(id AS BIGINT) AS id, issue FROM comments WHERE project = ? AND owned = 1 AND issue IN ({marks})");
+        let query = format!("SELECT CAST(id AS BIGINT) AS id, issue FROM comments WHERE project = ? AND owned = 1 AND issue IN ({marks}) ORDER BY id");
         let query = sql(&query);
         let mut find = sqlx::query(&query).bind(project);
         for id in issues {
@@ -317,7 +317,8 @@ impl<'c> IssueWrites<'c> {
         Ok((row.get("assignee"), row.get("claimed_by")))
     }
 
-    /// Refuses an agent an issue that isn't its person's, naming who has it (`mustHold`), or one that names nobody.
+    /// Refuses an agent an issue that isn't its person's, naming who has it (`mustHold`), or one that names nobody. One
+    /// assigned to nobody is the owner's agents' to take up (ORR-1332), as the owner could themselves.
     pub(crate) async fn must_hold(&mut self, person: Option<&str>, issue: &str, assignee: Option<&str>, what: &str) -> Result<()> {
         let Some(person) = person else {
             return Err(ApiError::conflict(format!(
@@ -325,7 +326,7 @@ impl<'c> IssueWrites<'c> {
             )));
         };
         let holder = self.holder_of(assignee).await?;
-        if holder.as_deref() == Some(person) {
+        if holder.as_deref() == Some(person) || holder.is_none() && person == self.owner_id().await? {
             return Ok(());
         }
         let (with, instead) = match &holder {

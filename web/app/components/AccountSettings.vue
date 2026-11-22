@@ -26,7 +26,7 @@ onMounted(async () => {
     try {
         account.value = await apiFetch<Account>('/me', {headers: {}})
     } catch (error) {
-        failed.value = errorMessage(error)
+        failed.value = errorMessage(error, 'read')
     }
 })
 
@@ -61,7 +61,7 @@ async function removeWorkspace(workspace: Account['workspaces'][number]) {
         deleting.value = ''
         await loadWorkspaces(true)
     } catch (error) {
-        failed.value = errorMessage(error)
+        failed.value = errorMessage(error, 'delete')
     } finally {
         busy.value = false
     }
@@ -75,7 +75,7 @@ async function remove() {
         await apiFetch('/me', {method: 'DELETE', headers: {}, body: {confirm: typed.value}})
         location.assign('/login')
     } catch (error) {
-        failed.value = errorMessage(error)
+        failed.value = errorMessage(error, 'delete')
         busy.value = false
     }
 }

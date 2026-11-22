@@ -437,7 +437,8 @@ impl IssueWrites<'_> {
                     if kept.is_none() && assigned.is_some() {
                         return Err(ApiError::conflict("Only people assign: a new issue stays unassigned until one does"));
                     }
-                    if kind.as_deref().is_some_and(|k| k == "started" || CLOSED.contains(&k)) {
+                    let owners = person == Some(self.owner_id().await?);
+                    if !owners && kind.as_deref().is_some_and(|k| k == "started" || CLOSED.contains(&k)) {
                         return Err(ApiError::conflict(format!(
                             "A new issue is assigned to nobody, so this session can't make it {status}; leave it in Todo or Backlog for a person to assign"
                         )));
@@ -957,15 +958,17 @@ impl IssueWrites<'_> {
     }
 
     /// An agent's assignee (`railedAssignee`): what it may hand on, back to the owner or letting go, with `claude` and
-    /// its own person being who the issue is with already. Nobody else, as people assign.
+    /// its own person being who the issue is with already. The owner's agents may give it to `claude` too, which is
+    /// theirs (ORR-1332). Nobody else, as people assign.
     async fn railed_assignee(&mut self, person: Option<&str>, issue: &str, assignee: Option<Option<String>>) -> Result<Option<Option<String>>> {
         let Some(Some(sent)) = &assignee else { return Ok(assignee) };
         let id = sent.to_lowercase();
+        let owner = self.owner_id().await?;
+        if id == owner || id == "claude" && person == Some(owner.as_str()) {
+            return Ok(assignee);
+        }
         if id == "claude" || Some(id.as_str()) == person {
             return Ok(None);
-        }
-        if id == self.owner_id().await? {
-            return Ok(assignee);
         }
         Err(ApiError::conflict(format!("Only people assign: this session can't give {issue} to {sent}")))
     }

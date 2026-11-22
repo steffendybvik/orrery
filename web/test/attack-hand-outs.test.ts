@@ -175,9 +175,18 @@ describe('a move into Todo', () => {
         expect(await handed([id, owner])).toEqual([])
     })
 
-    it('by the owner goes to nobody when it\'s nobody\'s, on a board with more than one person', async () => {
+    it('by the owner goes to the owner\'s session when it\'s nobody\'s, never another person\'s (ORR-1332)', async () => {
+        // Manni's and Hati's are idle and listed first, so it reaching Skoll's is the rail holding.
+        const {heardTodo, TODO_AFTER} = await import('../server/utils/todo-focus')
         const id = await add()
-        expect(await handed([id, owner])).toEqual([])
+        store.happened = event => heardTodo({event})
+        vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+        await store.updateIssue('greenhouse', id, {status: 'todo'}, owner)
+        await vi.advanceTimersByTimeAsync(TODO_AFTER)
+        vi.useRealTimers()
+        const sent = () => signals.filter(s => s.target && s.issue).map(s => [s.issue, s.target])
+        await vi.waitFor(() => expect(sent()).toContainEqual([id, 'skoll-a']))
+        expect(sent()).toEqual([[id, 'skoll-a']])
     })
 
     it('by an agent sends nothing, even of its own person\'s', async () => {

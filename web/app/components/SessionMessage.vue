@@ -73,7 +73,7 @@ async function send() {
         timer = setTimeout(() => sent.value = false, 2000)
         emit('sent')
     } catch (error) {
-        failed.value = errorMessage(error)
+        failed.value = errorMessage(error, 'send')
     } finally {
         busy.value = false
     }

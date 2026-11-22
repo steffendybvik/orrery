@@ -16,7 +16,7 @@ async function load() {
     try {
         unused.value = await apiFetch('/uploads?unused=1')
     } catch (error) {
-        failed.value = errorMessage(error)
+        failed.value = errorMessage(error, 'read')
     }
 }
 onMounted(load)
@@ -28,7 +28,7 @@ async function cleanUp() {
         removed.value = await apiFetch('/uploads?unused=1', {method: 'DELETE', headers: {'Orrery-Actor': await ownerName()}})
         await load()
     } catch (error) {
-        failed.value = errorMessage(error)
+        failed.value = errorMessage(error, 'remove')
     } finally {
         busy.value = false
     }

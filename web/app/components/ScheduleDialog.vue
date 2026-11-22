@@ -273,7 +273,7 @@ async function remove() {
         if (group.value) await loadAcross()
         close()
     } catch (error) {
-        failed.value = errorMessage(error)
+        failed.value = errorMessage(error, 'remove')
         removing.value = null
     }
 }
@@ -357,7 +357,7 @@ async function togglePause() {
         else if (existing.value) await pause(existing.value, enabled.value)
         enabled.value = !enabled.value
     } catch (error) {
-        failed.value = errorMessage(error)
+        failed.value = errorMessage(error, enabled.value ? 'pause' : 'resume')
     } finally {
         pausing.value = false
     }

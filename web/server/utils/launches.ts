@@ -47,6 +47,9 @@ export interface Launch {
     /** The Claude Code session to take up again (`claude --resume`): an ended chat written in again (ORR-884). Only a
      * launcher that says it can (`?resume=yes` on its claim) gets it; to an older one it's started fresh, on `fresh`. */
     resume?: string
+    /** The folder it's to start in, picked on Start session when the project is served from several (ORR-1314): only
+     * a launcher serving it from there may take it. None, the first launcher to claim it. */
+    dir?: string
 }
 
 /** What goes down a project's launcher stream: a session to start, or one of its sessions to stop, keep longer,
@@ -107,7 +110,7 @@ const everywhere = counter('everywhere')
 const versions = new Map<string, string[]>()
 /** Each connected launcher's token, to the project it serves: its stream hands it over (`ready`), and a claim counts
  * only with one, so nothing but a launcher on its stream can take a launch and keep it from starting (ORR-443). */
-const tokens = new Map<string, {project: string, person?: string, home?: boolean}>()
+const tokens = new Map<string, {project: string, person?: string, home?: boolean, dir?: string}>()
 /** How many of each project's launchers serve it from their machine's default folder (`?home=1`, ORR-1066), as it has no
  * repo there: one in the project's repo is given its sessions first. */
 const homeLaunchers = counter('home-launchers')
@@ -152,7 +155,7 @@ export function addMemberLauncher(project: string, person: string): (() => void)
  * project from its machine's default folder, with no repo (ORR-1066). */
 export function addLauncher(project: string, dir?: string, every = false, version = '', how: RepoAdded = {}, home = false): (() => void) & {token: string} {
     const token = randomBytes(18).toString('base64url')
-    tokens.set(token, {project, ...home ? {home: true} : {}})
+    tokens.set(token, {project, ...home ? {home: true} : {}, ...dir ? {dir} : {}})
     const gone = launchers.add(project)
     const homeGone = home ? homeLaunchers.add(project) : () => {}
     const away = every ? everywhere.add(project) : () => {}
@@ -281,8 +284,32 @@ function send(held: Held, cause?: number): Launch {
     return launch
 }
 
-/** How many more sessions the limit has room for: those running and on their way count, on every project. */
-const room = (limit: number) => limit - startedSessions() - pendingOn()
+/** The workspace each project is in, asked once per count: `default` for one that's gone. */
+function workspaces(): (project: string) => Promise<string> {
+    const known = new Map<string, Promise<string>>()
+    return project => {
+        let workspace = known.get(project)
+        if (!workspace) known.set(project, workspace = useStore().projectWorkspace(project).catch(() => 'default'))
+        return workspace
+    }
+}
+
+/** The sessions orrery started that are running and the launches on their way, in the project's workspace, leaving
+ * out the running ones `dying` names (by project): the limit and the minimum are the workspace's, so another's
+ * sessions don't count against it (ORR-1313). */
+async function busyIn(project: string, dying: string[] = []): Promise<number> {
+    pendingOn()
+    const of = workspaces()
+    const workspace = await of(project)
+    const counted = [...startedProjects(), ...[...pending.values()].filter(l => !l.chat).map(l => l.project)]
+    let busy = 0
+    for (const p of counted) if (await of(p) === workspace) busy++
+    for (const p of dying) if (await of(p) === workspace) busy--
+    return busy
+}
+
+/** How many more sessions the limit has room for: those running and on their way in the project's workspace count. */
+const room = async (limit: number, project: string) => limit - await busyIn(project)
 
 /** The project's launches no launcher has taken on yet, to offer a launcher as it connects: one refused for an outdated
  * launcher is started once that launcher restarts on new code (ORR-471). */
@@ -351,11 +378,14 @@ export const launchTarget = (launch: string) => `launch-${launch}`
  * (`statuses`, `release`), from a focus on the project's issues in it, made the same way. Needs the
  * owner's opt-in and a launcher, and counts the sessions on their way against the limit, as it doesn't stand
  * in for them the way a signal's launch does. */
-export async function startLaunch(project: string, {issue, statuses, release: version, context, hears, model, effort, global, actor}: {issue?: string, statuses?: string[], release?: string, context?: SessionContext, hears?: string[], model?: string, effort?: Effort, global?: boolean, actor?: Actor} = {}): Promise<Launch> {
+export async function startLaunch(project: string, {issue, statuses, release: version, context, hears, model, effort, global, dir, actor}: {issue?: string, statuses?: string[], release?: string, context?: SessionContext, hears?: string[], model?: string, effort?: Effort, global?: boolean, dir?: string, actor?: Actor} = {}): Promise<Launch> {
     // A global session hears every project already (ORR-1079).
     if (global && hears) throw badRequest('Send {global} or {hears}, not both: a global session hears every project')
+    // A global session starts in the orrery's default folder, never a repo's.
+    if (global && dir) throw badRequest("Send {global} or {dir}, not both: a global session starts in orrery's default folder")
+    if (dir && !foldersOf(project).includes(dir)) throw conflict(`No launcher serves ${project} from ${dir}: pick one of the folders it's served from${foldersOf(project).length ? ` (${foldersOf(project).join(', ')})` : ''}`)
     if (hears) hears = [project, ...new Set(hears.filter(p => p !== project))]
-    const apart = hears?.filter(p => p !== project && !foldersOf(project).some(dir => foldersOf(p).includes(dir)))
+    const apart = hears?.filter(p => p !== project && !(dir ? [dir] : foldersOf(project)).some(at => foldersOf(p).includes(at)))
     if (apart?.length) throw conflict(`${apart.join(', ')} ${apart.length === 1 ? "isn't" : "aren't"} served from ${project}'s repo, so one session there can't hear ${apart.length === 1 ? 'it' : 'them'}: start a session for each`)
     const starts = await roomFor(project)
     // Focused on an issue with no model asked for, it starts on what the issue's kind is set to (ORR-868). `best` is
@@ -365,7 +395,7 @@ export async function startLaunch(project: string, {issue, statuses, release: ve
         if (picked.model !== 'best') ({model, effort} = picked)
     }
     // Held from here, so the limit counts it while its focus is made.
-    const held = hold(project, {after: 0, ...starts.minutes ? {minutes: starts.minutes} : {}, ...context ? {context} : {}, ...hears ? {hears} : {}, ...model ? {model} : {}, ...effort ? {effort} : {}, ...global ? {global} : {}, ...actor?.owner ? {person: actor.name} : {}})
+    const held = hold(project, {after: 0, ...starts.minutes ? {minutes: starts.minutes} : {}, ...context ? {context} : {}, ...hears ? {hears} : {}, ...model ? {model} : {}, ...effort ? {effort} : {}, ...global ? {global} : {}, ...dir ? {dir} : {}, ...actor?.owner ? {person: actor.name} : {}})
     try {
         const session = launchTarget(held.id)
         held.after = issue
@@ -431,12 +461,12 @@ export async function resumeChat(project: string, id: string, context: SessionCo
 const noLauncher = (project: string) => conflict(`No launcher is running for ${project}: install it once with node ~/.orrery/bootstrap.mjs launcher --install, then open a Claude session in its repo, or run that in the repo`)
 
 /** The project's starts, if it may have one more session started now: the owner lets orrery start them, a launcher is
- * there, and the sessions running and on their way, on every project, are under the limit. */
+ * there, and the sessions running and on their way, in its workspace, are under the limit. */
 async function roomFor(project: string): Promise<Starts> {
     const starts = await useStore().starts(project)
     if (!starts) throw conflict(`orrery doesn't start sessions; turn it on in App settings`)
     if (!launchersOf(project)) throw noLauncher(project)
-    if (room(starts.limit) < 1) throw conflict(`orrery already has its ${starts.limit} session${starts.limit === 1 ? '' : 's'} at once`)
+    if (await room(starts.limit, project) < 1) throw conflict(`orrery already has its ${starts.limit} session${starts.limit === 1 ? '' : 's'} at once`)
     return starts
 }
 
@@ -451,13 +481,16 @@ export interface StartInput {
     hears?: string[]
     /** A global session (ORR-1079). */
     global?: boolean
+    /** The folder to start it in, of those the project is served from (ORR-1314). */
+    dir?: string
     /** The model and effort to start it on; none, Claude Code's default (ORR-868). */
     model?: string
     effort?: Effort
 }
 
 export function startInput(body: unknown): StartInput {
-    const {issue, statuses, release, presets, instructions, hears, model, effort, global} = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>
+    const {issue, statuses, release, presets, instructions, hears, model, effort, global, dir} = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>
+    if (dir !== undefined && dir !== null && (typeof dir !== 'string' || !dir)) throw badRequest("Send {dir}: the folder to start it in, one of the project's launchers' (GET …/launches), or nothing")
     if (global !== undefined && global !== null && typeof global !== 'boolean') throw badRequest('Send {global}: true for a global session, hearing every project, or nothing')
     if (issue !== undefined && issue !== null && typeof issue !== 'string') throw badRequest('Send {issue}: the id of an issue for the session to focus on, or nothing')
     if (statuses !== undefined && statuses !== null && (!Array.isArray(statuses) || statuses.some(s => typeof s !== 'string' || !s))) {
@@ -486,6 +519,7 @@ export function startInput(body: unknown): StartInput {
         instructions: (instructions as string | null) ?? '',
         ...hears ? {hears: hears as string[]} : {},
         ...global ? {global: true} : {},
+        ...dir ? {dir: dir as string} : {},
     }
 }
 
@@ -521,11 +555,11 @@ export function launchUntrusted(project: string, id: string): boolean {
 export const SCOPE_STATUSES = ['todo', 'started']
 
 /** What a new session on the project gets; none when the owner hasn't let it have sessions started, or the
- * limit is reached by the sessions running and on their way on every project, the one asking for it among them. */
+ * limit is reached by the sessions running and on their way in its workspace, the one asking for it among them. */
 async function allowedStarts(project: string): Promise<Starts | null> {
     const starts = await useStore().starts(project)
     // Its own launch is held already, so it's among those counted.
-    return starts && room(starts.limit) >= 0 ? starts : null
+    return starts && await room(starts.limit, project) >= 0 ? starts : null
 }
 
 /** A launcher taking the launch on: only the first gets it, so several launchers start one session between them. Only
@@ -541,6 +575,8 @@ export function claim(project: string, id: string, token: string | undefined, lo
     }
     // A member's launcher takes only that person's launches, never the owner's (ORR-963).
     if (launcher.person && launch.person !== launcher.person) return false
+    // One started in a folder goes only to a launcher there (ORR-1314).
+    if (launch.dir && launcher.dir !== launch.dir) return false
     // One in the default folder leaves it to one in the project's repo, while there is one (ORR-1066).
     if (launcher.home && launchers.count(project) > homeLaunchers.count(project)) return false
     if (launch.untrusted && !locksDown || launch.chat && !chats) {
@@ -712,8 +748,8 @@ const ended = new Map<string, number>()
 const ENDED_FOR = 5 * 60 * 1000
 let filling: Promise<Launch[]> | null = null
 
-/** Starts sessions in place of those stopped as done that have ended, until `min` are running and on their way over
- * every project, within the limit. One waits while its project has no launcher or there's no room, and is tried again
+/** Starts sessions in place of those stopped as done that have ended, until `min` are running and on their way in
+ * the project's workspace, within the limit. One waits while its project has no launcher or there's no room, and is tried again
  * at the next check; it's dropped once the minimum is met without it, or taken away. One fill at a time, so a check and
  * a session ending together don't both start one. Says the launches it started. */
 export function keepMinimum(): Promise<Launch[]> {
@@ -729,11 +765,11 @@ async function fill(): Promise<Launch[]> {
     // it isn't counted towards the minimum: counted, the one replacing it would be dropped, and nothing would
     // take its place once it's gone (ORR-481).
     for (const [id, at] of ended) if (Date.now() - at > ENDED_FOR) ended.delete(id)
-    const dying = listSessions().filter(s => s.started && !s.started.chat && s.listening && ended.has(s.started.launch)).length
+    const dying = listSessions().filter(s => s.started && !s.started.chat && s.listening && ended.has(s.started.launch)).map(s => s.project)
     for (const [id, {project, context, hears, global, model, effort, ended}] of replacing) {
         if (!ended) continue
         const starts = await useStore().starts(project).catch(() => undefined)
-        if (!starts?.min || startedSessions() - dying + pendingOn() >= starts.min) {
+        if (!starts?.min || await busyIn(project, dying) >= starts.min) {
             replacing.delete(id)
             continue
         }
@@ -900,6 +936,6 @@ export function extendLaunchBy(project: string, id: string, minutes: number): Se
 
 /** For the project's settings: its launchers and the versions they run, the sessions it has started and on their way,
  * and those on every project, which the limit counts. */
-export function launchState(project: string): {launchers: number, versions: string[], folders: string[], repos: LauncherRepo[], every: boolean, started: number, starting: number, total: number} {
-    return {launchers: launchersOf(project), versions: [...versions.get(project) ?? []], folders: foldersOf(project), repos: reposOf(project), every: everywhere.count(project) > 0, started: startedSessions(project), starting: pendingOn(project), total: startedSessions() + pendingOn()}
+export async function launchState(project: string): Promise<{launchers: number, versions: string[], folders: string[], repos: LauncherRepo[], every: boolean, started: number, starting: number, total: number}> {
+    return {launchers: launchersOf(project), versions: [...versions.get(project) ?? []], folders: foldersOf(project), repos: reposOf(project), every: everywhere.count(project) > 0, started: startedSessions(project), starting: pendingOn(project), total: await busyIn(project)}
 }

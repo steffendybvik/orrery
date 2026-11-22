@@ -46,10 +46,12 @@ export async function heldFromPicks(project: string): Promise<boolean> {
 
 /** Who may be handed an issue (ORR-656): `null` nobody; `{}` any session, as with one person; else the sessions of
  * `{person}`, the person whose work it is. The owner's own is theirs to work, as `forSessions` says, and a member's goes
- * to their agents. `member`: only they may be handed it, as it's their hand-out. */
+ * to their agents. One that's nobody's goes to the owner's, who may take it up (ORR-1332). `member`: only they may be
+ * handed it, as it's their hand-out. */
 export async function handedTo(project: string, issue: {assignee?: string | null}, member?: string): Promise<{person?: string} | null> {
     const store = useStore()
-    const whose = await store.whoseWork(project, issue.assignee)
+    const worked = await store.whoseWork(project, issue.assignee)
+    const whose = worked === null && !issue.assignee ? (await store.ownerOf()).name : worked
     if (whose === undefined) return forSessions(issue) ? {} : null
     if (whose === null || member && whose !== member) return null
     return whose === (await store.ownerOf()).name && !forSessions(issue) ? null : {person: whose}

@@ -544,6 +544,12 @@ export function startedSessions(project?: string): number {
     return listSessions(project).filter(s => s.started && !s.started.chat && s.listening && (!project || s.project === project)).length
 }
 
+/** The project of each session orrery started that's running, once for each: what the limit counts in a workspace
+ * (ORR-1313). */
+export function startedProjects(): string[] {
+    return listSessions().filter(s => s.started && !s.started.chat && s.listening).map(s => s.project)
+}
+
 /** The session on the project started for the launch. */
 const byLaunch = (project: string, launch: string) => [...sessions.values()].find(s => covers(s, project) && s.started?.launch === launch)
 
