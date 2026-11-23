@@ -7,6 +7,67 @@ Each version's changes are grouped under **Features**, **Changes** and **Fixes**
 **Internal** where they help, with **Upgrading** first when an update needs a step of you. A group with nothing
 in it is left out. 1.0.0, the first release's overview, is one list.
 
+## 1.0.0-rc.23 (2026-11-23)
+
+This release keeps every person and workspace to their own rows: the server's owner included, nobody sees, reaches or
+learns of another workspace's projects, issues, sessions, secrets or settings.
+
+### Upgrading
+
+- **With login through a provider, register `<orrery>/login` as a post-logout redirect URI** there, so signing out
+  of orrery signs you out of the provider too and comes back to the login page.
+- **Restart the sessions that were running before the upgrade,** so their channel has the new `milestones` tools and
+  the new `next`.
+
+### Features
+
+- **Sign out of the login provider too, and sign in as someone else:** sign-out ends the provider's session when it
+  offers one, and the login page has **Sign in as someone else**.
+- **Every Todo issue gets acted on:** with no idle session free, orrery starts one for it, most urgent first, then
+  oldest, up to the session limit, and never a second for an issue a session has just been handed.
+- **Sessions can list, make and change milestones** through `/mcp` and the channel (`more_tools` → `milestones`).
+
+### Changes
+
+- **One guard around every workspace's rows:** the Rust API's stores take a workspace only the access checks can
+  make, and a project's rows (issues, comments, docs…) go through a project those checks passed, so a new route can't
+  forget to filter. A test sweeps every route and MCP tool as another workspace's person and finds nothing of theirs.
+- **The server's owner is held to their own workspaces** like anyone else, on every route, the live stream, the
+  bell, the event log, chats, pull requests and `llms.txt`.
+- **Another workspace's row is a 404, as if it weren't there:** ids and names taken in another workspace no longer
+  block yours or say they exist (projects, boards and statuses quietly get a `-2`), and adding a board member finds
+  only people in the board's workspace.
+- **Context is out of the sidebar;** it's under App settings → Advanced, ⌘K and a running session's card.
+- **Pull requests are polled every five minutes,** slower as GitHub's points run low, so the rate limit isn't used up.
+- **`next` names the boards it passed over** when a board is held from picks, rather than saying nothing is free.
+
+### Fixes
+
+- **A workspace's secrets are its own:** the owner can't read, replace or delete another workspace's, egress uses
+  only a project the caller sees in the workspace it works in, and a value never comes back in a refused host's
+  answer or a webhook's use record.
+- **Sessions, messages, signals and pull requests stay in their workspace:** messaging sessions, Poll now, the
+  untrusted signal stream, the outbox feed and the event log's lines no longer reach other workspaces.
+- **An issue can't be moved into, filed under or linked to another workspace's** project, epic or issue, through the
+  API or `/mcp`, and a board upload's or export's links and images stay inside its workspace.
+- **Epics and shared releases list only projects you can see.**
+- **A failed read shows nothing,** not every workspace's projects, sessions and chats.
+- **The browser keeps nothing for the next person:** doc text, seen marks, the bell's read mark and preferences are
+  per person and cleared at sign-out, and a move into another workspace loads a fresh page.
+- **Settings and session records answer only in their workspace,** and the owner's own settings stay theirs.
+- **Refusals in the event log name the checked person and workspace,** not who a request claimed to be.
+- **Branches are deleted only on the asker's repos.**
+- **A member can connect a machine and watch their own session's screen** from their page, no longer refused as "a
+  session".
+- **Secrets stay out of files and logs:** the outbox cursor keeps a mark of the database, not its URL, the log hides
+  keys, tokens and cookies, the OIDC token exchange doesn't follow redirects, and `ORRERY_API_LOG` leaves out queries.
+
+### Internal
+
+- **sqlx 0.9 and url 2.5.9** for RUSTSEC-2026-0459 and RUSTSEC-2026-0592, and minimatch 11 for its ReDoS advisory.
+- **The restart suite runs in CI.**
+- **Patch bumps,** and steadier browser specs.
+
 ## 1.0.0-rc.22 (2026-11-22)
 
 ### Upgrading
