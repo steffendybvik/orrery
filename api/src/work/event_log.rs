@@ -153,7 +153,8 @@ impl<'c> EventLog<'c> {
     }
 
     /// Writes a line the local app made (`PUT /api/events/log/lines`): `{level, kind, project?, subject?, message,
-    /// details?, activity?}`, its texts scrubbed and cut there already. `{event, fresh}`: fresh unless it repeats one
+    /// details?, activity?, workspace?}`, its texts scrubbed and cut there already. With `workspace` (this log's, which
+    /// the route made of it) the line is this log's even when it names a project of another (ORR-1377). `{event, fresh}`: fresh unless it repeats one
     /// not resolved yet (same level, kind, project and message), which is a line too but no news. A change to the
     /// roadmap (`activity`) is always news. It goes into the outbox, and every PRUNE_EVERY lines old ones go.
     pub(crate) async fn write(&mut self, line: &Value) -> Result<Value> {
@@ -170,13 +171,17 @@ impl<'c> EventLog<'c> {
         let message = cut(text("message").unwrap_or(kind), MESSAGE);
         let project = text("project");
         let subject = text("subject");
+        let held = text("workspace").is_some();
+        if held && sqlx::query(sql("SELECT 1 FROM workspaces WHERE id = ?")).bind(self.workspace.id()).fetch_optional(&mut *self.conn).await?.is_none() {
+            return Err(ApiError::not_found(format!("No workspace {}", self.workspace.id())));
+        }
         let details = match line.get("details") {
             Some(Value::Object(details)) if !details.is_empty() => Some(Value::Object(details.clone()).to_string()),
             None | Some(Value::Null) | Some(Value::Object(_)) => None,
             Some(_) => return Err(ApiError::bad_request("\"details\" is an object")),
         };
         changes::begin(self.conn).await?;
-        let done = self.writing(level, kind, project, subject, &message, details, activity).await;
+        let done = self.writing(level, kind, project, subject, &message, details, activity, held).await;
         let written = changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
         if WRITTEN.fetch_add(1, Ordering::Relaxed) % PRUNE_EVERY == PRUNE_EVERY - 1 {
             self.prune().await?;
@@ -194,8 +199,9 @@ impl<'c> EventLog<'c> {
         message: &str,
         details: Option<String>,
         activity: bool,
+        held: bool,
     ) -> Result<Value> {
-        let workspace = self.workspace_of(project).await?;
+        let workspace = if held { self.workspace.id().to_string() } else { self.workspace_of(project).await? };
         let again = !activity
             && sqlx::query(sql(
                 "SELECT id FROM events WHERE workspace = ? AND level = ? AND kind = ? AND coalesce(project, '') = ? AND message = ? AND resolved_at IS NULL LIMIT 1",
