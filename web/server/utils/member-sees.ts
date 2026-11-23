@@ -77,3 +77,16 @@ export async function reposSeen(event: H3Event): Promise<Set<string> | undefined
     if (!listed) return who.owner ? undefined : new Set()
     return new Set(listed.flatMap(p => p.repo ? [p.repo.toLowerCase()] : []))
 }
+
+/** The workspace a request's `Orrery-Workspace` names, once the asker is in it (ORR-1369): what a route that writes
+ * as this server, which the API trusts with any workspace it names, passes on. None named is the API's `default`.
+ * With login off, the one person here is in every one; signed in, a workspace that `GET /api/workspaces` doesn't list
+ * for them, or no answer from it, is a 404, as one that isn't here. */
+export async function workspaceAsked(event: H3Event): Promise<string | undefined> {
+    const named = getHeader(event, 'orrery-workspace')?.trim() || undefined
+    const who = event.context?.who as Who | undefined
+    if (!named || !who) return named
+    const theirs = await readAsAsker<{id: string}[]>(event, '/api/workspaces')
+    if (!theirs?.some(w => w.id === named)) throw createError({statusCode: 404, statusMessage: 'Not Found', message: `No workspace ${named}`})
+    return named
+}
