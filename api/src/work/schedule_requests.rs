@@ -3,6 +3,7 @@
 // web/server/store/comments.ts. The request is checked as Schedules would check it for the owner, and nothing is saved
 // until they press Allow, which stays the Nuxt server's for now (`answerScheduleRequest`). The chat's own requests are
 // asked in its chat (`Chats::ask_schedule`, ORR-1100), with `request` here, and answered by the local app, which runs it.
+use crate::access::scope::ScopedProject;
 use crate::board::comments::Handoff;
 use crate::board::issue_writes::IssueWrites;
 use crate::changes::Outbox;
@@ -188,7 +189,8 @@ impl<'c> ScheduleRequests<'c> {
     /// `{schedule, id?, why?}`. A comment waiting on the owner's decision, with the request kept beside it; one asked
     /// before for the same schedule, still unanswered, expires (a change by the schedule's id anywhere in the project, a
     /// new one by its title on this issue).
-    pub(crate) async fn ask(&mut self, project: &str, sent: &str, body: &Value, actor: &Actor) -> Result<Asked> {
+    pub(crate) async fn ask(&mut self, scoped: &ScopedProject, sent: &str, body: &Value, actor: &Actor) -> Result<Asked> {
+        let project = scoped.id();
         if actor.owner {
             return Err(ApiError::bad_request("The owner makes and changes schedules on Schedules: this is for a session to ask them"));
         }
@@ -224,7 +226,7 @@ impl<'c> ScheduleRequests<'c> {
         }
         let mut writes = IssueWrites::new(self.conn);
         writes.outbox = Some(Outbox::new(actor.clone()));
-        let (comment, handoff) = writes.create(project, &issue, &json!({"body": words, "asks": "decision"}), actor).await?;
+        let (comment, handoff) = writes.create(scoped, &issue, &json!({"body": words, "asks": "decision"}), actor).await?;
         let effects = std::mem::take(&mut writes.effects);
         let id = comment["id"].as_i64().unwrap_or_default();
         sqlx::query(&sql("INSERT INTO schedule_requests (comment, schedule, title, changes, body, state) VALUES (?, ?, ?, ?, ?, ?)"))
@@ -236,7 +238,7 @@ impl<'c> ScheduleRequests<'c> {
             .bind("asked")
             .execute(&mut *self.conn)
             .await?;
-        let comment = IssueWrites::new(self.conn).comment(project, &issue, id).await?;
+        let comment = IssueWrites::new(self.conn).comment(scoped, &issue, id).await?;
         Ok(Asked { comment, handoff, effects, line, request })
     }
 }
@@ -269,7 +271,8 @@ impl ScheduleRequests<'_> {
     /// made or changed as theirs. Either way their answer is a comment of theirs, which answers the ask and reaches the
     /// session without starting one. 409 once answered, or expired by a later request for the same schedule; one that no
     /// longer holds (its preset deleted since) fails as Schedules would, still asked.
-    pub(crate) async fn answer(&mut self, database: &str, project: &str, sent: &str, id: i64, allow: bool, actor: &Actor) -> Result<Answered> {
+    pub(crate) async fn answer(&mut self, database: &str, scoped: &ScopedProject, sent: &str, id: i64, allow: bool, actor: &Actor) -> Result<Answered> {
+        let project = scoped.id();
         if !actor.owner {
             let message = if actor.untrusted {
                 "Allow or deny a session’s request for a schedule: refused for an untrusted session (schedules.answer). Allowing saves the schedule as the owner’s, so only they can."
@@ -279,7 +282,7 @@ impl ScheduleRequests<'_> {
             return Err(ApiError::refused_for("schedules.answer", message));
         }
         let issue = IssueWrites::new(self.conn).issue_id(project, sent).await?;
-        let comment = IssueWrites::new(self.conn).comment(project, &issue, id).await?;
+        let comment = IssueWrites::new(self.conn).comment(scoped, &issue, id).await?;
         let Some(request) = comment.get("schedule").filter(|r| r.is_object()).cloned() else {
             return Err(ApiError::not_found(format!("Comment {id} on {issue} asks for no schedule")));
         };
@@ -328,14 +331,14 @@ impl ScheduleRequests<'_> {
         };
         let mut writes = IssueWrites::new(self.conn);
         writes.outbox = Some(Outbox::new(actor.clone()));
-        let (_, mut handoff) = writes.create(project, &issue, &json!({"body": words}), actor).await?;
+        let (_, mut handoff) = writes.create(scoped, &issue, &json!({"body": words}), actor).await?;
         // Said to the session that asked, but not work: it starts no session (ORR-606).
         handoff.quiet = true;
         let said = std::mem::take(&mut writes.effects);
         effects.changed.extend(said.changed);
         effects.schedules.extend(said.schedules);
         effects.told.extend(said.told);
-        let comment = IssueWrites::new(self.conn).comment(project, &issue, id).await?;
+        let comment = IssueWrites::new(self.conn).comment(scoped, &issue, id).await?;
         let fields = request["body"].as_object().map(|b| b.keys().cloned().collect()).unwrap_or_default();
         Ok(Answered { comment, handoff, effects, line, schedule: schedule.or_else(|| request.get("id").and_then(Value::as_i64)), fields })
     }

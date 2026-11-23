@@ -2,6 +2,7 @@
 // and the routes they answer (ORR-1048).
 use super::P;
 use crate::access::rewrites;
+use crate::access::scope::ScopedProject;
 use crate::access::seen::Seen;
 use crate::board::comments::{comment_id, Handoff};
 use crate::board::issue_edits;
@@ -38,28 +39,36 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route(&format!("{P}/issues/{{issue}}/said"), post(said_on_issue))
 }
 
-async fn list_issues(State(app): Shared, Path(project): Path<String>, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+async fn list_issues(State(app): Shared, scoped: ScopedProject, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Issues::new(&mut conn).list(&project, &query).await?).into_response())
 }
 
-async fn get_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>) -> Result<Response> {
+async fn get_issue(State(app): Shared, scoped: ScopedProject, Path((_, issue)): Path<(String, String)>) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Issues::new(&mut conn).issue(&project, &issue).await?).into_response())
 }
 
-async fn list_comments(State(app): Shared, Path((project, issue)): Path<(String, String)>) -> Result<Response> {
+async fn list_comments(State(app): Shared, scoped: ScopedProject, Path((_, issue)): Path<(String, String)>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(IssueWrites::new(&mut conn).list(&project, &issue).await?).into_response())
+    Ok(Json(IssueWrites::new(&mut conn).list(&scoped, &issue).await?).into_response())
 }
 
 /// `POST …/issues/{issue}/comments`: the new comment, and in `Orrery-Carry` and `Orrery-Notice` (`<project> <issue>
 /// <comment>`, each part percent-encoded) what the router passes on to the session on the issue and the owner's bell.
-async fn create_comment(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn create_comment(
+    State(app): Shared,
+    scoped: ScopedProject,
+    Path((_, issue)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
-    let (value, handoff) = comments.create(&project, &issue, &body_of(&body), &actor_of(&headers)).await?;
+    let (value, handoff) = comments.create(&scoped, &issue, &body_of(&body), &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut comments.effects);
     let mut response = reply(StatusCode::CREATED, Some(value), effects);
     for (header, said) in handoff_headers(&handoff) {
@@ -70,14 +79,20 @@ async fn create_comment(State(app): Shared, Path((project, issue)): Path<(String
 
 /// `POST …/issues/{issue}/said`: orrery's own word on the issue (ORR-1094), from the Nuxt server's own work alone (a
 /// pull request's news, a schedule's note), with in `Orrery-Carry` whether to pass it on to the session on the issue.
-async fn said_on_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn said_on_issue(
+    State(app): Shared,
+    scoped: ScopedProject,
+    Path((_, issue)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
     if !came_of(&headers).server {
         return Err(ApiError::forbidden("Only orrery itself says things as orrery"));
     }
     let mut conn = app.pool.acquire().await?;
     let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
-    let (value, handoff) = comments.said(&project, &issue, &body_of(&body)).await?;
+    let (value, handoff) = comments.said(&scoped, &issue, &body_of(&body)).await?;
     let effects = std::mem::take(&mut comments.effects);
     let mut response = reply(StatusCode::CREATED, Some(value), effects);
     for (header, said) in handoff_headers(&handoff) {
@@ -116,7 +131,8 @@ pub(crate) fn handoff_headers(handoff: &Handoff) -> Vec<(&'static str, String)> 
 /// edited`) the new words for the router to pass on to the session on the issue, when they're its person's own.
 async fn patch_comment(
     State(app): Shared,
-    Path((project, issue, comment)): Path<(String, String, String)>,
+    scoped: ScopedProject,
+    Path((_, issue, comment)): Path<(String, String, String)>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response> {
@@ -124,7 +140,7 @@ async fn patch_comment(
     let mut conn = app.pool.acquire().await?;
     let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
-    let (value, handoff) = comments.update(&project, &issue, id, &body_of(&body), &actor_of(&headers)).await?;
+    let (value, handoff) = comments.update(&scoped, &issue, id, &body_of(&body), &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut comments.effects);
     let mut response = reply(StatusCode::OK, Some(value), effects);
     for (header, said) in handoff.as_ref().map(handoff_headers).unwrap_or_default() {
@@ -133,30 +149,36 @@ async fn patch_comment(
     Ok(response)
 }
 
-async fn delete_comment(State(app): Shared, Path((project, issue, comment)): Path<(String, String, String)>, headers: HeaderMap) -> Result<Response> {
+async fn delete_comment(
+    State(app): Shared,
+    scoped: ScopedProject,
+    Path((_, issue, comment)): Path<(String, String, String)>,
+    headers: HeaderMap,
+) -> Result<Response> {
     let id = comment_id(&comment)?;
     let mut conn = app.pool.acquire().await?;
     let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
-    comments.delete(&project, &issue, id, &actor_of(&headers)).await?;
+    comments.delete(&scoped, &issue, id, &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut comments.effects);
     Ok(reply(StatusCode::NO_CONTENT, None, effects))
 }
 
 /// `POST …/issues/{issue}/claim`: the issue, taken up by whoever's asking (`claimIssue`, ORR-657).
-async fn claim_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
-    claim_or_release(app, project, issue, headers, true).await
+async fn claim_issue(State(app): Shared, scoped: ScopedProject, Path((_, issue)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    claim_or_release(app, scoped, issue, headers, true).await
 }
 
 /// `DELETE …/issues/{issue}/claim`: the issue, let go (`releaseIssue`). It stays assigned.
-async fn release_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
-    claim_or_release(app, project, issue, headers, false).await
+async fn release_issue(State(app): Shared, scoped: ScopedProject, Path((_, issue)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    claim_or_release(app, scoped, issue, headers, false).await
 }
 
 /// `POST …/issues` with only an issue's own words (`issue_edits::WORDS`): 201 the new issue (`createIssue`), and
 /// `Orrery-Urgent` when it's urgent open work. An untrusted session's is made a proposal and the chat's lands in its
 /// status with nobody on it (`rewrites`), and the session the router names is noted as working it (`workedOn`).
-async fn create_issue(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn create_issue(State(app): Shared, scoped: ScopedProject, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let project = scoped.id().to_string();
     let actor = actor_of(&headers);
     let sent = body_of(&body);
     let asked = if actor.untrusted {
@@ -171,10 +193,10 @@ async fn create_issue(State(app): Shared, Path(project): Path<String>, headers: 
     let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor.clone()));
     comments.seen = Some(seen);
-    let (id, urgent) = comments.create_issue(&project, &asked, &actor).await?;
+    let (id, urgent) = comments.create_issue(&scoped, &asked, &actor).await?;
     // The issue's made: not noting its session only means the owner's comments on it don't reach that session.
     if let Some(session) = rewrites::worked_by(&headers, actor.chat) {
-        if let Err(error) = comments.worked_by(&project, &id, &session).await {
+        if let Err(error) = comments.worked_by(&scoped, &id, &session).await {
             eprintln!("[orrery-api] tying {project}/{id} to its session: {error:?}");
         }
     }
@@ -192,7 +214,8 @@ async fn create_issue(State(app): Shared, Path(project): Path<String>, headers: 
 /// `PATCH …/issues/{issue}` with only an issue's own words and priority (`issue_edits::WORDS`): the issue
 /// (`updateIssue`), and `Orrery-Urgent` when it made it urgent open work. A session (`Orrery-Worked-By`) changing its
 /// status is noted as working it, and starting it takes the session's lock on it (`claimed`, 409 when another has it).
-async fn patch_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn patch_issue(State(app): Shared, scoped: ScopedProject, Path((_, issue)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let seen = Seen::of(&mut conn, &headers).await?;
     let mut comments = IssueWrites::new(&mut conn);
@@ -202,7 +225,7 @@ async fn patch_issue(State(app): Shared, Path((project, issue)): Path<(String, S
     let mut edit = body_of(&body);
     // Sent with `project`, it moves there first (ORR-1129), with its new parent or milestone, and the rest of the edit
     // is made there.
-    let (mut project, mut issue) = (project, issue);
+    let (mut scoped, mut project, mut issue) = (scoped, project, issue);
     let mut moved_from: Vec<String> = vec![];
     let mut moved = false;
     if let Some(fields) = edit.as_object_mut() {
@@ -221,8 +244,8 @@ async fn patch_issue(State(app): Shared, Path((project, issue)): Path<(String, S
                 let milestone =
                     text(fields.remove("milestone")).map_err(|v| ApiError::bad_request(format!("\"milestone\" should be a string, not {}", write::js(&v))))?;
                 let assignee = fields.get("assignee").map(|a| a.as_str().map(str::to_string));
-                issue = comments.move_issue(&project, &issue, &to, parent.as_deref(), milestone.as_deref(), assignee, &actor).await?;
-                project = to;
+                let (moved_to, there) = comments.move_issue(&scoped, &issue, &to, parent.as_deref(), milestone.as_deref(), assignee, &actor).await?;
+                (issue, scoped, project) = (moved_to, there, to);
                 moved = true;
                 moved_from = std::mem::take(&mut comments.effects.changed);
             }
@@ -233,12 +256,12 @@ async fn patch_issue(State(app): Shared, Path((project, issue)): Path<(String, S
     let moves_status = edit.get("status").is_some() || edit.get("plan").is_some();
     let session = if actor.owner || !moves_status { None } else { rewrites::worked_by(&headers, actor.chat) };
     comments.session = session.clone();
-    let urgent = comments.edit_words(&project, &issue, &edit, &actor).await?;
+    let urgent = comments.edit_words(&scoped, &issue, &edit, &actor).await?;
     // It's edited: not noting its session only means the owner's comments on it don't reach that session. Moved, it's
     // the session's work where it is now, which its address doesn't say (`workedOn`).
     let worked = session.or_else(|| if moved { rewrites::worked_by(&headers, actor.chat) } else { None });
     if let Some(session) = &worked {
-        if let Err(error) = comments.worked_by(&project, &issue, session).await {
+        if let Err(error) = comments.worked_by(&scoped, &issue, session).await {
             eprintln!("[orrery-api] tying {project}/{issue} to its session: {error:?}");
         }
     }
@@ -261,11 +284,18 @@ async fn patch_issue(State(app): Shared, Path((project, issue)): Path<(String, S
 /// `POST …/issues/{issue}/decide` `{decision, note?, picks?, explore?}`: the owner's decision on a proposal (`decide`),
 /// the issue, with its comment's `Orrery-Carry` (` quiet` for a rejection, which starts no work) and `Orrery-Urgent` when
 /// approving made it urgent open work.
-async fn decide_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn decide_issue(
+    State(app): Shared,
+    scoped: ScopedProject,
+    Path((_, issue)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
-    let (id, handoff, urgent) = comments.decide(&project, &issue, &body_of(&body), &actor_of(&headers)).await?;
+    let (id, handoff, urgent) = comments.decide(&scoped, &issue, &body_of(&body), &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut comments.effects);
     let value = Issues::new(&mut conn).issue(&project, &id).await?;
     let mut response = reply(StatusCode::OK, Some(value), effects);
@@ -283,7 +313,8 @@ async fn decide_issue(State(app): Shared, Path((project, issue)): Path<(String, 
 /// is decided, so one refused doesn't stop the rest (`decideIssues`). Picks and explore go one at a time. `[{id, ok,
 /// error?}]`, an id once however often it's sent; each comment comes back in `Orrery-Carry`, and the ones approving
 /// made urgent in `Orrery-Urgent`, apart by commas.
-async fn decide_issues(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn decide_issues(State(app): Shared, scoped: ScopedProject, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let mut comments = IssueWrites::new(&mut conn);
     comments.project_uid(&project).await?;
@@ -311,7 +342,7 @@ async fn decide_issues(State(app): Shared, Path(project): Path<String>, headers:
         seen.push(sent);
         // Each decision is its own writes, as in the store: their own transactions and their own rows in the outbox.
         comments.outbox = Some(Outbox::new(actor.clone()));
-        let done = comments.decide_one_of_many(&project, sent, &decision, &actor).await;
+        let done = comments.decide_one_of_many(&scoped, sent, &decision, &actor).await;
         let said = std::mem::take(&mut comments.effects);
         match done {
             Ok((id, handoff, made)) => {
@@ -348,18 +379,19 @@ async fn decide_issues(State(app): Shared, Path(project): Path<String>, headers:
 }
 
 /// `DELETE …/issues/{issue}`: 204, its sub-issues and comments gone with it (`deleteIssue`).
-async fn delete_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+async fn delete_issue(State(app): Shared, scoped: ScopedProject, Path((_, issue)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
-    comments.delete_issue(&project, &issue, &actor_of(&headers)).await?;
+    comments.delete_issue(&scoped, &issue, &actor_of(&headers)).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut comments.effects)))
 }
 
 /// `DELETE …/issues` `{ids}`: many deleted, each on its own as one is, so one refused doesn't stop the rest
 /// (`deleteIssues`). `[{id, ok, error?}]`, an id once however often it's sent; one already gone with an issue above it
 /// is ok.
-async fn delete_issues(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn delete_issues(State(app): Shared, scoped: ScopedProject, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let mut comments = IssueWrites::new(&mut conn);
     comments.project_uid(&project).await?;
@@ -388,7 +420,7 @@ async fn delete_issues(State(app): Shared, Path(project): Path<String>, headers:
                 return Ok(());
             }
             let subtree = comments.subtree(&project, &id).await?;
-            comments.delete_issue(&project, &id, &actor).await?;
+            comments.delete_issue(&scoped, &id, &actor).await?;
             gone.extend(subtree);
             Ok(())
         }
@@ -418,7 +450,8 @@ async fn delete_issues(State(app): Shared, Path(project): Path<String>, headers:
 /// `PATCH …/issues` `{ids, set?: {status?, priority?, assignee?, milestone?, release?, epic?}, labels?: {add?, remove?}}`:
 /// one change to many issues, each on its own as one is edited, so one refused doesn't stop the rest (`updateIssues`).
 /// `[{id, ok, error?}]`, an id once however often it's sent. The ones it made urgent come back in `Orrery-Urgent`.
-async fn update_issues(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn update_issues(State(app): Shared, scoped: ScopedProject, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let mut comments = IssueWrites::new(&mut conn);
     comments.project_uid(&project).await?;
@@ -464,7 +497,7 @@ async fn update_issues(State(app): Shared, Path(project): Path<String>, headers:
         seen.push(sent);
         // Each edit is its own write, as in the store: its own transaction and its own rows in the outbox.
         comments.outbox = Some(Outbox::new(actor.clone()));
-        let done = comments.edit_one_of_many(&project, sent, &set, &add, &remove, &actor).await;
+        let done = comments.edit_one_of_many(&scoped, sent, &set, &add, &remove, &actor).await;
         let said = std::mem::take(&mut comments.effects);
         match done {
             Ok(made) => {
@@ -495,26 +528,27 @@ async fn update_issues(State(app): Shared, Path(project): Path<String>, headers:
     Ok(response)
 }
 
-async fn claim_or_release(app: Arc<App>, project: String, issue: String, headers: HeaderMap, claim: bool) -> Result<Response> {
+async fn claim_or_release(app: Arc<App>, scoped: ScopedProject, issue: String, headers: HeaderMap, claim: bool) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
     let actor = actor_of(&headers);
-    let id = if claim { comments.claim(&project, &issue, &actor).await? } else { comments.release(&project, &issue, &actor).await? };
+    let id = if claim { comments.claim(&scoped, &issue, &actor).await? } else { comments.release(&scoped, &issue, &actor).await? };
     let effects = std::mem::take(&mut comments.effects);
     let value = Issues::new(&mut conn).issue(&project, &id).await?;
     Ok(reply(StatusCode::OK, Some(value), effects))
 }
 
-async fn get_activity(State(app): Shared, Path((project, issue)): Path<(String, String)>) -> Result<Response> {
+async fn get_activity(State(app): Shared, scoped: ScopedProject, Path((_, issue)): Path<(String, String)>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(IssueWrites::new(&mut conn).activity(&project, &issue).await?).into_response())
+    Ok(Json(IssueWrites::new(&mut conn).activity(&scoped, &issue).await?).into_response())
 }
 
-async fn get_comment(State(app): Shared, Path((project, issue, comment)): Path<(String, String, String)>) -> Result<Response> {
+async fn get_comment(State(app): Shared, scoped: ScopedProject, Path((_, issue, comment)): Path<(String, String, String)>) -> Result<Response> {
     let id = comment_id(&comment)?;
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(IssueWrites::new(&mut conn).comment(&project, &issue, id).await?).into_response())
+    Ok(Json(IssueWrites::new(&mut conn).comment(&scoped, &issue, id).await?).into_response())
 }
 
 #[cfg(test)]
@@ -524,7 +558,8 @@ mod tests;
 /// `GET …/issues/:issue/row` → the issue's row as it's stored, by its id alone (no alias), for the local app's store
 /// (ORR-1174), whose helpers read it to check an issue is there and for its assignee, labels, claim and the rest. A 404
 /// for a project or an issue there isn't, as the store says each.
-async fn issue_row(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+async fn issue_row(State(app): Shared, scoped: ScopedProject, Path((_, issue)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    let project = scoped.id().to_string();
     if !came_of(&headers).server {
         return Err(ApiError::forbidden("Only the local app reads an issue's row"));
     }
@@ -544,7 +579,8 @@ async fn issue_row(State(app): Shared, Path((project, issue)): Path<(String, Str
 /// `GET …/issues/:issue/id` → `{id}`: the issue's id from its id, one it had before (an alias), or the full form of
 /// either, for the local app's store (`issueId`, ORR-1174). The id sent comes back when nothing matches, as the store
 /// leaves it to the read after to say there's no such issue; a 404 for a project there isn't.
-async fn issue_id(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+async fn issue_id(State(app): Shared, scoped: ScopedProject, Path((_, issue)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    let project = scoped.id().to_string();
     if !came_of(&headers).server {
         return Err(ApiError::forbidden("Only the local app resolves an issue's id"));
     }

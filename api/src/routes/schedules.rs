@@ -2,6 +2,7 @@
 // pausing or activating all of a project's, making and changing one, and deleting one across projects (ORR-1082).
 use super::issues::handoff_headers;
 use super::P;
+use crate::access::scope::ScopedProject;
 use crate::access::scope::{Across, Workspace};
 use crate::access::seen::Seen;
 use crate::changes::Outbox;
@@ -46,10 +47,17 @@ pub(crate) fn routes() -> Router<Arc<App>> {
 /// checks the session's claim on the issue first, and the rails who may ask. The comment's hand-on comes back as a new
 /// comment's does, and the event log's line as `Orrery-Asked` (`<project> <issue> <schedule or -> <fields> <line>`,
 /// each percent-encoded, fields apart by commas), as only the Nuxt server keeps that log.
-async fn ask_schedule(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn ask_schedule(
+    State(app): Shared,
+    scoped: ScopedProject,
+    Path((_, issue)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let actor = actor_of(&headers);
-    let asked = ScheduleRequests::new(&mut conn).ask(&project, &issue, &body_of(&body), &actor).await?;
+    let asked = ScheduleRequests::new(&mut conn).ask(&scoped, &issue, &body_of(&body), &actor).await?;
     let mut response = reply(StatusCode::CREATED, Some(asked.comment.clone()), asked.effects);
     for (header, said) in handoff_headers(&asked.handoff) {
         response.headers_mut().insert(header, HeaderValue::from_str(&said).unwrap());
@@ -79,7 +87,14 @@ async fn schedule_id(conn: &mut sqlx::AnyConnection, sent: &str) -> Result<i64> 
 }
 
 /// `POST …/schedules/:schedule/claim` {from, to, enabled} → {claimed}: the clock taking the run due at `from`.
-async fn claim_run(State(app): Shared, Path((project, schedule)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn claim_run(
+    State(app): Shared,
+    scoped: ScopedProject,
+    Path((_, schedule)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
+    let project = scoped.id().to_string();
     clock_only(&headers)?;
     let mut conn = app.pool.acquire().await?;
     let id = schedule_id(&mut conn, &schedule).await?;
@@ -88,7 +103,14 @@ async fn claim_run(State(app): Shared, Path((project, schedule)): Path<(String, 
 }
 
 /// `POST …/schedules/:schedule/runs` {at, outcome, issue?, note?, subject?} → 201 the run, as the schedule lists it.
-async fn record_run(State(app): Shared, Path((project, schedule)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn record_run(
+    State(app): Shared,
+    scoped: ScopedProject,
+    Path((_, schedule)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
+    let project = scoped.id().to_string();
     clock_only(&headers)?;
     let mut conn = app.pool.acquire().await?;
     let id = schedule_id(&mut conn, &schedule).await?;
@@ -138,19 +160,28 @@ async fn all_schedules(State(app): Shared, headers: HeaderMap) -> Result<Respons
     Ok(Json(value).into_response())
 }
 
-async fn list_schedules(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
+async fn list_schedules(State(app): Shared, scoped: ScopedProject) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Schedules::for_project(&mut conn, &project).await?.list(Some(&project)).await?).into_response())
 }
 
-async fn get_schedule(State(app): Shared, Path((project, schedule)): Path<(String, String)>) -> Result<Response> {
+async fn get_schedule(State(app): Shared, scoped: ScopedProject, Path((_, schedule)): Path<(String, String)>) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let uid = presets::uid(&mut conn).await?;
     Ok(Json(Schedules::for_project(&mut conn, &project).await?.get(&project, &schedule, &uid).await?).into_response())
 }
 
 /// `POST …/schedules/:schedule/adopt` {seen?}: the owner making an agent's schedule theirs (ORR-456).
-async fn adopt_schedule(State(app): Shared, Path((project, schedule)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn adopt_schedule(
+    State(app): Shared,
+    scoped: ScopedProject,
+    Path((_, schedule)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
+    let project = scoped.id().to_string();
     // No body, or one that isn't JSON, is none, as `readBody(…).catch(() => undefined)` takes it.
     let body = body_of(&body);
     let seen = match body.get("seen") {
@@ -169,7 +200,8 @@ async fn adopt_schedule(State(app): Shared, Path((project, schedule)): Path<(Str
 
 /// `POST …/schedules/enabled` {enabled} → {changed, failed}: the owner pausing or activating all of the project's
 /// schedules. A paused one-off isn't activated, as it may have run, and one that fails doesn't stop the rest.
-async fn set_all_enabled(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn set_all_enabled(State(app): Shared, scoped: ScopedProject, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let project = scoped.id().to_string();
     let Some(enabled) = body_of(&body).get("enabled").and_then(Value::as_bool) else {
         return Err(ApiError::bad_request("Send {\"enabled\": true} or {\"enabled\": false}"));
     };
@@ -183,7 +215,8 @@ async fn set_all_enabled(State(app): Shared, Path(project): Path<String>, header
 }
 
 /// `POST …/schedules` {title, cron | at | on, …} → the schedule (201), with its next run worked out.
-async fn create_schedule(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn create_schedule(State(app): Shared, scoped: ScopedProject, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let uid = presets::uid(&mut conn).await?;
     let actor = actor_of(&headers);
@@ -194,7 +227,14 @@ async fn create_schedule(State(app): Shared, Path(project): Path<String>, header
 }
 
 /// `PATCH …/schedules/:schedule` {any of its fields} → the schedule: `enabled: false` pauses it.
-async fn patch_schedule(State(app): Shared, Path((project, schedule)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn patch_schedule(
+    State(app): Shared,
+    scoped: ScopedProject,
+    Path((_, schedule)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let uid = presets::uid(&mut conn).await?;
     let actor = actor_of(&headers);
@@ -205,7 +245,8 @@ async fn patch_schedule(State(app): Shared, Path((project, schedule)): Path<(Str
 }
 
 /// `DELETE …/schedules/:schedule`: the issues it made stay.
-async fn delete_schedule(State(app): Shared, Path((project, schedule)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+async fn delete_schedule(State(app): Shared, scoped: ScopedProject, Path((_, schedule)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let uid = presets::uid(&mut conn).await?;
     let actor = actor_of(&headers);
@@ -281,10 +322,12 @@ async fn delete_across(State(app): Shared, Path(across): Path<String>, headers: 
 /// (`<project> <issue> <schedule or -> <fields> <allowed or denied> <line>`, each percent-encoded).
 async fn answer_schedule(
     State(app): Shared,
-    Path((project, issue, comment)): Path<(String, String, String)>,
+    scoped: ScopedProject,
+    Path((_, issue, comment)): Path<(String, String, String)>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response> {
+    let project = scoped.id().to_string();
     let Some(allow) = body_of(&body).get("allow").and_then(Value::as_bool) else {
         return Err(ApiError::bad_request("Send {\"allow\": true} or {\"allow\": false}"));
     };
@@ -293,7 +336,7 @@ async fn answer_schedule(
     };
     let mut conn = app.pool.acquire().await?;
     let actor = actor_of(&headers);
-    let answered = ScheduleRequests::new(&mut conn).answer(&app.database, &project, &issue, comment, allow, &actor).await?;
+    let answered = ScheduleRequests::new(&mut conn).answer(&app.database, &scoped, &issue, comment, allow, &actor).await?;
     let mut response = reply(StatusCode::OK, Some(answered.comment.clone()), answered.effects);
     for (header, said) in handoff_headers(&answered.handoff) {
         response.headers_mut().insert(header, HeaderValue::from_str(&said).unwrap());

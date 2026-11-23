@@ -1,6 +1,7 @@
 // A project's milestones, written (ORR-974): what `createMilestone`, `updateMilestone` and `deleteMilestone` do
 // (web/server/store/milestones.ts), answering as their routes do. Reading them is `plans.rs`. Each write puts what it set
 // off in the outbox inside its transaction (ORR-929), and the router tells the Nuxt server's hooks from the reply.
+use crate::access::scope::ScopedProject;
 use crate::board::issues::Issues;
 use crate::changes::{self, Outbox};
 use crate::db::sql;
@@ -139,7 +140,8 @@ impl<'c> Milestones<'c> {
     }
 
     /// Makes a milestone with the project's next number: its id.
-    pub async fn create(&mut self, project: &str, body: &Value, actor: &Actor) -> Result<String> {
+    pub async fn create(&mut self, scoped: &ScopedProject, body: &Value, actor: &Actor) -> Result<String> {
+        let project = scoped.id();
         Issues::new(self.conn).project(project).await?;
         let input = check_input(body, false)?;
         let title = input["title"].as_str().unwrap_or_default().trim().to_string();
@@ -174,7 +176,8 @@ impl<'c> Milestones<'c> {
     }
 
     /// Changes its title, summary, priority or position: its id.
-    pub async fn update(&mut self, project: &str, sent: &str, body: &Value) -> Result<String> {
+    pub async fn update(&mut self, scoped: &ScopedProject, sent: &str, body: &Value) -> Result<String> {
+        let project = scoped.id();
         let (id, _) = self.milestone_id(project, sent).await?;
         let input = check_input(body, true)?;
         changes::begin(self.conn).await?;
@@ -211,7 +214,8 @@ impl<'c> Milestones<'c> {
     }
 
     /// Deletes it; its issues stay, in no milestone. One the owner made is theirs to delete.
-    pub async fn delete(&mut self, project: &str, sent: &str, actor: &Actor) -> Result<()> {
+    pub async fn delete(&mut self, scoped: &ScopedProject, sent: &str, actor: &Actor) -> Result<()> {
+        let project = scoped.id();
         let (id, owned) = self.milestone_id(project, sent).await?;
         if owned && !actor.owner {
             return Err(ApiError::refused_for(

@@ -2,6 +2,7 @@
 // tables, answering as its routes under web/server/api/projects/[project]/ do. api/openapi.yaml is the contract.
 // What a write sets off (open pages reading the project again, the event log, schedules hearing `doc.created`) stays
 // the Nuxt server's: each write says what changed in its reply (`Effects`), and the router there tells them.
+use crate::access::scope::ScopedProject;
 use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
@@ -489,7 +490,8 @@ impl<'c> Docs<'c> {
         Ok(())
     }
 
-    pub async fn create(&mut self, project: &str, body: &Value, actor: &Actor) -> Result<Value> {
+    pub async fn create(&mut self, scoped: &ScopedProject, body: &Value, actor: &Actor) -> Result<Value> {
+        let project = scoped.id();
         self.project_uid(project).await?;
         let input = check_doc_input(body, false)?;
         let title = text_of(&input, "title").unwrap_or_default().trim().to_string();
@@ -535,7 +537,8 @@ impl<'c> Docs<'c> {
     }
 
     /// Creates the doc at `id` or replaces its title and text: how a repo's Markdown file is kept in sync. True: made.
-    pub async fn put(&mut self, project: &str, sent: &str, body: &Value, actor: &Actor) -> Result<(Value, bool)> {
+    pub async fn put(&mut self, scoped: &ScopedProject, sent: &str, body: &Value, actor: &Actor) -> Result<(Value, bool)> {
+        let project = scoped.id();
         self.project_uid(project).await?;
         let id = self.doc_id(project, sent).await?;
         if !is_slug(&id) {
@@ -552,7 +555,7 @@ impl<'c> Docs<'c> {
         }
         if !there {
             input.insert("id".into(), json!(id));
-            return Ok((self.create(project, &Value::Object(input), actor).await?, true));
+            return Ok((self.create(scoped, &Value::Object(input), actor).await?, true));
         }
         // A section left out keeps the one it has, so a repo's file synced in doesn't take it out of its group.
         let mut change = Map::new();
@@ -562,10 +565,11 @@ impl<'c> Docs<'c> {
             }
         }
         change.insert("body".into(), input.get("body").cloned().unwrap_or_else(|| json!("")));
-        Ok((self.update(project, &id, &Value::Object(change), actor).await?, false))
+        Ok((self.update(scoped, &id, &Value::Object(change), actor).await?, false))
     }
 
-    pub async fn update(&mut self, project: &str, sent: &str, body: &Value, actor: &Actor) -> Result<Value> {
+    pub async fn update(&mut self, scoped: &ScopedProject, sent: &str, body: &Value, actor: &Actor) -> Result<Value> {
+        let project = scoped.id();
         let id = self.doc_id(project, sent).await?;
         let was = self.doc_row(project, &id).await?;
         let input = check_doc_input(body, true)?;
@@ -633,7 +637,8 @@ impl<'c> Docs<'c> {
         self.doc(project, &id).await
     }
 
-    pub async fn delete(&mut self, project: &str, sent: &str, actor: &Actor) -> Result<()> {
+    pub async fn delete(&mut self, scoped: &ScopedProject, sent: &str, actor: &Actor) -> Result<()> {
+        let project = scoped.id();
         let id = self.doc_id(project, sent).await?;
         let row = self.doc_row(project, &id).await?;
         if row.owned != 0 && !actor.owner {
@@ -654,7 +659,8 @@ impl<'c> Docs<'c> {
 
     /// Puts a revision's title and text back, as a new revision so it can be undone too. On a deleted doc, it comes back
     /// where it was filed and with who made it, so one the owner made stays theirs. True: it came back.
-    pub async fn restore(&mut self, project: &str, sent: &str, revision: &str, actor: &Actor) -> Result<(Value, bool)> {
+    pub async fn restore(&mut self, scoped: &ScopedProject, sent: &str, revision: &str, actor: &Actor) -> Result<(Value, bool)> {
+        let project = scoped.id();
         let row = self.revision_row(project, sent, revision).await?;
         let (id, title, body, kind) = (row.doc.clone(), row.title.clone(), row.body.clone().unwrap_or_default(), row.kind.clone());
         if let Some(live) = self.find_doc(project, &id).await? {
@@ -664,7 +670,7 @@ impl<'c> Docs<'c> {
             if live.title == title && live.body == body {
                 return Ok((self.doc(project, &id).await?, false));
             }
-            return Ok((self.update(project, &id, &json!({"title": title, "body": body}), actor).await?, false));
+            return Ok((self.update(scoped, &id, &json!({"title": title, "body": body}), actor).await?, false));
         }
         self.begin().await?;
         let done: Result<()> = async {
@@ -687,7 +693,8 @@ impl<'c> Docs<'c> {
     }
 
     /// Makes a section with no docs in it yet, kept until it's deleted (ORR-560).
-    pub async fn create_section(&mut self, project: &str, body: &Value) -> Result<String> {
+    pub async fn create_section(&mut self, scoped: &ScopedProject, body: &Value) -> Result<String> {
+        let project = scoped.id();
         self.project_uid(project).await?;
         let name = section_name(body)?;
         if self.read_sections(project).await?.contains(&name) {
@@ -753,7 +760,8 @@ impl<'c> Docs<'c> {
     }
 
     /// Changes a section: `name` renames it, and `position` moves it in the list, 0 the top (ORR-767).
-    pub async fn update_section(&mut self, project: &str, section: &str, body: &Value) -> Result<String> {
+    pub async fn update_section(&mut self, scoped: &ScopedProject, section: &str, body: &Value) -> Result<String> {
+        let project = scoped.id();
         let position = body.as_object().and_then(|o| o.get("position"));
         let at = match position {
             None => None,
@@ -782,7 +790,8 @@ impl<'c> Docs<'c> {
     }
 
     /// Deletes a section, keeping its docs: they're filed under none.
-    pub async fn delete_section(&mut self, project: &str, name: &str) -> Result<()> {
+    pub async fn delete_section(&mut self, scoped: &ScopedProject, name: &str) -> Result<()> {
+        let project = scoped.id();
         self.section_there(project, name).await?;
         self.begin().await?;
         let done: Result<()> = async {

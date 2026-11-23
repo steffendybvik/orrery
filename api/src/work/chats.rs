@@ -5,7 +5,7 @@
 // row, written here alone (`keepChatThrough` sends it, ORR-1135). A chat's messages are rows
 // of their own (`chat_messages`, ORR-1100), each added here, which gives it its id, and changed one at a time (a
 // request's answer, its drift), so the chat's requests can be asked and answered here too.
-use crate::access::scope::{Across, Workspace};
+use crate::access::scope::{Across, ScopedProject, Workspace};
 use crate::board::issue_edits::resolve_status;
 use crate::board::issue_writes::IssueWrites;
 use crate::board::issues::Issues;
@@ -351,7 +351,8 @@ impl<'c> Chats<'c> {
     /// asked before for the same schedule, still unanswered, expires. A 404 when the chat isn't running.
     pub async fn ask_schedule(&mut self, chat: &str, body: &Value) -> Result<Value> {
         let own = self.running(chat).await?;
-        let project = self.project_for(chat, &own, body).await?;
+        let scoped = self.project_for(chat, &own, body).await?;
+        let project = scoped.id().to_string();
         let mut request = crate::work::schedule_requests::ScheduleRequests::new(&mut *self.conn)
             .request(&project, body.get("schedule"), body.get("id"), "The owner's chat")
             .await?;
@@ -369,7 +370,8 @@ impl<'c> Chats<'c> {
     /// when the chat isn't running.
     pub async fn ask_release(&mut self, chat: &str, body: &Value) -> Result<Value> {
         let own = self.running(chat).await?;
-        let project = self.project_for(chat, &own, body).await?;
+        let scoped = self.project_for(chat, &own, body).await?;
+        let project = scoped.id().to_string();
         let fields = body.get("release").and_then(Value::as_object).filter(|f| !f.is_empty());
         let Some(fields) = fields else {
             return Err(ApiError::bad_request(format!(
@@ -416,7 +418,8 @@ impl<'c> Chats<'c> {
     /// still unanswered, expires. A 404 when the chat isn't running.
     pub async fn ask_issue(&mut self, chat: &str, body: &Value) -> Result<Value> {
         let own = self.running(chat).await?;
-        let project = self.project_for(chat, &own, body).await?;
+        let scoped = self.project_for(chat, &own, body).await?;
+        let project = scoped.id().to_string();
         let Some(fields) = body.get("issue").and_then(Value::as_object) else {
             return Err(ApiError::bad_request(format!("Send {{issue: {{…}}}}: its {}", CHAT_ISSUE_FIELDS.join(", "))));
         };
@@ -455,7 +458,8 @@ impl<'c> Chats<'c> {
     /// nothing until they allow it, and one asked before for any of the same issues, still unanswered, expires.
     pub async fn ask_move(&mut self, chat: &str, body: &Value) -> Result<Moved> {
         let own = self.running(chat).await?;
-        let project = self.project_for(chat, &own, body).await?;
+        let scoped = self.project_for(chat, &own, body).await?;
+        let project = scoped.id().to_string();
         let asked = body.get("move").filter(|m| m.is_object()).cloned().unwrap_or(Value::Null);
         let ids =
             asked.get("ids").and_then(Value::as_array).filter(|ids| !ids.is_empty() && ids.iter().all(|i| i.as_str().is_some_and(|i| !i.trim().is_empty())));
@@ -545,7 +549,7 @@ impl<'c> Chats<'c> {
             })
         });
         if named {
-            return self.move_now(chat, &project, &moving, to).await;
+            return self.move_now(chat, &scoped, &moving, to).await;
         }
         let asking: Vec<String> = issues.iter().map(|i| text_of(&i["id"])).collect();
         let was: serde_json::Map<String, Value> = issues
@@ -584,7 +588,8 @@ impl<'c> Chats<'c> {
     /// own move on the page would be (`moveNow`): the same guards hold, each issue its own write. Any request still
     /// asking to move one expires, as it's been decided. One that fails stops the rest; those moved before it stay
     /// moved, and the error says so.
-    async fn move_now(&mut self, chat: &str, project: &str, ids: &[String], to: serde_json::Map<String, Value>) -> Result<Moved> {
+    async fn move_now(&mut self, chat: &str, scoped: &ScopedProject, ids: &[String], to: serde_json::Map<String, Value>) -> Result<Moved> {
+        let project = scoped.id();
         let owner = Actor { name: IssueWrites::new(&mut *self.conn).owner_id().await?, owner: true, ..Actor::default() };
         let mut set_off = Effects::default();
         let mut urgent = vec![];
@@ -593,7 +598,7 @@ impl<'c> Chats<'c> {
         for issue in ids {
             let mut writes = IssueWrites::new(&mut *self.conn);
             writes.outbox = self.outbox.as_ref().map(|_| Outbox::new(owner.clone()));
-            let edited = writes.edit_words(project, issue, &Value::Object(to.clone()), &owner).await;
+            let edited = writes.edit_words(scoped, issue, &Value::Object(to.clone()), &owner).await;
             absorb(&mut set_off, std::mem::take(&mut writes.effects));
             match edited {
                 Ok(made_urgent) => {
@@ -676,10 +681,10 @@ impl<'c> Chats<'c> {
 
     /// The project a chat's request is on (`projectFor`): the one `body` names, so a chat can ask on another project
     /// than its own (ORR-1063), or else the chat's own, `own`.
-    async fn project_for(&mut self, chat: &str, own: &str, body: &Value) -> Result<String> {
-        match body.get("project") {
-            None | Some(Value::Null) => Ok(own.to_string()),
-            Some(Value::String(p)) if p.trim() == own => Ok(own.to_string()),
+    async fn project_for(&mut self, chat: &str, own: &str, body: &Value) -> Result<ScopedProject> {
+        let named = match body.get("project") {
+            None | Some(Value::Null) => own.to_string(),
+            Some(Value::String(p)) if p.trim() == own => own.to_string(),
             Some(Value::String(p)) if !p.trim().is_empty() => {
                 // Only a project of the chat's own workspace: another's is as if it weren't here (ORR-1395).
                 let workspace: Option<String> =
@@ -689,10 +694,13 @@ impl<'c> Chats<'c> {
                     return Err(ApiError::not_found(format!("No project \"{}\"", p.trim())));
                 }
                 crate::board::issue_writes::IssueWrites::new(&mut *self.conn).project_uid(p.trim()).await?;
-                Ok(p.trim().to_string())
+                p.trim().to_string()
             }
-            Some(_) => Err(ApiError::bad_request("Send \"project\" as a project's id, or leave it out for the chat's own")),
-        }
+            Some(_) => return Err(ApiError::bad_request("Send \"project\" as a project's id, or leave it out for the chat's own")),
+        };
+        // The chat's own project, or one of its workspace it named, checked above: a chat acts in the workspace it was
+        // started in (`Across::Stored`).
+        ScopedProject::across(&mut *self.conn, Across::Stored, &named).await
     }
 
     /// The chat's session asking to make a doc, or change doc `id` (its `create_doc` and `update_doc`, `askDoc`): `{doc,
@@ -702,7 +710,8 @@ impl<'c> Chats<'c> {
     /// expires. A 404 when the chat isn't running.
     pub async fn ask_doc(&mut self, chat: &str, body: &Value) -> Result<Value> {
         let own = self.running(chat).await?;
-        let project = self.project_for(chat, &own, body).await?;
+        let scoped = self.project_for(chat, &own, body).await?;
+        let project = scoped.id().to_string();
         let mut request = crate::board::docs::Docs::new(&mut *self.conn).chat_request(&project, body.get("doc"), body.get("id")).await?;
         if project != own {
             request["project"] = json!(project);

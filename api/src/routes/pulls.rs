@@ -1,6 +1,7 @@
 // Pull requests as orrery keeps them, the GitHub poll's writes, and a pull's risk: the handlers and the routes they
 // answer (ORR-1048).
 use super::P;
+use crate::access::scope::ScopedProject;
 use crate::access::seen::Seen;
 use crate::changes::Outbox;
 use crate::error::Result;
@@ -68,7 +69,8 @@ async fn named(State(app): Shared, Query(query): Query<HashMap<String, String>>)
 }
 
 /// What's kept of an issue's pull requests, for the local app's issue page (ORR-1153): not routed.
-async fn kept_on_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>) -> Result<Response> {
+async fn kept_on_issue(State(app): Shared, scoped: ScopedProject, Path((_, issue)): Path<(String, String)>) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Pulls::new(&mut conn).kept_on_issue(&project, &issue).await?).into_response())
 }
@@ -109,10 +111,12 @@ async fn keep_pull(State(app): Shared, Path((owner, name, number)): Path<(String
 
 async fn rate_pull(
     State(app): Shared,
-    Path((project, issue, owner, name, number)): Path<(String, String, String, String, String)>,
+    scoped: ScopedProject,
+    Path((_, issue, owner, name, number)): Path<(String, String, String, String, String)>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response> {
+    let project = scoped.id().to_string();
     let number = pull_number(&number)?;
     let risk = check_rating(&body_of(&body))?;
     let mut conn = app.pool.acquire().await?;

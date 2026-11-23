@@ -4,6 +4,7 @@
 // it (`claimIssue`, `releaseIssue`, `deleteIssue` in web/server/store). Its other writes are in comments.rs (comments),
 // issue_edits.rs (creating and changing an issue) and decisions.rs (deciding a proposal).
 use crate::access::people::Who;
+use crate::access::scope::ScopedProject;
 use crate::access::scope::Workspace;
 use crate::access::seen::Seen;
 use crate::changes::{self, Outbox};
@@ -53,7 +54,8 @@ impl<'c> IssueWrites<'c> {
 
     /// Notes that `session` is working an issue it just made (`workedBy`), so the owner's comments on it go to that
     /// session. A new issue has no session on it yet, so there's no one else's to keep (`takenFrom`).
-    pub async fn worked_by(&mut self, project: &str, issue: &str, session: &str) -> Result<()> {
+    pub async fn worked_by(&mut self, scoped: &ScopedProject, issue: &str, session: &str) -> Result<()> {
+        let project = scoped.id();
         let now = stamp();
         sqlx::query(&sql(
             "INSERT INTO issue_sessions (project, issue, session, at, since) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM issues WHERE project = ? AND id = ?) \
@@ -116,7 +118,8 @@ impl<'c> IssueWrites<'c> {
 
     /// A person taking up an issue themselves (`claimIssue`, ORR-657), or an agent its person's: their own, or one that's
     /// nobody's, which it assigns to them; the owner's on anyone's, which takes it over. 409 naming the holder otherwise.
-    pub async fn claim(&mut self, project: &str, sent: &str, actor: &Actor) -> Result<String> {
+    pub async fn claim(&mut self, scoped: &ScopedProject, sent: &str, actor: &Actor) -> Result<String> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let (held, claimed) = self.claim_of(project, &issue).await?;
@@ -166,7 +169,8 @@ impl<'c> IssueWrites<'c> {
     }
 
     /// Lets go of a claim, which leaves the issue assigned (`releaseIssue`): its holder's, or the owner's on anyone's.
-    pub async fn release(&mut self, project: &str, sent: &str, actor: &Actor) -> Result<String> {
+    pub async fn release(&mut self, scoped: &ScopedProject, sent: &str, actor: &Actor) -> Result<String> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let Some(claimed) = self.claim_of(project, &issue).await?.1.filter(|c| !c.is_empty()) else { return Ok(issue) };
@@ -196,7 +200,8 @@ impl<'c> IssueWrites<'c> {
 
     /// Deletes the issue, its sub-issues and comments with it (`deleteIssue`): an agent's only when every one is its
     /// person's, and none the owner made. What names them without a foreign key lets go of them (`issuesMoved`).
-    pub async fn delete_issue(&mut self, project: &str, sent: &str, actor: &Actor) -> Result<()> {
+    pub async fn delete_issue(&mut self, scoped: &ScopedProject, sent: &str, actor: &Actor) -> Result<()> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let subtree = self.subtree(project, &issue).await?;
