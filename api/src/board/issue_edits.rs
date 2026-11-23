@@ -386,7 +386,7 @@ impl IssueWrites<'_> {
             None => None,
         };
         let epic = match words.epic.as_ref().and_then(|e| e.as_deref()) {
-            Some(sent) => Some(self.epic_id(sent).await?),
+            Some(sent) => Some(self.epic_id(project, sent).await?),
             None => None,
         };
         let github = match &words.github_issues {
@@ -617,7 +617,7 @@ impl IssueWrites<'_> {
         let epic = match &words.epic {
             None => None,
             Some(None) => Some(None),
-            Some(Some(sent)) => Some(Some(self.epic_id(sent).await?)),
+            Some(Some(sent)) => Some(Some(self.epic_id(project, sent).await?)),
         };
         let statuses = Issues::new(&mut *self.conn).statuses(project).await?;
         let status = if words.status.is_some() || words.plan.is_some() {
@@ -1085,10 +1085,16 @@ impl IssueWrites<'_> {
     }
 
     /// The epic sent as its number, `EPC-1` or its full id (`epicRow`, ORR-995), 404 when there's none.
-    async fn epic_id(&mut self, sent: &str) -> Result<i64> {
+    async fn epic_id(&mut self, project: &str, sent: &str) -> Result<i64> {
         let settings = crate::work::settings::Settings::new(&mut *self.conn).get().await?;
         let found = match epic_number(sent, settings["uid"].as_str().unwrap_or_default()).and_then(|n| n.parse::<i64>().ok()) {
-            Some(id) => sqlx::query(&sql("SELECT id FROM epics WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?.map(|_| id),
+            // An epic of the issue's own workspace: another's is as if it weren't there (ORR-1347).
+            Some(id) => sqlx::query(&sql("SELECT e.id FROM epics e JOIN projects p ON p.workspace = e.workspace WHERE e.id = ? AND p.id = ?"))
+                .bind(id)
+                .bind(project)
+                .fetch_optional(&mut *self.conn)
+                .await?
+                .map(|_| id),
             None => None,
         };
         found.ok_or_else(|| ApiError::not_found(format!("No epic {sent}: GET /api/epics lists them")))
