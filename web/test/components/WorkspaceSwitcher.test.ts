@@ -43,6 +43,8 @@ afterEach(() => {
 })
 
 async function mount(route = '/mine') {
+    // A tab opened at `route`: a move within the app into another workspace loads a page of its own (ORR-1396).
+    history.replaceState(history.state, '', route)
     await useRouter().push(route)
     const wrapper = await mountSuspended(WorkspaceSwitcher, {route, attachTo: document.body})
     mounted.push(wrapper)
