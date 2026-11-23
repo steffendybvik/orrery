@@ -210,7 +210,7 @@ releases keeps its `release`; changing a project's `releases_from` clears those 
 | `GET /projects/:project/releases` | in the order they're arranged in, a new one on top: `{version, branch?, notes?, frozen_on?, shipped_on?, doc_mark?, issues, kinds}`, where `issues` counts those set for it and `kinds` their progress, sub-issues included (a sub-issue set for another release counts there instead) |
 | `GET /releases` | every project with releases of its own, for the Releases page: `[{project, projects, releases}]`, `projects` being it and those taking their releases from it, and each release as above without `notes`, plus `projects` `[{project, issues, kinds}]`, each one's part. A release several projects share is listed once, under the project it's made on; a project with `release_mode` `none` isn't listed. It's read without building the projects' boards |
 | `POST /projects/:project/releases` | `{version, branch?, notes?, frozen_on?, shipped_on?, position?}` (a 400 on a project taking its releases from another, as for `PATCH` and `DELETE`): `version` is its id (`1.0.0-rc.2`: letters, digits, dots and dashes), `branch` where its work gathers before it ships (`v1.0.0-rc.2`), `frozen_on` the day its features froze (`YYYY-MM-DD`; see below), `shipped_on` the day it shipped (`YYYY-MM-DD`; none while it's being prepared), `position` where it goes in the list (0 the top, the default) |
-| `GET /projects/:project/releases/:release` | with the issues set for it as `tasks` (each with its sub-issues), and by project in `projects`: `{project, name, issues, kinds, tasks}`, the project's own first, then on a source each project drawing on it |
+| `GET /projects/:project/releases/:release` | with the issues set for it as `tasks` (each with its sub-issues), and by project in `projects`: `{project, name, issues, kinds, tasks}`, the project's own first, then on a source each project drawing on it. A board the asker isn't on is left out here, in every list of releases and in their counts (ORR-1381) |
 | `PATCH /projects/:project/releases/:release` | `{branch?, notes?, frozen_on?, shipped_on?, position?}`; `position` moves it in the list (0 the top); the version doesn't change; `null` clears |
 | `DELETE /projects/:project/releases/:release` | its issues stay, set for none, in every project drawing on it too |
 
@@ -252,7 +252,7 @@ keeps its epic.
 
 | | |
 |---|---|
-| `GET /epics` | in the order they're arranged in, a new one on top: `{id, full_id, title, notes?, issues, kinds, projects: [{project, issues, kinds}], protected}`, `issues` counting those set for it and `kinds` their progress, sub-issues included, across every project it has issues in |
+| `GET /epics` | in the order they're arranged in, a new one on top: `{id, full_id, title, notes?, issues, kinds, projects: [{project, issues, kinds}], protected}`, `issues` counting those set for it and `kinds` their progress, sub-issues included, across every project of the workspace it has issues in that the asker sees: a board they aren't on is left out of `projects`, `parts` and the counts (ORR-1381) |
 | `POST /epics` | `{title, notes?, position?}` → 201; `position` is where it goes among them (0 the top, the default) |
 | `GET /epics/:epic` | as above, with `parts`: a section per project, `{project, name, issues, kinds, tasks}`, the issues set for it there (a sub-issue's when its parent isn't), each with its sub-issues |
 | `PATCH /epics/:epic` | `{title?, notes?, position?}`; `null` clears `notes` |

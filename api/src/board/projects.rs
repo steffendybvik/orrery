@@ -24,6 +24,7 @@ use regex::Regex;
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
 const PROJECT_COLUMNS: &str = "id, name, key, uid, description, icon, icon_color, focus_prompt, milestone_prompt, instructions, muted, repo, \
@@ -297,11 +298,14 @@ pub struct Projects<'c> {
     pub outbox: Option<Outbox>,
     /// The workspace a new project goes into (ORR-1195): the one the request acts in.
     pub workspace: Workspace,
+    /// The projects the asker doesn't see (ORR-1381), left out of a project's release counts. None for what orrery
+    /// does itself.
+    pub hidden: HashSet<String>,
 }
 
 impl<'c> Projects<'c> {
     pub fn of(conn: &'c mut AnyConnection, workspace: Workspace) -> Self {
-        Projects { conn, effects: Effects::default(), outbox: None, workspace }
+        Projects { conn, effects: Effects::default(), outbox: None, workspace, hidden: HashSet::new() }
     }
 
     /// The projects of `project`'s workspace, a 404 when there's no such project: for a route under
@@ -350,7 +354,8 @@ impl<'c> Projects<'c> {
         let mut issues = Issues::new(&mut *self.conn);
         let statuses = issues.statuses(&id).await?;
         // Listed, only the board's counts are wanted, so its outline does (ORR-1117).
-        let mut plans = if listed { Plans::counting(&mut issues) } else { Plans::new(&mut issues) };
+        let plans = if listed { Plans::counting(&mut issues) } else { Plans::new(&mut issues) };
+        let mut plans = plans.hiding(self.hidden.clone());
         let (board, releases) = plans.board_and_releases(&id, &statuses).await?;
         project.insert("releases".into(), Value::Array(releases.into_iter().map(Value::Object).collect()));
         let whole = board_json(&board);
@@ -382,6 +387,7 @@ impl<'c> Projects<'c> {
     /// Every project `seen` sees, with its counts (or its board, with `boards`): the projects of other workspaces, and
     /// boards a member isn't on, are left out here rather than by each caller (ORR-1355).
     pub async fn list(&mut self, boards: bool, seen: &Seen) -> Result<Value> {
+        self.hidden = seen.hidden(&mut *self.conn).await?;
         let rows = sqlx::query(&sql(&format!("SELECT {PROJECT_COLUMNS} FROM projects ORDER BY lower(name), name"))).fetch_all(&mut *self.conn).await?;
         let mut starts = std::collections::HashMap::<String, Option<Value>>::new();
         let mut out = Vec::new();

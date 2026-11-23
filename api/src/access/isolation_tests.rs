@@ -245,8 +245,6 @@ fn targets(ids: &BTreeMap<&'static str, String>, mine: &BTreeMap<&'static str, S
 const KNOWN: &[(&str, &str)] = &[
     ("body login: PUT /api/chats/{chat} project:", "ORR-1388"),
     ("body key: PUT /api/chats/{chat} project:", "ORR-1388"),
-    ("member: GET /api/epics shows", "ORR-1381"),
-    ("member: GET /api/epics/1 shows", "ORR-1381"),
     ("mcp work: create_schedule headed as bo's gives away", "ORR-1387"),
     ("mcp work: update_schedule headed as bo's gives away", "ORR-1387"),
 ];
@@ -481,6 +479,28 @@ async fn a_member_off_a_board_sees_nothing_of_it_through_an_epic_or_a_release() 
         let said = reply.body.to_string();
         if said.contains(&fuel) || said.contains(&format!("Rockets {MARK}")) || said.contains(&format!("\"{rockets}\"")) {
             leaks.push(format!("member: GET {path} shows dan Rockets: {} {said}", reply.status));
+        }
+    }
+    // The other way round: dan is on Gantry, whose release Tanks, a board he isn't on, draws on. Gantry's releases
+    // and the release itself count and list none of Tanks' issues.
+    let gantry = api.project("Gantry").await;
+    let tanks = api.project(&format!("Tanks {MARK}")).await;
+    api.run("UPDATE projects SET workspace = 'acme', release_mode = 'own' WHERE id = ?", &[&gantry]).await;
+    api.run("UPDATE projects SET workspace = 'acme' WHERE id = ?", &[&tanks]).await;
+    api.on_board(&gantry, &["bo", "dan"]).await;
+    api.on_board(&tanks, &["bo"]).await;
+    as_bo(&api, api.post(&format!("/api/projects/{gantry}/releases"), json!({"version": "8.8.8"}))).await;
+    as_bo(&api, api.patch(&format!("/api/projects/{tanks}"), json!({"release_mode": "shared", "releases_from": gantry}))).await;
+    as_bo(&api, api.post(&format!("/api/projects/{tanks}/issues"), json!({"title": format!("Valve {MARK}"), "release": "8.8.8"}))).await;
+    let mut paths = vec!["/api/releases".to_string(), format!("/api/projects/{gantry}"), format!("/api/projects/{gantry}/releases")];
+    paths.push(format!("/api/projects/{gantry}/releases/8.8.8"));
+    for path in paths {
+        let reply = api.signed(api.get(&path).header("orrery-workspace", "acme"), "dan").await.send().await;
+        assert!(reply.status.is_success(), "dan reads {path}: {} {}", reply.status, reply.body);
+        let said = reply.body.to_string();
+        let counted = |v: &Value| v["releases"].as_array().or(v.as_array()).into_iter().flatten().any(|r| r["issues"].as_i64().unwrap_or(0) > 0);
+        if said.contains(&format!("Valve {MARK}")) || said.contains(&format!("\"{tanks}\"")) || said.contains(&format!("Tanks {MARK}")) || counted(&reply.body) {
+            leaks.push(format!("member: GET {path} shows dan Tanks: {} {said}", reply.status));
         }
     }
     only_known(&leaks, "member");
