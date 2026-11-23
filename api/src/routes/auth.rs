@@ -23,6 +23,7 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/phone/link", post(phone_link))
         .route("/api/auth/oidc/start", get(oidc_start))
         .route("/api/auth/oidc/callback", get(oidc_callback))
+        .route("/api/auth/oidc/logout", get(oidc_logout))
         .route("/api/auth/identity", post(identity))
         .route("/api/auth/ways-in", get(ways_in))
 }
@@ -205,8 +206,9 @@ fn with_cookie(mut response: Response, cookie: &str) -> Result<Response> {
     Ok(response)
 }
 
-/// `GET /api/auth/oidc/start?invite=&back=` → a redirect to the provider's login (web/server/api/auth/oidc/start.get.ts).
-/// `back`: the page's origin, when it's hosted on a site NUXT_ALLOWED_ORIGINS lists (ORR-667); any other is ignored.
+/// `GET /api/auth/oidc/start?invite=&back=&someone_else=1` → a redirect to the provider's login
+/// (web/server/api/auth/oidc/start.get.ts). `back`: the page's origin, when it's hosted on a site NUXT_ALLOWED_ORIGINS
+/// lists (ORR-667); any other is ignored. `someone_else`: `prompt=login`, to sign in as another account (ORR-1319).
 /// 404 when no provider is set up. Written ahead of the swap: the router keeps it the Nuxt server's.
 async fn oidc_start(headers: HeaderMap, RawQuery(raw): RawQuery) -> Result<Response> {
     if !oidc::on() {
@@ -214,8 +216,22 @@ async fn oidc_start(headers: HeaderMap, RawQuery(raw): RawQuery) -> Result<Respo
     }
     let query = oidc::parse_query(raw.as_deref());
     let invite = oidc::query_value(&query, "invite").filter(|i| !i.is_empty());
-    let (to, cookie) = oidc::start(&headers, invite, oidc::query_value(&query, "back")).await?;
+    let someone_else = oidc::query_value(&query, "someone_else").is_some_and(|v| v == "1" || v == "true");
+    let (to, cookie) = oidc::start(&headers, invite, oidc::query_value(&query, "back"), someone_else).await?;
     with_cookie(redirect(&to)?, &cookie)
+}
+
+/// `GET /api/auth/oidc/logout?back=` → a redirect to the provider's own sign-out, then back to the login page
+/// (web/server/api/auth/oidc/logout.get.ts, ORR-1319): where the page sends the browser once `POST /api/auth/logout` has
+/// ended orrery's login. Straight to the login page when the provider has no `end_session_endpoint`. The kept ID token
+/// is cleared either way. 404 when no provider is set up. Written ahead of the swap.
+async fn oidc_logout(headers: HeaderMap, RawQuery(raw): RawQuery) -> Result<Response> {
+    if !oidc::on() {
+        return Err(ApiError::not_found("This orrery has no login provider"));
+    }
+    let query = oidc::parse_query(raw.as_deref());
+    let to = oidc::end(&headers, oidc::query_value(&query, "back"), cookie_of(&headers, oidc::HINT)).await?;
+    with_cookie(redirect(&to)?, &oidc::cleared_hint())
 }
 
 /// `GET /api/auth/oidc/callback` → a redirect to the board, logged in (to its page on another site when it started
@@ -236,8 +252,9 @@ async fn oidc_callback(State(app): Shared, headers: HeaderMap, RawQuery(raw): Ra
             return Err(ApiError::forbidden("This account isn't on this orrery: ask its owner for an invite"));
         };
         let secret = people.start_login(&person, None, None).await?;
-        let to = found.back.map_or_else(|| "/".to_owned(), |back| format!("{back}/"));
-        with_cookie(redirect(&to)?, &login_set_cookie(&headers, &secret))
+        let to = found.back.clone().map_or_else(|| "/".to_owned(), |back| format!("{back}/"));
+        let response = with_cookie(redirect(&to)?, &login_set_cookie(&headers, &secret))?;
+        with_cookie(response, &oidc::hint_cookie(&found.id_token, &headers))
     }
     .await;
     let response = match done {

@@ -4,6 +4,7 @@
 {"method": "POST", "path": "/api/auth/login", "held": "server", "why": "Signing in: before anyone is known, so nothing of a workspace."},
 {"method": "POST", "path": "/api/auth/logout", "held": "server", "why": "Ends the asker's own login."},
 {"method": "GET", "path": "/api/auth/oidc/callback", "held": "local"},
+{"method": "GET", "path": "/api/auth/oidc/logout", "held": "local"},
 {"method": "GET", "path": "/api/auth/oidc/start", "held": "local"},
 {"method": "GET", "path": "/api/auth/status", "held": "local"},
 {"method": "GET", "path": "/api/auth/ways-in", "held": "local"},
