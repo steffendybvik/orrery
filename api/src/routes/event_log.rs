@@ -2,6 +2,7 @@
 // stays the Nuxt server's, as it counts each sender in memory and scrubs secrets' values out; the line it makes of it,
 // and each of its own, comes here (`PUT /api/events/log/lines`), as does its call to let old ones go.
 use crate::access::seen::Seen;
+use crate::db::sql;
 use crate::error::{ApiError, Result};
 use crate::reply::reply;
 use crate::request::{actor_of, body_of, came_of};
@@ -81,6 +82,15 @@ async fn resolve_event(State(app): Shared, Path(event): Path<String>, headers: H
     let actor = actor_of(&headers);
     let mut conn = app.pool.acquire().await?;
     let workspace = Seen::workspace(&mut conn, &headers).await?;
+    // A line about a project the asker can't see is theirs no more than the list shows it (ORR-1352): one kept in this
+    // workspace from before its project moved to another.
+    let project: Option<Option<String>> =
+        sqlx::query_scalar(&sql("SELECT project FROM events WHERE id = ? AND workspace = ?")).bind(id).bind(&workspace).fetch_optional(&mut *conn).await?;
+    if let Some(Some(project)) = project {
+        if Seen::listed(&mut conn, &headers).await?.hidden(&mut conn).await?.contains(&project) {
+            return Err(ApiError::not_found(format!("No event {id}")));
+        }
+    }
     let mut log = EventLog::of(&mut conn, workspace);
     log.outbox = Some(Outbox::new(actor.clone()));
     let resolved = log.resolve(id, &actor).await?;

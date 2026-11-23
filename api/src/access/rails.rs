@@ -228,7 +228,7 @@ async fn board_check(conn: &mut AnyConnection, who: Option<&Who>, actor: &Actor,
     };
     if let Some(project) = params.get("project") {
         if !on_board(conn, project, &person, &owner).await? {
-            return Err(ApiError::not_found(format!("No project {project}")));
+            return Err(ApiError::not_found(format!("No project \"{project}\"")));
         }
     }
     for (row, _, _) in &matches {
@@ -270,10 +270,13 @@ fn project_named(path: &str) -> Option<String> {
 async fn workspace_check(conn: &mut AnyConnection, who: Option<&Who>, actor: &Actor, own: Option<&str>, held_to: Option<&str>, path: &str) -> Result<()> {
     let Some(project) = project_named(path) else { return Ok(()) };
     let row = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?;
-    // A project that isn't here is the route's to say so.
-    let Some(workspace) = row.map(|r| r.get::<String, _>("workspace")) else { return Ok(()) };
+    // One that isn't here is answered as one in another workspace is, and before any other refusal, so neither tells
+    // that a project of someone else's is there (ORR-1352).
+    let Some(workspace) = row.map(|r| r.get::<String, _>("workspace")) else {
+        return Err(ApiError::not_found(format!("No project \"{project}\"")));
+    };
     if !Seen::asking(conn, who, actor, own).await?.sees_in(&workspace, &project) {
-        return Err(ApiError::not_found(format!("No project {project}")));
+        return Err(ApiError::not_found(format!("No project \"{project}\"")));
     }
     match held_to {
         Some(held_to) if held_to != workspace => {
@@ -281,6 +284,34 @@ async fn workspace_check(conn: &mut AnyConnection, who: Option<&Who>, actor: &Ac
         }
         _ => Ok(()),
     }
+}
+
+/// Whether a chat a path names (`/api/chats/:chat/…`) is on a project the asker can't see (ORR-1352): the routes take
+/// the chat's id alone, so the project it's on holds it here, as the workspace check holds a project's routes.
+async fn chat_hidden(conn: &mut AnyConnection, who: Option<&Who>, actor: &Actor, own: Option<&str>, path: &str) -> Result<bool> {
+    let Some(chat) = path.strip_prefix("/api/chats/").and_then(|rest| rest.split('/').next()).filter(|c| !c.is_empty()) else { return Ok(false) };
+    let chat = percent_decode_str(chat).decode_utf8_lossy();
+    let row = sqlx::query(&sql("SELECT p.id, p.workspace FROM chats c JOIN projects p ON p.id = c.project WHERE c.id = ?"))
+        .bind(chat.as_ref())
+        .fetch_optional(&mut *conn)
+        .await?;
+    let Some(row) = row else { return Ok(false) };
+    let (project, workspace): (String, String) = (row.get("id"), row.get("workspace"));
+    Ok(!Seen::asking(conn, who, actor, own).await?.sees_in(&workspace, &project))
+}
+
+/// What each chat route answers for a chat that isn't kept, given for one that's hidden: the same words, so neither
+/// tells that it's there. None for forgetting it, which answers 204 and does nothing.
+fn chat_absent(method: &Method, path: &str) -> Option<ApiError> {
+    let rest = path.strip_prefix("/api/chats/").unwrap_or_default();
+    let (chat, below) = rest.split_once('/').unwrap_or((rest, ""));
+    let chat = percent_decode_str(chat).decode_utf8_lossy();
+    Some(match (method, below) {
+        (&Method::DELETE, "") => return None,
+        (_, "") => ApiError::not_found(format!("No chat {chat}")),
+        (_, below) if below.starts_with("lines/") => ApiError::not_found(format!("No message {} in chat {chat}", &below["lines/".len()..])),
+        _ => ApiError::not_found(format!("No chat {chat}: it has ended")),
+    })
 }
 
 /// A write to a board marked as moved to another orrery (ORR-1225), refused with where it went, so a session still
@@ -364,9 +395,16 @@ pub(crate) async fn rails(State(app): Shared, request: Request, next: Next) -> R
         let held_to = session_workspace(headers, &actor);
         if !server && method != Method::OPTIONS {
             workspace_check(&mut conn, who.as_ref(), &actor, own.as_deref(), held_to.as_deref(), &path).await?;
+            if chat_hidden(&mut conn, who.as_ref(), &actor, own.as_deref(), &path).await? {
+                // Forgetting a chat that isn't kept does nothing, and so does forgetting one that's hidden.
+                return match chat_absent(&method, &path) {
+                    Some(refused) => Err(refused),
+                    None => Ok(true),
+                };
+            }
         }
         if read {
-            return Ok(());
+            return Ok(false);
         }
         // A request's write, or one the Nuxt server makes for it (`asked`); not the server's own work.
         if !server || actor.asked {
@@ -380,10 +418,11 @@ pub(crate) async fn rails(State(app): Shared, request: Request, next: Next) -> R
             }
             _ => board_check(&mut conn, who.as_ref(), &actor, method.as_str(), &path).await?,
         }
-        claim_check(&mut conn, headers, &actor, &method, &path).await
+        claim_check(&mut conn, headers, &actor, &method, &path).await.map(|()| false)
     };
     match held.await {
-        Ok(()) => next.run(request).await,
+        Ok(false) => next.run(request).await,
+        Ok(true) => axum::http::StatusCode::NO_CONTENT.into_response(),
         Err(refused) => refused.into_response(),
     }
 }

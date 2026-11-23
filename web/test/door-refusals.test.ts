@@ -219,7 +219,7 @@ describe.skipIf(!existsSync(BIN))('a refused request answers the same through th
         })
 
         it("answers a member's write to a board they aren't on as if it weren't there (404)", async () => {
-            await refusedAlike({method: 'POST', path: '/api/projects/attic/docs', headers: as('hati')}, 404, /No project attic/)
+            await refusedAlike({method: 'POST', path: '/api/projects/attic/docs', headers: as('hati')}, 404, /No project "attic"/)
         })
 
         it("refuses a member what's the owner's alone, naming the row (403)", async () => {
