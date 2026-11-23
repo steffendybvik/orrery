@@ -3460,6 +3460,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const idOf = async (name: string) => (await store.presets('through-api')).concat(await store.presets('through-store')).find(p => p.name === name)?.id ?? 0
         const withoutIds = async (outcome: Promise<Outcome>) => {
             const ids = (await store.presets('through-api')).concat(await store.presets('through-store')).map(p => p.id)
+                // Longest first, so `preset 12` isn't read as `preset 1` and a 2.
+                .sort((a, b) => String(b).length - String(a).length)
             return JSON.parse(JSON.stringify(await outcome, (_key, value: unknown) => typeof value === 'string'
                 ? ids.reduce((text, id) => text.replaceAll(`preset ${id}`, 'preset <id>'), value) : value)) as Outcome
         }
