@@ -116,7 +116,7 @@ async fn on_board(conn: &mut AnyConnection, project: &str, person: &str, owner: 
     if person == owner {
         return Ok(true);
     }
-    let row = sqlx::query(&sql("SELECT 1 FROM project_members WHERE project = ? AND person = ?")).bind(project).bind(person).fetch_optional(&mut *conn).await?;
+    let row = sqlx::query(sql("SELECT 1 FROM project_members WHERE project = ? AND person = ?")).bind(project).bind(person).fetch_optional(&mut *conn).await?;
     Ok(row.is_some())
 }
 
@@ -129,11 +129,8 @@ async fn check(conn: &mut AnyConnection, check: &str, params: &HashMap<String, S
             let Some(issue) = params.get("issue").filter(|_| !project.is_empty()) else { return Ok(false) };
             let mut issues = IssueWrites::new(conn);
             let Ok(id) = issues.issue_id(project, issue).await else { return Ok(false) };
-            let row = sqlx::query(&sql("SELECT proposal, labels FROM issues WHERE project = ? AND id = ?"))
-                .bind(project)
-                .bind(&id)
-                .fetch_optional(&mut *conn)
-                .await?;
+            let row =
+                sqlx::query(sql("SELECT proposal, labels FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&id).fetch_optional(&mut *conn).await?;
             Ok(row.is_some_and(|r| {
                 let labels: Vec<String> = serde_json::from_str(&r.get::<Option<String>, _>("labels").unwrap_or_default()).unwrap_or_default();
                 r.get::<Option<String>, _>("proposal").as_deref() == Some("pending") && labels.iter().any(|l| l == "external")
@@ -142,7 +139,7 @@ async fn check(conn: &mut AnyConnection, check: &str, params: &HashMap<String, S
         // Only the person holding the board the route names (ORR-654).
         "boardHolder" => {
             let Some(person) = person.filter(|_| !project.is_empty()) else { return Ok(false) };
-            let row = sqlx::query(&sql("SELECT 1 FROM project_members WHERE project = ? AND person = ? AND role = 'owner'"))
+            let row = sqlx::query(sql("SELECT 1 FROM project_members WHERE project = ? AND person = ? AND role = 'owner'"))
                 .bind(project)
                 .bind(person)
                 .fetch_optional(&mut *conn)
@@ -278,7 +275,7 @@ async fn workspace_check(
     path: &str,
 ) -> Result<Option<ScopedProject>> {
     let Some(project) = project_named(path) else { return Ok(None) };
-    let row = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?;
+    let row = sqlx::query(sql("SELECT workspace FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?;
     // One that isn't here is answered as one in another workspace is, and before any other refusal, so neither tells
     // that a project of someone else's is there (ORR-1352).
     let Some(workspace) = row.map(|r| r.get::<String, _>("workspace")) else {
@@ -299,7 +296,7 @@ async fn workspace_check(
 /// no such project, which its handler answers as it always has.
 async fn servers_project(conn: &mut AnyConnection, path: &str) -> Result<Option<ScopedProject>> {
     let Some(project) = project_named(path) else { return Ok(None) };
-    let row = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?;
+    let row = sqlx::query(sql("SELECT workspace FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?;
     Ok(row.map(|r| ScopedProject::checked(project, r.get::<String, _>("workspace"))))
 }
 
@@ -308,7 +305,7 @@ async fn servers_project(conn: &mut AnyConnection, path: &str) -> Result<Option<
 async fn chat_hidden(conn: &mut AnyConnection, who: Option<&Who>, actor: &Actor, own: Option<&str>, path: &str) -> Result<bool> {
     let Some(chat) = path.strip_prefix("/api/chats/").and_then(|rest| rest.split('/').next()).filter(|c| !c.is_empty()) else { return Ok(false) };
     let chat = percent_decode_str(chat).decode_utf8_lossy();
-    let row = sqlx::query(&sql("SELECT p.id, p.workspace FROM chats c JOIN projects p ON p.id = c.project WHERE c.id = ?"))
+    let row = sqlx::query(sql("SELECT p.id, p.workspace FROM chats c JOIN projects p ON p.id = c.project WHERE c.id = ?"))
         .bind(chat.as_ref())
         .fetch_optional(&mut *conn)
         .await?;
@@ -342,7 +339,7 @@ async fn moved_check(conn: &mut AnyConnection, method: &Method, path: &str) -> R
     if marking || deleting {
         return Ok(());
     }
-    let row = sqlx::query(&sql("SELECT moved_to FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?;
+    let row = sqlx::query(sql("SELECT moved_to FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?;
     match row.and_then(|r| r.get::<Option<String>, _>("moved_to")) {
         Some(to) => Err(ApiError::moved(&project, &to)),
         None => Ok(()),

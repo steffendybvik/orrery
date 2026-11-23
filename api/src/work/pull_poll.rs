@@ -231,12 +231,12 @@ impl<'c> PullPoll<'c> {
         let (at, token, more, pulls) = check_polled(body)?;
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            let before = sqlx::query(&sql("SELECT CAST(number AS BIGINT) AS number, CAST(merged AS BIGINT) AS merged, CAST(closed AS BIGINT) AS closed FROM pull_states WHERE repo = ?"))
+            let before = sqlx::query(sql("SELECT CAST(number AS BIGINT) AS number, CAST(merged AS BIGINT) AS merged, CAST(closed AS BIGINT) AS closed FROM pull_states WHERE repo = ?"))
                 .bind(repo)
                 .fetch_all(&mut *self.conn)
                 .await?;
             for p in &pulls {
-                sqlx::query(&sql(
+                sqlx::query(sql(
                     "INSERT INTO pull_states (repo, number, names, title, url, branch, base, author, draft, head_sha, state, review, review_id, checks,
                     merged, closed, merge_sha, closed_by, created_at, updated_at, seen_at, told) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (repo, number) DO UPDATE SET names = excluded.names, title = excluded.title, url = excluded.url, branch = excluded.branch,
@@ -276,20 +276,20 @@ impl<'c> PullPoll<'c> {
                 if more || done || pulls.iter().any(|p| p.number == number) {
                     continue;
                 }
-                sqlx::query(&sql("UPDATE pull_states SET closed = 1, seen_at = ? WHERE repo = ? AND number = ?"))
+                sqlx::query(sql("UPDATE pull_states SET closed = 1, seen_at = ? WHERE repo = ? AND number = ?"))
                     .bind(&at)
                     .bind(repo)
                     .bind(number)
                     .execute(&mut *self.conn)
                     .await?;
-                sqlx::query(&sql("UPDATE issue_pulls SET state = 'closed', updated_at = ? WHERE repo = ? AND number = ? AND state = 'open'"))
+                sqlx::query(sql("UPDATE issue_pulls SET state = 'closed', updated_at = ? WHERE repo = ? AND number = ? AND state = 'open'"))
                     .bind(&at)
                     .bind(repo)
                     .bind(number)
                     .execute(&mut *self.conn)
                     .await?;
             }
-            sqlx::query(&sql(
+            sqlx::query(sql(
                 "INSERT INTO pull_repos (repo, polled_at, token, error) VALUES (?, ?, ?, NULL)
                 ON CONFLICT (repo) DO UPDATE SET polled_at = excluded.polled_at, token = excluded.token, error = NULL",
             ))
@@ -313,7 +313,7 @@ impl<'c> PullPoll<'c> {
             return Err(ApiError::problems(fields.problems));
         }
         changes::begin(self.conn).await?;
-        let done = sqlx::query(&sql("UPDATE pull_repos SET error = ? WHERE repo = ?"))
+        let done = sqlx::query(sql("UPDATE pull_repos SET error = ? WHERE repo = ?"))
             .bind(&error)
             .bind(repo)
             .execute(&mut *self.conn)
@@ -332,7 +332,7 @@ impl<'c> PullPoll<'c> {
             return Err(ApiError::problems(fields.problems));
         }
         changes::begin(self.conn).await?;
-        let done = sqlx::query(&sql("UPDATE pull_repos SET history_page = ? WHERE repo = ?"))
+        let done = sqlx::query(sql("UPDATE pull_repos SET history_page = ? WHERE repo = ?"))
             .bind(page)
             .bind(repo)
             .execute(&mut *self.conn)
@@ -355,12 +355,12 @@ impl<'c> PullPoll<'c> {
         changes::begin(self.conn).await?;
         let mut gone: Vec<String> = vec![];
         let done: Result<()> = async {
-            sqlx::query(&sql("DELETE FROM pull_states WHERE (merged = 1 OR closed = 1) AND seen_at < ?")).bind(&before).execute(&mut *self.conn).await?;
+            sqlx::query(sql("DELETE FROM pull_states WHERE (merged = 1 OR closed = 1) AND seen_at < ?")).bind(&before).execute(&mut *self.conn).await?;
             let kept = sqlx::query("SELECT repo FROM pull_repos").fetch_all(&mut *self.conn).await?;
             gone = kept.iter().map(|r| r.get::<String, _>("repo")).filter(|r| !repos.contains(r)).collect();
             for repo in &gone {
                 for statement in ["DELETE FROM pull_states WHERE repo = ?", "DELETE FROM pull_repos WHERE repo = ?"] {
-                    sqlx::query(&sql(statement)).bind(repo).execute(&mut *self.conn).await?;
+                    sqlx::query(sql(statement)).bind(repo).execute(&mut *self.conn).await?;
                 }
             }
             Ok(())
@@ -375,7 +375,7 @@ impl<'c> PullPoll<'c> {
     /// the poll keeps, as kept; and `recorded`, each PR kept on an issue, when it last changed (so one that hasn't isn't
     /// written again), its branch, link and state (what a branch without a token is told its PR by).
     pub async fn kept(&mut self, repo: &str) -> Result<Value> {
-        let row = sqlx::query(&sql(
+        let row = sqlx::query(sql(
             "SELECT polled_at, CAST(token AS BIGINT) AS token, error, CAST(history_page AS BIGINT) AS history_page FROM pull_repos WHERE repo = ?",
         ))
         .bind(repo)
@@ -386,7 +386,7 @@ impl<'c> PullPoll<'c> {
                 "history_page": r.get::<Option<i64>, _>("history_page").unwrap_or(0)})
         });
         let list = |r: &sqlx::any::AnyRow, key: &str| serde_json::from_str::<Value>(&r.get::<String, _>(key)).unwrap_or_else(|_| json!([]));
-        let pulls = sqlx::query(&sql(
+        let pulls = sqlx::query(sql(
             "SELECT CAST(number AS BIGINT) AS number, names, title, url, branch, base, author, CAST(draft AS BIGINT) AS draft, head_sha, state, review, review_id, \
              checks, CAST(merged AS BIGINT) AS merged, CAST(closed AS BIGINT) AS closed, merge_sha, closed_by, created_at, updated_at, seen_at, told \
              FROM pull_states WHERE repo = ? ORDER BY number",
@@ -405,7 +405,7 @@ impl<'c> PullPoll<'c> {
                 "updated_at": text("updated_at"), "seen_at": text("seen_at"), "told": list(r, "told")})
         })
         .collect::<Vec<_>>();
-        let recorded = sqlx::query(&sql(
+        let recorded = sqlx::query(sql(
             "SELECT DISTINCT CAST(number AS BIGINT) AS number, updated_at, branch, url, state FROM issue_pulls WHERE repo = ? ORDER BY number, updated_at",
         ))
         .bind(repo)

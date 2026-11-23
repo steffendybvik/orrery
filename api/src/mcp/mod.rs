@@ -47,7 +47,7 @@ fn chose_other(other: &Value) -> String {
 /// `GET /api/projects` lists and orders them: a tool on one takes which when there are several.
 async fn projects(conn: &mut AnyConnection, headers: &axum::http::HeaderMap) -> Result<Vec<String>> {
     let hidden = crate::access::seen::Seen::listed(conn, headers).await?.hidden(conn).await?;
-    let rows = sqlx::query(&sql("SELECT id FROM projects ORDER BY lower(name), name")).fetch_all(conn).await?;
+    let rows = sqlx::query(sql("SELECT id FROM projects ORDER BY lower(name), name")).fetch_all(conn).await?;
     Ok(rows.iter().map(|r| r.get::<String, _>("id")).filter(|id| !hidden.contains(id)).collect())
 }
 

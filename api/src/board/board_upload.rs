@@ -203,7 +203,7 @@ impl People {
 impl Writer<'_> {
     async fn exists(&mut self, query: &str, binds: &[&str]) -> Result<bool> {
         let text = sql(query);
-        let mut q = sqlx::query(&text);
+        let mut q = sqlx::query(text.clone());
         for bind in binds {
             q = q.bind(*bind);
         }
@@ -240,7 +240,7 @@ impl Writer<'_> {
             keys.iter().map(|key| place(key)).collect::<Vec<_>>().join(", "),
             if returning { " RETURNING id" } else { "" },
         ));
-        let mut q = sqlx::query(&text);
+        let mut q = sqlx::query(text.clone());
         for key in &keys {
             let value = &row[key.as_str()];
             // Postgres casts the text to the column's type; SQLite keeps a number a number.
@@ -279,7 +279,7 @@ impl Writer<'_> {
 
         // The workspace's own statuses (ORR-1110): by id, else by name, else the first of their kind. People by name, and
         // an open issue with nobody here goes unassigned.
-        let statuses: Vec<(String, String, String)> = sqlx::query(&sql("SELECT id, name, kind FROM statuses WHERE workspace = ? ORDER BY position"))
+        let statuses: Vec<(String, String, String)> = sqlx::query(sql("SELECT id, name, kind FROM statuses WHERE workspace = ? ORDER BY position"))
             .bind(workspace)
             .fetch_all(&mut *self.conn)
             .await?
@@ -367,7 +367,7 @@ impl Writer<'_> {
             project.insert(column.into(), value);
         }
         self.insert("projects", &project, false).await?;
-        sqlx::query(&sql("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'owner', ?)"))
+        sqlx::query(sql("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'owner', ?)"))
             .bind(id)
             .bind(holder)
             .bind(&now)
@@ -377,7 +377,7 @@ impl Writer<'_> {
             if let Value::String(person) = person_for(member.get("person")) {
                 if person != holder {
                     let at = member.get("created_at").filter(|at| !at.is_null()).map(said).unwrap_or_else(|| now.clone());
-                    sqlx::query(&sql("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'member', ?) ON CONFLICT DO NOTHING"))
+                    sqlx::query(sql("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'member', ?) ON CONFLICT DO NOTHING"))
                         .bind(id)
                         .bind(&person)
                         .bind(&at)
@@ -489,7 +489,7 @@ impl Writer<'_> {
         let exported = body.get("exported_at").and_then(Value::as_str);
         for issue in &issues {
             let issue = issue.get("id").map(said).unwrap_or_default();
-            sqlx::query(&sql("INSERT INTO issue_events (project, issue, field, after, created_by, owned, created_at) VALUES (?, ?, 'uploaded', ?, ?, ?, ?)"))
+            sqlx::query(sql("INSERT INTO issue_events (project, issue, field, after, created_by, owned, created_at) VALUES (?, ?, 'uploaded', ?, ?, ?, ?)"))
                 .bind(id)
                 .bind(&issue)
                 .bind(exported)
@@ -515,7 +515,7 @@ impl Writer<'_> {
     /// in another workspace isn't found, so the file can't put them on the board or tell that they're here (ORR-1382).
     async fn people(&mut self, body: &Value, workspace: &str) -> Result<People> {
         let here: Vec<(String, String)> =
-            sqlx::query(&sql("SELECT p.id, p.name FROM people p JOIN workspace_members w ON w.person = p.id WHERE w.workspace = ?"))
+            sqlx::query(sql("SELECT p.id, p.name FROM people p JOIN workspace_members w ON w.person = p.id WHERE w.workspace = ?"))
                 .bind(workspace)
                 .fetch_all(&mut *self.conn)
                 .await?
@@ -606,7 +606,7 @@ impl Writer<'_> {
         for release in table("releases") {
             if let Some(&mark) = release.get("doc_mark").and_then(|m| revisions.get(&said(m))) {
                 let version = release.get("version").map(said).unwrap_or_default();
-                sqlx::query(&sql("UPDATE releases SET doc_mark = ? WHERE project = ? AND version = ?"))
+                sqlx::query(sql("UPDATE releases SET doc_mark = ? WHERE project = ? AND version = ?"))
                     .bind(mark)
                     .bind(id)
                     .bind(&version)
@@ -641,7 +641,7 @@ impl Writer<'_> {
                 continue;
             }
             let name: Option<String> = upload.get("name").and_then(Value::as_str).map(|n| n.chars().take(200).collect());
-            sqlx::query(&sql("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at, workspace) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)"))
+            sqlx::query(sql("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at, workspace) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)"))
                 .bind(id)
                 .bind(kind)
                 .bind(name)

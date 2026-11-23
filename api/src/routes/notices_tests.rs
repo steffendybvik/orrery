@@ -326,15 +326,15 @@ async fn a_members_bell_is_their_own_and_has_no_proposals() {
     let api = TestApi::new().await;
     two_people(&api).await;
     let (project, issue) = api.board().await;
-    sqlx::query(&crate::db::sql("UPDATE issues SET assignee = 'ana' WHERE project = ? AND id = ?"))
+    sqlx::query(crate::db::sql("UPDATE issues SET assignee = 'ana' WHERE project = ? AND id = ?"))
         .bind(&project)
         .bind(&issue)
         .execute(&api.app.pool)
         .await
         .unwrap();
-    let mine: i64 = sqlx::query_scalar(&format!(
+    let mine: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "INSERT INTO comments (project, issue, body, created_by, owned, person, by_agent, created_at, updated_at) VALUES ('{project}', '{issue}', 'For Ana', 'ana-agent', 0, 'ana', 1, '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z') RETURNING id"
-    ))
+    )))
     .fetch_one(&api.app.pool)
     .await
     .unwrap();
@@ -348,7 +348,7 @@ async fn a_members_bell_is_their_own_and_has_no_proposals() {
     assert_eq!(cleared.status, 200, "a member clears their own: {}", cleared.body);
     assert_eq!(cleared.body, json!({"cleared": 1}));
     assert_eq!(ana(api.get("/api/notices")).send().await.body, json!([]));
-    let flag: i64 = sqlx::query_scalar(&crate::db::sql("SELECT cleared FROM comments WHERE id = ?")).bind(mine).fetch_one(&api.app.pool).await.unwrap();
+    let flag: i64 = sqlx::query_scalar(crate::db::sql("SELECT cleared FROM comments WHERE id = ?")).bind(mine).fetch_one(&api.app.pool).await.unwrap();
     assert_eq!(flag, 0, "the owner's flag on the comment stays");
     let read = api.post("/api/notices/read", json!({"ids": [mine]})).by_agent("ana-agent").header("orrery-actor-person", "ana").send().await;
     assert_eq!(read.body, json!({"read": 1}));

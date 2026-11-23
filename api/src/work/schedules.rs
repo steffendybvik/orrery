@@ -236,14 +236,13 @@ impl<'c> Schedules<'c> {
 
     /// The schedule's row as a write needs it (`row`), or a 404.
     async fn held(&mut self, project: &str, id: i64) -> Result<Held> {
-        let row = sqlx::query(&sql(
-            "SELECT CAST(owned AS BIGINT) AS owned, CAST(across AS BIGINT) AS across, updated_at FROM schedules WHERE project = ? AND id = ?",
-        ))
-        .bind(project)
-        .bind(id)
-        .fetch_optional(&mut *self.conn)
-        .await?
-        .ok_or_else(|| ApiError::not_found(format!("No schedule {id} in {project}")))?;
+        let row =
+            sqlx::query(sql("SELECT CAST(owned AS BIGINT) AS owned, CAST(across AS BIGINT) AS across, updated_at FROM schedules WHERE project = ? AND id = ?"))
+                .bind(project)
+                .bind(id)
+                .fetch_optional(&mut *self.conn)
+                .await?
+                .ok_or_else(|| ApiError::not_found(format!("No schedule {id} in {project}")))?;
         Ok(Held { owned: row.get::<i64, _>("owned") != 0, across: row.get::<Option<i64>, _>("across").filter(|a| *a != 0), updated_at: row.get("updated_at") })
     }
 
@@ -267,7 +266,7 @@ impl<'c> Schedules<'c> {
         }
         self.effects.schedules.push(project.into());
         changes::begin(self.conn).await?;
-        let done = sqlx::query(&sql("UPDATE schedules SET owned = 1, created_by = ?, updated_at = ? WHERE id = ? AND updated_at = ?"))
+        let done = sqlx::query(sql("UPDATE schedules SET owned = 1, created_by = ?, updated_at = ? WHERE id = ? AND updated_at = ?"))
             .bind(&actor.name)
             .bind(stamp())
             .bind(id)
@@ -306,8 +305,7 @@ impl<'c> Schedules<'c> {
         if !actor.owner {
             return Err(enabled_refused(actor));
         }
-        let rows =
-            sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM schedules WHERE project = ? ORDER BY id"))).bind(project).fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(sql(&format!("SELECT {COLUMNS} FROM schedules WHERE project = ? ORDER BY id"))).bind(project).fetch_all(&mut *self.conn).await?;
         // `canActivate`: only one that's paused and isn't a one-off; pausing, any that's on.
         let on = |row: &AnyRow| row.get::<i64, _>("enabled") != 0;
         let changing: Vec<&AnyRow> =
@@ -340,7 +338,7 @@ impl<'c> Schedules<'c> {
     /// works out its next run again; setting one of cron, at and on lets go of the others.
     pub async fn update(&mut self, project: &str, sent: &str, body: &Value, uid: &str, actor: &Actor) -> Result<Value> {
         let id = server_id("sch-", "schedule", sent, uid)?;
-        let row = sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM schedules WHERE project = ? AND id = ?")))
+        let row = sqlx::query(sql(&format!("SELECT {COLUMNS} FROM schedules WHERE project = ? AND id = ?")))
             .bind(project)
             .bind(id)
             .fetch_optional(&mut *self.conn)
@@ -485,7 +483,7 @@ impl<'c> Schedules<'c> {
     /// Makes a schedule (`create`, `toCreate`), checked in the order Schedules checks it, with its next run worked out
     /// unless it's made paused. It's the maker's: the owner's only when the owner makes it.
     pub async fn create(&mut self, project: &str, body: &Value, uid: &str, actor: &Actor) -> Result<Value> {
-        let found = sqlx::query(&sql("SELECT 1 FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
+        let found = sqlx::query(sql("SELECT 1 FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
         if found.is_none() {
             return Err(ApiError::not_found(format!("No project \"{project}\"")));
         }
@@ -525,7 +523,7 @@ impl<'c> Schedules<'c> {
         self.effects.schedules.push(project.into());
         changes::begin(self.conn).await?;
         let done: Result<i64> = async {
-            let row = sqlx::query(&sql(
+            let row = sqlx::query(sql(
                 "INSERT INTO schedules (project, kind, title, notes, cron, at, on_event, on_filter, presets, move_from, timezone, place, milestone, priority,
                     labels, ask, skip_open, only_if_changed, untrusted, enabled, next_run, created_by, owned, created_at, updated_at, model, effort, across)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING CAST(id AS BIGINT) AS id",
@@ -588,7 +586,7 @@ impl<'c> Schedules<'c> {
         let now = stamp();
         changes::begin(self.conn).await?;
         let done: Result<i64> = async {
-            let row = sqlx::query(&sql(
+            let row = sqlx::query(sql(
                 "INSERT INTO schedules_across (projects, skip, body, created_by, created_at, updated_at, workspace) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING CAST(id AS BIGINT) AS id",
             ))
             .bind(projects_text(&projects))
@@ -616,7 +614,7 @@ impl<'c> Schedules<'c> {
         }
         let missing = || ApiError::not_found(format!("No schedule across projects {}", sent.parse::<i64>().map_or("NaN".into(), |n| n.to_string())));
         let id = sent.parse::<i64>().map_err(|_| missing())?;
-        let row = sqlx::query(&sql("SELECT projects, skip, body FROM schedules_across WHERE id = ? AND workspace = ?"))
+        let row = sqlx::query(sql("SELECT projects, skip, body FROM schedules_across WHERE id = ? AND workspace = ?"))
             .bind(id)
             .bind(self.workspace.id())
             .fetch_optional(&mut *self.conn)
@@ -652,7 +650,7 @@ impl<'c> Schedules<'c> {
                 self.check(project, None, &merged, uid, actor).await?;
             }
             changes::begin(self.conn).await?;
-            let done = sqlx::query(&sql("UPDATE schedules_across SET projects = ?, skip = ?, body = ?, updated_at = ? WHERE id = ?"))
+            let done = sqlx::query(sql("UPDATE schedules_across SET projects = ?, skip = ?, body = ?, updated_at = ? WHERE id = ?"))
                 .bind(projects_text(&projects))
                 .bind(json!(skip).to_string())
                 .bind(merged.to_string())
@@ -714,7 +712,7 @@ impl<'c> Schedules<'c> {
     /// The projects named, what opted out left out (`acrossTargets`), all in `workspace` (ORR-1107); one named that's
     /// gone, or in another workspace, is refused, or with `lenient` passed over.
     async fn across_targets(&mut self, workspace: &str, projects: &Projects, skip: &[String], lenient: bool) -> Result<Vec<String>> {
-        let every: Vec<String> = sqlx::query(&sql("SELECT id FROM projects WHERE workspace = ? ORDER BY id"))
+        let every: Vec<String> = sqlx::query(sql("SELECT id FROM projects WHERE workspace = ? ORDER BY id"))
             .bind(workspace)
             .fetch_all(&mut *self.conn)
             .await?
@@ -736,7 +734,7 @@ impl<'c> Schedules<'c> {
 
     /// The schedules made from schedule across projects `id`, with their projects.
     async fn copies(&mut self, id: i64) -> Result<Vec<(i64, String)>> {
-        Ok(sqlx::query(&sql("SELECT CAST(id AS BIGINT) AS id, project FROM schedules WHERE across = ? ORDER BY id"))
+        Ok(sqlx::query(sql("SELECT CAST(id AS BIGINT) AS id, project FROM schedules WHERE across = ? ORDER BY id"))
             .bind(id)
             .fetch_all(&mut *self.conn)
             .await?
@@ -761,7 +759,7 @@ impl<'c> Schedules<'c> {
         }
         let missing = || ApiError::not_found(format!("No schedule across projects {}", sent.parse::<i64>().map_or("NaN".into(), |n| n.to_string())));
         let id = sent.parse::<i64>().map_err(|_| missing())?;
-        if sqlx::query(&sql("SELECT 1 FROM schedules_across WHERE id = ? AND workspace = ?"))
+        if sqlx::query(sql("SELECT 1 FROM schedules_across WHERE id = ? AND workspace = ?"))
             .bind(id)
             .bind(self.workspace.id())
             .fetch_optional(&mut *self.conn)
@@ -770,7 +768,7 @@ impl<'c> Schedules<'c> {
         {
             return Err(missing());
         }
-        let copies: Vec<(i64, String)> = sqlx::query(&sql("SELECT CAST(id AS BIGINT) AS id, project FROM schedules WHERE across = ? ORDER BY id"))
+        let copies: Vec<(i64, String)> = sqlx::query(sql("SELECT CAST(id AS BIGINT) AS id, project FROM schedules WHERE across = ? ORDER BY id"))
             .bind(id)
             .fetch_all(&mut *self.conn)
             .await?
@@ -787,7 +785,7 @@ impl<'c> Schedules<'c> {
             for (copy, project) in &copies {
                 self.remove(project, *copy, None).await?;
             }
-            sqlx::query(&sql("DELETE FROM schedules_across WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(sql("DELETE FROM schedules_across WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
             Ok(())
         }
         .await;
@@ -797,7 +795,7 @@ impl<'c> Schedules<'c> {
     async fn write(&mut self, id: i64, set: &[(&str, Value)]) -> Result<()> {
         let columns: Vec<String> = set.iter().map(|(k, _)| format!("{k} = ?")).collect();
         let query = sql(&format!("UPDATE schedules SET {} WHERE id = ?", columns.join(", ")));
-        let mut update = sqlx::query(&query);
+        let mut update = sqlx::query(query.clone());
         for (_, value) in set {
             update = match value {
                 Value::Null => update.bind(None::<String>),
@@ -857,7 +855,7 @@ impl<'c> Schedules<'c> {
     async fn write_toggled(&mut self, sets: &[(i64, Toggled)]) -> Result<()> {
         let now = stamp();
         for (id, set) in sets {
-            sqlx::query(&sql(
+            sqlx::query(sql(
                 "UPDATE schedules SET cron = ?, at = ?, on_event = ?, on_filter = ?, timezone = ?, enabled = ?, next_run = ?, updated_at = ? WHERE id = ?",
             ))
             .bind(&set.cron)
@@ -879,15 +877,15 @@ impl<'c> Schedules<'c> {
         if let Some(across) = across {
             self.leave_out(across, project).await?;
         }
-        sqlx::query(&sql("DELETE FROM schedules WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
-        sqlx::query(&sql("UPDATE issues SET schedule = NULL WHERE schedule = ?")).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM schedules WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("UPDATE issues SET schedule = NULL WHERE schedule = ?")).bind(id).execute(&mut *self.conn).await?;
         Ok(())
     }
 
     /// Leaves `project` out of schedule across projects `id` (`leaveOut`): one for every project skips it from then on;
     /// one naming projects names it no more, and with none left it's gone.
     async fn leave_out(&mut self, id: i64, project: &str) -> Result<()> {
-        let Some(row) = sqlx::query(&sql("SELECT projects, skip FROM schedules_across WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await? else {
+        let Some(row) = sqlx::query(sql("SELECT projects, skip FROM schedules_across WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await? else {
             return Err(ApiError::not_found(format!("No schedule across projects {id}")));
         };
         let list = |text: String| serde_json::from_str::<Vec<String>>(&text).unwrap_or_default();
@@ -898,7 +896,7 @@ impl<'c> Schedules<'c> {
             if !skip.iter().any(|p| p == project) {
                 skip.push(project.into());
             }
-            sqlx::query(&sql("UPDATE schedules_across SET skip = ?, updated_at = ? WHERE id = ?"))
+            sqlx::query(sql("UPDATE schedules_across SET skip = ?, updated_at = ? WHERE id = ?"))
                 .bind(json!(skip).to_string())
                 .bind(now)
                 .bind(id)
@@ -908,10 +906,10 @@ impl<'c> Schedules<'c> {
         }
         let left: Vec<String> = list(projects).into_iter().filter(|p| p != project).collect();
         if left.is_empty() {
-            sqlx::query(&sql("UPDATE schedules SET across = NULL WHERE across = ?")).bind(id).execute(&mut *self.conn).await?;
-            sqlx::query(&sql("DELETE FROM schedules_across WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(sql("UPDATE schedules SET across = NULL WHERE across = ?")).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(sql("DELETE FROM schedules_across WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
         } else {
-            sqlx::query(&sql("UPDATE schedules_across SET projects = ?, updated_at = ? WHERE id = ?"))
+            sqlx::query(sql("UPDATE schedules_across SET projects = ?, updated_at = ? WHERE id = ?"))
                 .bind(json!(left).to_string())
                 .bind(now)
                 .bind(id)
@@ -924,13 +922,13 @@ impl<'c> Schedules<'c> {
     /// The schedule as the API gives it (`scheduleOf`): with its latest runs, and how many runs it holds back.
     async fn schedule_of(&mut self, row: &AnyRow) -> Result<Value> {
         let id: i64 = row.get("id");
-        let runs = sqlx::query(&sql("SELECT at, outcome, issue, note, subject FROM schedule_runs WHERE schedule = ? ORDER BY id DESC LIMIT ?"))
+        let runs = sqlx::query(sql("SELECT at, outcome, issue, note, subject FROM schedule_runs WHERE schedule = ? ORDER BY id DESC LIMIT ?"))
             .bind(id)
             .bind(RUNS)
             .fetch_all(&mut *self.conn)
             .await?;
         let held: i64 =
-            sqlx::query(&sql("SELECT CAST(count(*) AS BIGINT) AS n FROM schedule_held WHERE schedule = ?")).bind(id).fetch_one(&mut *self.conn).await?.get("n");
+            sqlx::query(sql("SELECT CAST(count(*) AS BIGINT) AS n FROM schedule_held WHERE schedule = ?")).bind(id).fetch_one(&mut *self.conn).await?.get("n");
         let text = |key: &str| row.get::<Option<String>, _>(key).filter(|t| !t.is_empty());
         let flag = |key: &str| row.get::<i64, _>(key) != 0;
         let mut out = Map::new();
@@ -1003,15 +1001,15 @@ impl<'c> Schedules<'c> {
     pub async fn list(&mut self, project: Option<&str>) -> Result<Value> {
         let rows = match project {
             Some(project) => {
-                let found = sqlx::query(&sql("SELECT 1 FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
+                let found = sqlx::query(sql("SELECT 1 FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
                 if found.is_none() {
                     return Err(ApiError::not_found(format!("No project \"{project}\"")));
                 }
-                sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM schedules WHERE project = ?"))).bind(project).fetch_all(&mut *self.conn).await?
+                sqlx::query(sql(&format!("SELECT {COLUMNS} FROM schedules WHERE project = ?"))).bind(project).fetch_all(&mut *self.conn).await?
             }
             // Every project's of this workspace; the caller's `Seen` leaves out boards a member isn't on.
             None => {
-                sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM schedules WHERE project IN (SELECT id FROM projects WHERE workspace = ?)")))
+                sqlx::query(sql(&format!("SELECT {COLUMNS} FROM schedules WHERE project IN (SELECT id FROM projects WHERE workspace = ?)")))
                     .bind(self.workspace.id())
                     .fetch_all(&mut *self.conn)
                     .await?
@@ -1026,7 +1024,7 @@ impl<'c> Schedules<'c> {
 
     /// Every workspace's schedules, for the Nuxt server's clock, which runs them all: `Across::Server` made this store.
     pub async fn every(&mut self) -> Result<Value> {
-        let rows = sqlx::query(&format!("SELECT {COLUMNS} FROM schedules")).fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {COLUMNS} FROM schedules"))).fetch_all(&mut *self.conn).await?;
         let mut listed = Vec::new();
         for row in &rows {
             listed.push(self.schedule_of(row).await?);
@@ -1037,7 +1035,7 @@ impl<'c> Schedules<'c> {
     /// The schedule by its number or its full id (`sch-12-x7k2m9qd`), with its latest runs, or a 404.
     pub async fn get(&mut self, project: &str, sent: &str, uid: &str) -> Result<Value> {
         let id = server_id("sch-", "schedule", sent, uid)?;
-        let row = sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM schedules WHERE project = ? AND id = ?")))
+        let row = sqlx::query(sql(&format!("SELECT {COLUMNS} FROM schedules WHERE project = ? AND id = ?")))
             .bind(project)
             .bind(id)
             .fetch_optional(&mut *self.conn)
@@ -1048,7 +1046,7 @@ impl<'c> Schedules<'c> {
 
     /// Every schedule across projects, oldest first (`listAcross`), each with the projects it's made on.
     pub async fn across(&mut self) -> Result<Value> {
-        let rows = sqlx::query(&sql(
+        let rows = sqlx::query(sql(
             "SELECT CAST(id AS BIGINT) AS id, projects, skip, body, created_by, created_at, updated_at FROM schedules_across WHERE workspace = ? ORDER BY id",
         ))
         .bind(self.workspace.id())
@@ -1057,7 +1055,7 @@ impl<'c> Schedules<'c> {
         let mut out = Vec::new();
         for row in &rows {
             let id: i64 = row.get("id");
-            let copies = sqlx::query(&sql("SELECT project FROM schedules WHERE across = ? ORDER BY project")).bind(id).fetch_all(&mut *self.conn).await?;
+            let copies = sqlx::query(sql("SELECT project FROM schedules WHERE across = ? ORDER BY project")).bind(id).fetch_all(&mut *self.conn).await?;
             let mut fields = match parsed(&row.get::<String, _>("body")) {
                 Value::Object(fields) => fields,
                 _ => Map::new(),

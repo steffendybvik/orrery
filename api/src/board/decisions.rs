@@ -137,7 +137,7 @@ impl IssueWrites<'_> {
         let project = scoped.id();
         let id = self.issue_id(project, sent).await?;
         self.issue_there(project, &id).await?;
-        let row = sqlx::query(&sql("SELECT choices FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&id).fetch_one(&mut *self.conn).await?;
+        let row = sqlx::query(sql("SELECT choices FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&id).fetch_one(&mut *self.conn).await?;
         let unsure: Vec<String> = stored(&row.get::<Option<String>, _>("choices").unwrap_or_default())
             .into_iter()
             .filter(|c| c.from.is_none() && c.recommended.is_empty())
@@ -155,7 +155,7 @@ impl IssueWrites<'_> {
         let project = scoped.id();
         let id = self.issue_id(project, sent).await?;
         self.issue_there(project, &id).await?;
-        let row = sqlx::query(&sql(
+        let row = sqlx::query(sql(
             "SELECT status, assignee, proposal, CAST(owned AS BIGINT) AS owned, created_by, created_person, choices FROM issues WHERE project = ? AND id = ?",
         ))
         .bind(project)
@@ -213,7 +213,7 @@ impl IssueWrites<'_> {
         let picks_text = picks.as_ref().map(|p| Value::Object(p.clone()).to_string());
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            sqlx::query(&sql(
+            sqlx::query(sql(
                 "UPDATE issues SET proposal = ?, decided_by = ?, decided_at = ?, decision_note = ?, assignee = ?, picks = ?, explore = ? WHERE project = ? AND id = ?",
             ))
             .bind(decision)

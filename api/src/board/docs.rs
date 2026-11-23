@@ -220,12 +220,12 @@ impl<'c> Docs<'c> {
     }
 
     async fn exists(&mut self, query: &str, project: &str, key: &str) -> Result<bool> {
-        Ok(sqlx::query(&sql(query)).bind(project).bind(key).fetch_optional(&mut *self.conn).await?.is_some())
+        Ok(sqlx::query(sql(query)).bind(project).bind(key).fetch_optional(&mut *self.conn).await?.is_some())
     }
 
     /// The project's random id (its `uid`), or a 404 when there's no such project.
     async fn project_uid(&mut self, project: &str) -> Result<String> {
-        let row = sqlx::query(&sql("SELECT uid FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
+        let row = sqlx::query(sql("SELECT uid FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
         row.map(|r| r.get::<Option<String>, _>("uid").unwrap_or_default()).ok_or_else(|| ApiError::not_found(format!("No project \"{project}\"")))
     }
 
@@ -235,7 +235,7 @@ impl<'c> Docs<'c> {
     }
 
     async fn find_doc(&mut self, project: &str, id: &str) -> Result<Option<DocRow>> {
-        let row = sqlx::query(&sql(&format!("SELECT {DOC_COLUMNS} FROM docs WHERE project = ? AND id = ?")))
+        let row = sqlx::query(sql(&format!("SELECT {DOC_COLUMNS} FROM docs WHERE project = ? AND id = ?")))
             .bind(project)
             .bind(id)
             .fetch_optional(&mut *self.conn)
@@ -253,12 +253,12 @@ impl<'c> Docs<'c> {
     }
 
     async fn touch_project(&mut self, project: &str) -> Result<()> {
-        sqlx::query(&sql("UPDATE projects SET updated_at = ? WHERE id = ?")).bind(stamp()).bind(project).execute(&mut *self.conn).await?;
+        sqlx::query(sql("UPDATE projects SET updated_at = ? WHERE id = ?")).bind(stamp()).bind(project).execute(&mut *self.conn).await?;
         Ok(())
     }
 
     async fn next_position(&mut self, project: &str) -> Result<f64> {
-        let row = sqlx::query(&sql("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM docs WHERE project = ?"))
+        let row = sqlx::query(sql("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM docs WHERE project = ?"))
             .bind(project)
             .fetch_one(&mut *self.conn)
             .await?;
@@ -274,7 +274,7 @@ impl<'c> Docs<'c> {
     pub async fn list(&mut self, project: &str, q: Option<&str>) -> Result<Value> {
         self.project_uid(project).await?;
         let words: Vec<String> = q.unwrap_or("").to_lowercase().split_whitespace().map(str::to_string).collect();
-        let rows = sqlx::query(&sql(&format!("SELECT {DOC_COLUMNS} FROM docs WHERE project = ?"))).bind(project).fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(sql(&format!("SELECT {DOC_COLUMNS} FROM docs WHERE project = ?"))).bind(project).fetch_all(&mut *self.conn).await?;
         let mut docs: Vec<DocRow> = rows
             .iter()
             .map(DocRow::of)
@@ -365,7 +365,7 @@ impl<'c> Docs<'c> {
     pub async fn revisions(&mut self, project: &str, sent: &str) -> Result<Value> {
         self.project_uid(project).await?;
         let id = self.doc_id(project, sent).await?;
-        let rows = sqlx::query(&sql(&format!("SELECT {REVISION_COLUMNS} FROM doc_revisions WHERE project = ? AND doc = ? ORDER BY id DESC")))
+        let rows = sqlx::query(sql(&format!("SELECT {REVISION_COLUMNS} FROM doc_revisions WHERE project = ? AND doc = ? ORDER BY id DESC")))
             .bind(project)
             .bind(&id)
             .fetch_all(&mut *self.conn)
@@ -382,7 +382,7 @@ impl<'c> Docs<'c> {
         let number = revision.parse::<i64>().ok().filter(|n| *n > 0 && *n <= MOST_REVISIONS);
         let row = match number {
             Some(n) => {
-                sqlx::query(&sql(&format!("SELECT {REVISION_COLUMNS}, body FROM doc_revisions WHERE project = ? AND doc = ? AND id = ?")))
+                sqlx::query(sql(&format!("SELECT {REVISION_COLUMNS}, body FROM doc_revisions WHERE project = ? AND doc = ? AND id = ?")))
                     .bind(project)
                     .bind(&id)
                     .bind(n)
@@ -406,7 +406,7 @@ impl<'c> Docs<'c> {
     /// The project's docs that are gone: those whose newest revision says so, the latest removed first.
     pub async fn deleted(&mut self, project: &str) -> Result<Value> {
         self.project_uid(project).await?;
-        let rows = sqlx::query(&sql("SELECT CAST(r.id AS BIGINT) AS id, r.doc, r.title, r.body, r.kind, r.created_by, r.created_at FROM doc_revisions r
+        let rows = sqlx::query(sql("SELECT CAST(r.id AS BIGINT) AS id, r.doc, r.title, r.body, r.kind, r.created_by, r.created_at FROM doc_revisions r
             WHERE r.project = ? AND r.deleted = 1 AND r.id = (SELECT max(n.id) FROM doc_revisions n WHERE n.project = r.project AND n.doc = r.doc)
             ORDER BY r.id DESC"))
         .bind(project)
@@ -426,7 +426,7 @@ impl<'c> Docs<'c> {
     /// The project's sections: as arranged (`projects.doc_section_order`), then the rest A–Z; the ones docs are filed
     /// under, and empty ones made.
     async fn read_sections(&mut self, project: &str) -> Result<Vec<String>> {
-        let mut names: Vec<String> = sqlx::query(&sql("SELECT name FROM doc_sections WHERE project = ?"))
+        let mut names: Vec<String> = sqlx::query(sql("SELECT name FROM doc_sections WHERE project = ?"))
             .bind(project)
             .fetch_all(&mut *self.conn)
             .await?
@@ -434,14 +434,14 @@ impl<'c> Docs<'c> {
             .map(|r| r.get("name"))
             .collect();
         for row in
-            sqlx::query(&sql("SELECT DISTINCT section FROM docs WHERE project = ? AND section IS NOT NULL")).bind(project).fetch_all(&mut *self.conn).await?
+            sqlx::query(sql("SELECT DISTINCT section FROM docs WHERE project = ? AND section IS NOT NULL")).bind(project).fetch_all(&mut *self.conn).await?
         {
             let name: String = row.get("section");
             if !names.contains(&name) {
                 names.push(name)
             }
         }
-        let order = sqlx::query(&sql("SELECT doc_section_order FROM projects WHERE id = ?"))
+        let order = sqlx::query(sql("SELECT doc_section_order FROM projects WHERE id = ?"))
             .bind(project)
             .fetch_optional(&mut *self.conn)
             .await?
@@ -463,7 +463,7 @@ impl<'c> Docs<'c> {
     /// Keeps a doc's title and text as they now are, or, with `deleted`, as they were when it went, and where it was filed.
     async fn keep_revision(&mut self, project: &str, doc: (&str, &str, &str, &str), actor: &Actor, deleted: Option<Option<String>>) -> Result<()> {
         let (id, title, body, kind) = doc;
-        sqlx::query(&sql("INSERT INTO doc_revisions (project, doc, title, body, kind, section, deleted, created_by, session_name, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"))
+        sqlx::query(sql("INSERT INTO doc_revisions (project, doc, title, body, kind, section, deleted, created_by, session_name, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"))
             .bind(project).bind(id).bind(title).bind(body).bind(kind).bind(deleted.clone().flatten()).bind(deleted.is_some() as i64)
             .bind(&actor.name).bind(actor.session.clone()).bind(actor.owner as i64).bind(stamp())
             .execute(&mut *self.conn).await?;
@@ -471,7 +471,7 @@ impl<'c> Docs<'c> {
     }
 
     async fn arrange_sections(&mut self, project: &str, names: &[String]) -> Result<()> {
-        sqlx::query(&sql("UPDATE projects SET doc_section_order = ? WHERE id = ?"))
+        sqlx::query(sql("UPDATE projects SET doc_section_order = ? WHERE id = ?"))
             .bind(serde_json::to_string(names).unwrap())
             .bind(project)
             .execute(&mut *self.conn)
@@ -524,7 +524,7 @@ impl<'c> Docs<'c> {
         let done: Result<()> = async {
             self.section_last(project, section.as_deref()).await?;
             let position = match position { Some(at) => at, None => self.next_position(project).await? };
-            sqlx::query(&sql("INSERT INTO docs (project, id, title, body, kind, position, section, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"))
+            sqlx::query(sql("INSERT INTO docs (project, id, title, body, kind, position, section, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"))
                 .bind(project).bind(&id).bind(&title).bind(&text).bind(&kind).bind(position).bind(section.clone()).bind(&actor.name).bind(actor.owner as i64).bind(&now).bind(&now)
                 .execute(&mut *self.conn).await?;
             self.keep_revision(project, (&id, &title, &text, &kind), actor, None).await?;
@@ -599,7 +599,7 @@ impl<'c> Docs<'c> {
                 }
                 sets.push("updated_at = ?");
                 let statement = sql(&format!("UPDATE docs SET {} WHERE project = ? AND id = ?", sets.join(", ")));
-                let mut query = sqlx::query(&statement);
+                let mut query = sqlx::query(statement.clone());
                 if let Some(title) = &title {
                     query = query.bind(title.clone())
                 }
@@ -619,7 +619,7 @@ impl<'c> Docs<'c> {
             // Filing it elsewhere isn't actor change to read, so it doesn't count as one (`updated_at`, what's unseen).
             if let Some(section) = &section {
                 self.section_last(project, section.as_deref()).await?;
-                sqlx::query(&sql("UPDATE docs SET section = ? WHERE project = ? AND id = ?"))
+                sqlx::query(sql("UPDATE docs SET section = ? WHERE project = ? AND id = ?"))
                     .bind(section.clone())
                     .bind(project)
                     .bind(&id)
@@ -647,7 +647,7 @@ impl<'c> Docs<'c> {
         self.begin().await?;
         let done: Result<()> = async {
             self.keep_revision(project, (&row.id, &row.title, &row.body, &row.kind), actor, Some(row.section.clone())).await?;
-            sqlx::query(&sql("DELETE FROM docs WHERE project = ? AND id = ?")).bind(project).bind(&row.id).execute(&mut *self.conn).await?;
+            sqlx::query(sql("DELETE FROM docs WHERE project = ? AND id = ?")).bind(project).bind(&row.id).execute(&mut *self.conn).await?;
             self.touch_project(project).await
         }
         .await;
@@ -675,11 +675,11 @@ impl<'c> Docs<'c> {
         self.begin().await?;
         let done: Result<()> = async {
             let each = format!("SELECT {REVISION_COLUMNS} FROM doc_revisions WHERE project = ? AND doc = ? ORDER BY id");
-            let first = RevisionRow::of(&sqlx::query(&sql(&format!("{each} LIMIT 1"))).bind(project).bind(&id).fetch_one(&mut *self.conn).await?);
-            let last = RevisionRow::of(&sqlx::query(&sql(&format!("{each} DESC LIMIT 1"))).bind(project).bind(&id).fetch_one(&mut *self.conn).await?);
+            let first = RevisionRow::of(&sqlx::query(sql(&format!("{each} LIMIT 1"))).bind(project).bind(&id).fetch_one(&mut *self.conn).await?);
+            let last = RevisionRow::of(&sqlx::query(sql(&format!("{each} DESC LIMIT 1"))).bind(project).bind(&id).fetch_one(&mut *self.conn).await?);
             self.section_last(project, last.section.as_deref()).await?;
             let position = self.next_position(project).await?;
-            sqlx::query(&sql("INSERT INTO docs (project, id, title, body, kind, position, section, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"))
+            sqlx::query(sql("INSERT INTO docs (project, id, title, body, kind, position, section, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"))
                 .bind(project).bind(&id).bind(&title).bind(&body).bind(&kind).bind(position).bind(last.section.clone())
                 .bind(&first.created_by).bind(first.owned).bind(&first.created_at).bind(stamp())
                 .execute(&mut *self.conn).await?;
@@ -703,7 +703,7 @@ impl<'c> Docs<'c> {
         self.begin().await?;
         let done: Result<()> = async {
             self.section_last(project, Some(&name)).await?;
-            sqlx::query(&sql("INSERT INTO doc_sections (project, name, created_at) VALUES (?, ?, ?)"))
+            sqlx::query(sql("INSERT INTO doc_sections (project, name, created_at) VALUES (?, ?, ?)"))
                 .bind(project)
                 .bind(&name)
                 .bind(stamp())
@@ -739,13 +739,13 @@ impl<'c> Docs<'c> {
         let done: Result<()> = async {
             let renamed: Vec<String> = self.read_sections(project).await?.into_iter().map(|each| if each == from { name.clone() } else { each }).collect();
             self.arrange_sections(project, &renamed).await?;
-            sqlx::query(&sql("UPDATE docs SET section = ? WHERE project = ? AND section = ?"))
+            sqlx::query(sql("UPDATE docs SET section = ? WHERE project = ? AND section = ?"))
                 .bind(&name)
                 .bind(project)
                 .bind(from)
                 .execute(&mut *self.conn)
                 .await?;
-            sqlx::query(&sql("UPDATE doc_sections SET name = ? WHERE project = ? AND name = ?"))
+            sqlx::query(sql("UPDATE doc_sections SET name = ? WHERE project = ? AND name = ?"))
                 .bind(&name)
                 .bind(project)
                 .bind(from)
@@ -797,8 +797,8 @@ impl<'c> Docs<'c> {
         let done: Result<()> = async {
             let kept: Vec<String> = self.read_sections(project).await?.into_iter().filter(|each| *each != name).collect();
             self.arrange_sections(project, &kept).await?;
-            sqlx::query(&sql("UPDATE docs SET section = NULL WHERE project = ? AND section = ?")).bind(project).bind(name).execute(&mut *self.conn).await?;
-            sqlx::query(&sql("DELETE FROM doc_sections WHERE project = ? AND name = ?")).bind(project).bind(name).execute(&mut *self.conn).await?;
+            sqlx::query(sql("UPDATE docs SET section = NULL WHERE project = ? AND section = ?")).bind(project).bind(name).execute(&mut *self.conn).await?;
+            sqlx::query(sql("DELETE FROM doc_sections WHERE project = ? AND name = ?")).bind(project).bind(name).execute(&mut *self.conn).await?;
             self.touch_project(project).await
         }
         .await;

@@ -48,7 +48,7 @@ impl<'c> SessionWork<'c> {
             return Ok(vec![]);
         }
         let text = sql(&format!("SELECT issue FROM issue_sessions WHERE project = ? AND session IN ({})", marks(sessions.len())));
-        let mut query = sqlx::query(&text).bind(project);
+        let mut query = sqlx::query(text.clone()).bind(project);
         for session in sessions {
             query = query.bind(session);
         }
@@ -71,7 +71,7 @@ impl<'c> SessionWork<'c> {
         // Their comments in one query, not one each, the latest of each kept.
         let ids: Vec<String> = issues.iter().map(|i| i["id"].as_str().unwrap_or_default().to_string()).collect();
         let text = sql(&format!("SELECT {} FROM comments c WHERE c.project = ? AND c.issue IN ({}) ORDER BY c.created_at, c.id", columns(), marks(ids.len())));
-        let mut query = sqlx::query(&text).bind(project);
+        let mut query = sqlx::query(text.clone()).bind(project);
         for id in &ids {
             query = query.bind(id);
         }
@@ -103,7 +103,7 @@ impl<'c> SessionWork<'c> {
             .filter(|i| !matches!(i.get("kind").and_then(Value::as_str), Some("proposed" | "done" | "canceled")))
             .filter_map(|i| Some((i.get("id")?.as_str()?, i)))
             .collect();
-        let worked = sqlx::query(&sql("SELECT issue, session, since FROM issue_sessions WHERE project = ? ORDER BY at DESC"))
+        let worked = sqlx::query(sql("SELECT issue, session, since FROM issue_sessions WHERE project = ? ORDER BY at DESC"))
             .bind(project)
             .fetch_all(&mut *self.conn)
             .await?;
@@ -153,7 +153,7 @@ impl<'c> SessionWork<'c> {
             return Ok((self.any_waiting(project, unheard).await?, false));
         }
         let text = sql(&format!("{unheard} AND created_at >= ? AND target IN ({}) LIMIT 1", marks(ids.len())));
-        let mut own = sqlx::query(&text).bind(project).bind(crate::work::signals::a_day_ago());
+        let mut own = sqlx::query(text.clone()).bind(project).bind(crate::work::signals::a_day_ago());
         for id in ids {
             own = own.bind(id);
         }
@@ -168,7 +168,7 @@ impl<'c> SessionWork<'c> {
     /// one isn't handed out any more (`Which::Pooled` keeps to the last day), so it mustn't keep every session busy for
     /// good, out of reach of its pick list (ORR-1230).
     async fn any_waiting(&mut self, project: &str, unheard: &str) -> Result<bool> {
-        Ok(sqlx::query(&sql(&format!("{unheard} AND (target IS NULL OR target = ?) AND created_at >= ? LIMIT 1")))
+        Ok(sqlx::query(sql(&format!("{unheard} AND (target IS NULL OR target = ?) AND created_at >= ? LIMIT 1")))
             .bind(project)
             .bind(EVERY)
             .bind(crate::work::signals::a_day_ago())
@@ -188,7 +188,7 @@ impl<'c> SessionWork<'c> {
         // A loop in the parents would never end: each issue is walked once.
         let mut seen = HashSet::new();
         while let Some(id) = at.take().filter(|id| seen.insert(id.clone())) {
-            let Some(row): Option<AnyRow> = sqlx::query(&sql("SELECT status, parent FROM issues WHERE project = ? AND id = ?"))
+            let Some(row): Option<AnyRow> = sqlx::query(sql("SELECT status, parent FROM issues WHERE project = ? AND id = ?"))
                 .bind(project)
                 .bind(&id)
                 .fetch_optional(&mut *self.conn)
@@ -196,7 +196,7 @@ impl<'c> SessionWork<'c> {
             else {
                 break;
             };
-            let worker: Option<String> = sqlx::query(&sql("SELECT session FROM issue_sessions WHERE project = ? AND issue = ?"))
+            let worker: Option<String> = sqlx::query(sql("SELECT session FROM issue_sessions WHERE project = ? AND issue = ?"))
                 .bind(project)
                 .bind(&id)
                 .fetch_optional(&mut *self.conn)
@@ -220,7 +220,7 @@ impl<'c> SessionWork<'c> {
     /// ORR-1253): the signals that heard it stayed on the orrery it came from.
     pub(crate) async fn unanswered(&mut self, project: &str, person: Option<&str>) -> Result<Vec<Value>> {
         let ago = |days: i64| (chrono::Utc::now() - chrono::Duration::days(days)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        let rows = sqlx::query(&sql("SELECT c.issue, c.body, c.created_by, CAST(c.owned AS BIGINT) AS owned, \
+        let rows = sqlx::query(sql("SELECT c.issue, c.body, c.created_by, CAST(c.owned AS BIGINT) AS owned, \
                     (SELECT i.assignee FROM issues i WHERE i.project = c.project AND i.id = c.issue) AS assignee FROM comments c \
              WHERE c.project = ? AND c.created_at >= ? AND (c.owned = 1 OR (c.person = ? AND c.by_agent = 0 \
                  AND EXISTS (SELECT 1 FROM issues i WHERE i.project = c.project AND i.id = c.issue AND lower(i.assignee) = c.person))) \
@@ -257,7 +257,7 @@ impl<'c> SessionWork<'c> {
         let mut issues = Issues::new(self.conn);
         issues.project(project).await?;
         let issue = issues.resolve(project, issue, false).await?;
-        let rows = sqlx::query(&sql("SELECT project, issue FROM issue_links WHERE on_project = ? AND on_issue = ? ORDER BY created_at, project, issue"))
+        let rows = sqlx::query(sql("SELECT project, issue FROM issue_links WHERE on_project = ? AND on_issue = ? ORDER BY created_at, project, issue"))
             .bind(project)
             .bind(&issue)
             .fetch_all(&mut *self.conn)
@@ -272,7 +272,7 @@ impl<'c> SessionWork<'c> {
         issues.project(project).await?;
         let issue = issues.resolve(project, issue, false).await?;
         let now = stamp();
-        sqlx::query(&sql(
+        sqlx::query(sql(
             "INSERT INTO issue_sessions (project, issue, session, at, since) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM issues WHERE project = ? AND id = ?) \
              ON CONFLICT (project, issue) DO UPDATE SET since = CASE WHEN issue_sessions.session = excluded.session THEN issue_sessions.since ELSE excluded.since END, \
              session = excluded.session, at = excluded.at",
@@ -292,7 +292,7 @@ impl<'c> SessionWork<'c> {
     /// A session's new id (after a `/clear`) takes over the issues its old one worked, as `renameSession` does. How
     /// many moved.
     pub(crate) async fn rename(&mut self, project: &str, from: &str, to: &str) -> Result<u64> {
-        Ok(sqlx::query(&sql("UPDATE issue_sessions SET session = ? WHERE project = ? AND session = ?"))
+        Ok(sqlx::query(sql("UPDATE issue_sessions SET session = ? WHERE project = ? AND session = ?"))
             .bind(to)
             .bind(project)
             .bind(from)

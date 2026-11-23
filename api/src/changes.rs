@@ -63,7 +63,7 @@ impl Outbox {
 /// and an agent's comment for the owner's bell (`notice`, the comment's id, its issue in the payload). Inside the write's
 /// own transaction, as the local app's store wrote them before: nobody's actor, as they're orrery's own.
 pub async fn row(conn: &mut AnyConnection, kind: &str, project: &str, subject: &str, payload: Option<Value>) -> Result<()> {
-    sqlx::query(&sql(
+    sqlx::query(sql(
         "INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, payload, created_at) VALUES (?, ?, ?, NULL, 0, NULL, 0, ?, ?)",
     ))
     .bind(kind)
@@ -144,7 +144,7 @@ async fn record(conn: &mut AnyConnection, set_off: &Recorded<'_>, actor: &Actor)
     }
     let now = stamp();
     for (kind, project, subject, payload) in rows {
-        sqlx::query(&sql(
+        sqlx::query(sql(
             "INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, cause, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ))
         .bind(kind)
@@ -198,19 +198,19 @@ pub async fn after(conn: &mut AnyConnection, after: Option<&str>) -> Result<Valu
 }
 
 async fn newest(conn: &mut AnyConnection) -> Result<i64> {
-    Ok(sqlx::query(&sql("SELECT CAST(COALESCE(MAX(id), 0) AS BIGINT) AS n FROM changes")).fetch_one(&mut *conn).await?.get("n"))
+    Ok(sqlx::query(sql("SELECT CAST(COALESCE(MAX(id), 0) AS BIGINT) AS n FROM changes")).fetch_one(&mut *conn).await?.get("n"))
 }
 
 /// The page after `after`. A cursor whose row isn't kept (pruned, or from another database) answers `{changes: [],
 /// last: <newest>, gap: true}`: the reader has missed rows, so it reads the board again and carries on from the newest.
 async fn page(conn: &mut AnyConnection, after: i64) -> Result<Value> {
     if after > 0 {
-        let kept: i64 = sqlx::query(&sql("SELECT CAST(COUNT(*) AS BIGINT) AS n FROM changes WHERE id = ?")).bind(after).fetch_one(&mut *conn).await?.get("n");
+        let kept: i64 = sqlx::query(sql("SELECT CAST(COUNT(*) AS BIGINT) AS n FROM changes WHERE id = ?")).bind(after).fetch_one(&mut *conn).await?.get("n");
         if kept == 0 {
             return Ok(json!({"changes": [], "last": newest(conn).await?, "gap": true}));
         }
     }
-    let rows = sqlx::query(&sql(
+    let rows = sqlx::query(sql(
         "SELECT CAST(id AS BIGINT) AS id, kind, project, subject, actor, CAST(owner AS BIGINT) AS owner, session, CAST(untrusted AS BIGINT) AS untrusted, cause, payload, created_at FROM changes WHERE id > ? ORDER BY id LIMIT ?",
     ))
     .bind(after)
@@ -305,7 +305,7 @@ pub fn stream(pool: AnyPool, after: i64, seen: Seen) -> impl Stream<Item = std::
 pub async fn prune(pool: &AnyPool) -> Result<u64> {
     let before = (chrono::Utc::now() - chrono::Duration::days(KEEP_DAYS)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
     let mut conn = pool.acquire().await?;
-    let done = sqlx::query(&sql("DELETE FROM changes WHERE created_at < ? AND id < (SELECT MAX(id) FROM changes)")).bind(before).execute(&mut *conn).await?;
+    let done = sqlx::query(sql("DELETE FROM changes WHERE created_at < ? AND id < (SELECT MAX(id) FROM changes)")).bind(before).execute(&mut *conn).await?;
     Ok(done.rows_affected())
 }
 

@@ -295,7 +295,7 @@ impl<'c> Issues<'c> {
     }
 
     pub(crate) async fn project(&mut self, project: &str) -> Result<Project> {
-        let row = sqlx::query(&sql("SELECT name, uid, repo, release_mode, releases_from FROM projects WHERE id = ?"))
+        let row = sqlx::query(sql("SELECT name, uid, repo, release_mode, releases_from FROM projects WHERE id = ?"))
             .bind(project)
             .fetch_optional(&mut *self.conn)
             .await?;
@@ -328,7 +328,7 @@ impl<'c> Issues<'c> {
 
     pub(crate) async fn exists(&mut self, query: &str, binds: &[&str]) -> Result<bool> {
         let query = sql(query);
-        let mut asked = sqlx::query(&query);
+        let mut asked = sqlx::query(query.clone());
         for bind in binds {
             asked = asked.bind(*bind);
         }
@@ -345,7 +345,7 @@ impl<'c> Issues<'c> {
             if self.exists(&format!("SELECT 1 FROM {table} WHERE project = ? AND id = ?"), &[project, &id]).await? {
                 return Ok(id);
             }
-            let alias = sqlx::query(&sql(&format!("SELECT {column} AS target FROM {aliases} WHERE project = ? AND alias = ?")))
+            let alias = sqlx::query(sql(&format!("SELECT {column} AS target FROM {aliases} WHERE project = ? AND alias = ?")))
                 .bind(project)
                 .bind(&id)
                 .fetch_optional(&mut *self.conn)
@@ -380,7 +380,7 @@ impl<'c> Issues<'c> {
     /// The project's issues that are done (`doneIssues`, ORR-601), of `ids` only when given.
     async fn done_issues(&mut self, project: &str, statuses: &[Status], ids: Option<&[String]>) -> Result<HashSet<String>> {
         let query = sql(&format!("SELECT id, status, proposal FROM issues WHERE project = ?{}", within("id", ids)));
-        let rows = scoped(&query, project, ids).fetch_all(&mut *self.conn).await?;
+        let rows = scoped(query.clone(), project, ids).fetch_all(&mut *self.conn).await?;
         Ok(rows
             .iter()
             .filter(|r| r.get::<Option<String>, _>("proposal").is_none() && statuses.iter().any(|s| s.kind == "done" && s.id == r.get::<String, _>("status")))
@@ -394,12 +394,12 @@ impl<'c> Issues<'c> {
             "SELECT issue, on_project, on_issue FROM issue_links WHERE project = ?{} ORDER BY created_at, on_project, on_issue",
             within("issue", ids)
         ));
-        let on = scoped(&query, project, ids).fetch_all(&mut *self.conn).await?;
+        let on = scoped(query.clone(), project, ids).fetch_all(&mut *self.conn).await?;
         let query = sql(&format!(
             "SELECT project, issue, on_issue FROM issue_links WHERE on_project = ?{} ORDER BY created_at, project, issue",
             within("on_issue", ids)
         ));
-        let by = scoped(&query, project, ids).fetch_all(&mut *self.conn).await?;
+        let by = scoped(query.clone(), project, ids).fetch_all(&mut *self.conn).await?;
         let mut done: HashMap<String, HashSet<String>> = HashMap::new();
         let mut others: HashMap<String, Vec<String>> = HashMap::new();
         for link in &on {
@@ -432,7 +432,7 @@ impl<'c> Issues<'c> {
             "SELECT issue, risk, risk_why, risk_by FROM issue_pulls WHERE project = ? AND risk IS NOT NULL{} ORDER BY number",
             within("issue", ids)
         ));
-        let rows = scoped(&query, project, ids).fetch_all(&mut *self.conn).await?;
+        let rows = scoped(query.clone(), project, ids).fetch_all(&mut *self.conn).await?;
         let rank = |level: &str| ["high", "medium", "low"].iter().position(|l| *l == level).unwrap_or(3);
         let mut risks: HashMap<String, Value> = HashMap::new();
         for row in rows {
@@ -451,7 +451,7 @@ impl<'c> Issues<'c> {
     /// The ids each issue or milestone had before, A–Z.
     pub(crate) async fn aliases(&mut self, project: &str, table: &str, column: &str, ids: Option<&[String]>) -> Result<HashMap<String, Vec<String>>> {
         let query = sql(&format!("SELECT alias, {column} AS target FROM {table} WHERE project = ?{} ORDER BY alias", within(column, ids)));
-        let rows = scoped(&query, project, ids).fetch_all(&mut *self.conn).await?;
+        let rows = scoped(query.clone(), project, ids).fetch_all(&mut *self.conn).await?;
         let mut found: HashMap<String, Vec<String>> = HashMap::new();
         for row in rows {
             found.entry(row.get("target")).or_default().push(row.get("alias"));
@@ -462,12 +462,12 @@ impl<'c> Issues<'c> {
     /// The project's board (`readBoard`, then `buildBoard`): its milestones and their issues, sub-issues within, each
     /// with its comment count, open question, the ids it had before, its dependency links and its risk.
     pub(crate) async fn board(&mut self, project: &str, statuses: &[Status]) -> Result<Board> {
-        let milestones = sqlx::query(&sql(&format!("SELECT {MILESTONE_COLUMNS} FROM milestones WHERE project = ? ORDER BY position, created_at")))
+        let milestones = sqlx::query(sql(&format!("SELECT {MILESTONE_COLUMNS} FROM milestones WHERE project = ? ORDER BY position, created_at")))
             .bind(project)
             .fetch_all(&mut *self.conn)
             .await?;
         let rows = issue_rows(
-            sqlx::query(&sql(&format!("SELECT {ISSUE_COLUMNS} FROM issues WHERE project = ? ORDER BY position, created_at")))
+            sqlx::query(sql(&format!("SELECT {ISSUE_COLUMNS} FROM issues WHERE project = ? ORDER BY position, created_at")))
                 .bind(project)
                 .fetch_all(&mut *self.conn)
                 .await?,
@@ -506,14 +506,14 @@ impl<'c> Issues<'c> {
     async fn extras(&mut self, project: &str, statuses: &[Status], rows: &[IssueRow], ids: Option<&[String]>, above: &[String]) -> Result<Extras> {
         let query = sql(&format!("SELECT issue, CAST(count(*) AS BIGINT) AS n FROM comments WHERE project = ?{} GROUP BY issue", within("issue", ids)));
         let comments: HashMap<String, i64> =
-            scoped(&query, project, ids).fetch_all(&mut *self.conn).await?.iter().map(|r| (r.get("issue"), r.get("n"))).collect();
+            scoped(query.clone(), project, ids).fetch_all(&mut *self.conn).await?.iter().map(|r| (r.get("issue"), r.get("n"))).collect();
         // Each issue's latest question from an agent that no comment of the owner's has come after.
         let mut waiting: HashMap<String, String> = HashMap::new();
         let open_ask = sql(&format!(
             "SELECT c.issue, c.asks FROM comments c WHERE c.project = ?{} AND c.asks IS NOT NULL AND +c.owned = 0 AND NOT {SINCE} ORDER BY c.id",
             within("c.issue", ids)
         ));
-        for row in scoped(&open_ask, project, ids).fetch_all(&mut *self.conn).await? {
+        for row in scoped(open_ask.clone(), project, ids).fetch_all(&mut *self.conn).await? {
             waiting.insert(row.get("issue"), row.get("asks"));
         }
         // An agent's proposal waiting on the owner (pending, not under another proposal) waits on their decision too,
@@ -545,7 +545,7 @@ impl<'c> Issues<'c> {
             if !seen.insert(at.clone()) {
                 return Ok(None);
             }
-            let Some(row) = sqlx::query(&ask).bind(project).bind(&at).fetch_optional(&mut *self.conn).await? else {
+            let Some(row) = sqlx::query(ask.clone()).bind(project).bind(&at).fetch_optional(&mut *self.conn).await? else {
                 return Ok(None);
             };
             let above = at != id;
@@ -584,7 +584,7 @@ impl<'c> Issues<'c> {
              UNION SELECT i.id FROM tree t CROSS JOIN issues i WHERE i.project = ? AND i.parent = t.id) \
              SELECT {ISSUE_COLUMNS} FROM issues WHERE project = ? AND id IN (SELECT id FROM tree) ORDER BY position, created_at"
         ));
-        let rows = issue_rows(sqlx::query(&query).bind(project).bind(id).bind(project).bind(project).fetch_all(&mut *self.conn).await?);
+        let rows = issue_rows(sqlx::query(query.clone()).bind(project).bind(id).bind(project).bind(project).fetch_all(&mut *self.conn).await?);
         let ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
         let above: Vec<String> = place.parent.clone().filter(|_| place.parent_proposal).into_iter().collect();
         let extras = self.extras(project, statuses, &rows, Some(&ids), &above).await?;
@@ -612,7 +612,7 @@ impl<'c> Issues<'c> {
              SELECT {ISSUE_COLUMNS} FROM issues WHERE project = ? AND id IN (SELECT id FROM tree) ORDER BY position, created_at",
             within("id", Some(roots))
         ));
-        let rows = issue_rows(scoped(&query, project, Some(roots)).bind(project).bind(project).fetch_all(&mut *self.conn).await?);
+        let rows = issue_rows(scoped(query.clone(), project, Some(roots)).bind(project).bind(project).fetch_all(&mut *self.conn).await?);
         // Where each issue hangs, its own rows and those above them, to know which roots are under a proposal.
         let mut up: HashMap<String, (Option<String>, bool)> = rows.iter().map(|r| (r.id.clone(), (r.parent.clone(), r.proposal.is_some()))).collect();
         let query = sql(&format!(
@@ -621,7 +621,7 @@ impl<'c> Issues<'c> {
              SELECT id, parent, proposal FROM issues WHERE project = ? AND id IN (SELECT id FROM up)",
             within("id", Some(roots))
         ));
-        for r in scoped(&query, project, Some(roots)).bind(project).bind(project).fetch_all(&mut *self.conn).await? {
+        for r in scoped(query.clone(), project, Some(roots)).bind(project).bind(project).fetch_all(&mut *self.conn).await? {
             up.insert(r.get("id"), (r.get("parent"), r.get::<Option<String>, _>("proposal").is_some()));
         }
         let proposed = |id: &str| {
@@ -807,7 +807,7 @@ impl<'c> Issues<'c> {
             let lower = text.to_lowercase();
             words.iter().all(|w| lower.contains(w.as_str()))
         };
-        let comments: Vec<(String, String)> = sqlx::query(&sql("SELECT issue, body FROM comments WHERE project = ? AND created_by != ? ORDER BY id DESC"))
+        let comments: Vec<(String, String)> = sqlx::query(sql("SELECT issue, body FROM comments WHERE project = ? AND created_by != ? ORDER BY id DESC"))
             .bind(project)
             .bind("orrery")
             .fetch_all(&mut *self.conn)
@@ -912,7 +912,7 @@ impl<'c> Issues<'c> {
             }
             Node { fields, counts, kinds, tasks }
         }
-        let milestones: Vec<String> = sqlx::query(&sql("SELECT id FROM milestones WHERE project = ? ORDER BY position, created_at"))
+        let milestones: Vec<String> = sqlx::query(sql("SELECT id FROM milestones WHERE project = ? ORDER BY position, created_at"))
             .bind(project)
             .fetch_all(&mut *self.conn)
             .await?
@@ -920,7 +920,7 @@ impl<'c> Issues<'c> {
             .map(|r| r.get("id"))
             .collect();
         let more: String = wide.into_iter().flatten().map(|c| format!(", {c}")).collect();
-        let rows: Vec<Thin> = sqlx::query(&sql(&format!(
+        let rows: Vec<Thin> = sqlx::query(sql(&format!(
             "SELECT id, parent, milestone, status, proposal, ships_in{more} FROM issues WHERE project = ? ORDER BY position, created_at"
         )))
         .bind(project)
@@ -1076,7 +1076,7 @@ fn within(column: &str, ids: Option<&[String]>) -> String {
 }
 
 /// The query with the project bound, then `ids`, as `within` asks.
-fn scoped<'q>(query: &'q str, project: &'q str, ids: Option<&'q [String]>) -> sqlx::query::Query<'q, sqlx::Any, sqlx::any::AnyArguments<'q>> {
+fn scoped<'q>(query: sqlx::SqlStr, project: &'q str, ids: Option<&'q [String]>) -> sqlx::query::Query<'q, sqlx::Any, sqlx::any::AnyArguments> {
     let mut asked = sqlx::query(query).bind(project);
     for id in ids.into_iter().flatten() {
         asked = asked.bind(id.as_str());

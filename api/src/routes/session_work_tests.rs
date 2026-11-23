@@ -208,7 +208,7 @@ async fn working_an_issue_ties_it_to_the_session_and_keeps_since_while_its_the_s
     let (project, issue) = api.board().await;
     let path = format!("/api/projects/{project}/issues/{issue}/worked-by");
     let since = || async {
-        sqlx::query_scalar::<_, String>(&crate::db::sql("SELECT session || ' ' || since FROM issue_sessions WHERE project = ? AND issue = ?"))
+        sqlx::query_scalar::<_, String>(crate::db::sql("SELECT session || ' ' || since FROM issue_sessions WHERE project = ? AND issue = ?"))
             .bind(&project)
             .bind(&issue)
             .fetch_one(&api.app.pool)

@@ -88,8 +88,8 @@ impl People<'_> {
             return Err(ApiError::not_found(format!("No person \"{person}\"")));
         }
         let issuers: Vec<String> =
-            sqlx::query_scalar(&sql("SELECT issuer FROM identities WHERE person = ? ORDER BY issuer")).bind(person).fetch_all(&mut *self.conn).await?;
-        let workspaces = sqlx::query(&sql("SELECT w.id, w.name, w.color, m.role FROM workspace_members m JOIN workspaces w ON w.id = m.workspace \
+            sqlx::query_scalar(sql("SELECT issuer FROM identities WHERE person = ? ORDER BY issuer")).bind(person).fetch_all(&mut *self.conn).await?;
+        let workspaces = sqlx::query(sql("SELECT w.id, w.name, w.color, m.role FROM workspace_members m JOIN workspaces w ON w.id = m.workspace \
              WHERE m.person = ? ORDER BY CASE WHEN w.id = 'default' THEN 0 ELSE 1 END, lower(w.name), w.id"))
         .bind(person)
         .fetch_all(&mut *self.conn)
@@ -126,7 +126,7 @@ impl People<'_> {
             return Err(ApiError::bad_request(format!("Type your name, {name}, to delete your account")));
         }
         let owner = row.get::<String, _>("role") == "owner";
-        let owned: Vec<String> = sqlx::query_scalar(&sql("SELECT workspace FROM workspace_members WHERE person = ? AND role = 'owner' ORDER BY workspace"))
+        let owned: Vec<String> = sqlx::query_scalar(sql("SELECT workspace FROM workspace_members WHERE person = ? AND role = 'owner' ORDER BY workspace"))
             .bind(person)
             .fetch_all(&mut *self.conn)
             .await?;
@@ -137,8 +137,8 @@ impl People<'_> {
             for workspace in &owned {
                 self.delete_workspace(workspace).await?;
             }
-            sqlx::query(&sql("DELETE FROM workspace_members WHERE person = ?")).bind(person).execute(&mut *self.conn).await?;
-            sqlx::query(&sql("DELETE FROM identities WHERE person = ?")).bind(person).execute(&mut *self.conn).await?;
+            sqlx::query(sql("DELETE FROM workspace_members WHERE person = ?")).bind(person).execute(&mut *self.conn).await?;
+            sqlx::query(sql("DELETE FROM identities WHERE person = ?")).bind(person).execute(&mut *self.conn).await?;
             // The orrery's owner deleting themselves: the role goes to whoever has been here longest, so the server always
             // has an owner while anyone is on it (an orrery with none lets anyone name themselves owner, `PUT /api/owner`,
             // and every "the owner's" check would fall to nobody). Handing it to the next person to sign up instead would
@@ -146,28 +146,28 @@ impl People<'_> {
             // a new one, and the next account to sign in becomes its owner (`first_owner`, ORR-1185).
             let heir: Option<String> = if owner {
                 let heir: Option<String> =
-                    sqlx::query_scalar(&sql("SELECT id FROM people WHERE removed_at IS NULL AND id <> ? ORDER BY created_at, id LIMIT 1"))
+                    sqlx::query_scalar(sql("SELECT id FROM people WHERE removed_at IS NULL AND id <> ? ORDER BY created_at, id LIMIT 1"))
                         .bind(person)
                         .fetch_optional(&mut *self.conn)
                         .await?;
-                sqlx::query(&sql("UPDATE people SET role = 'member' WHERE id = ?")).bind(person).execute(&mut *self.conn).await?;
+                sqlx::query(sql("UPDATE people SET role = 'member' WHERE id = ?")).bind(person).execute(&mut *self.conn).await?;
                 if let Some(heir) = &heir {
-                    sqlx::query(&sql("UPDATE people SET role = 'owner' WHERE id = ?")).bind(heir).execute(&mut *self.conn).await?;
+                    sqlx::query(sql("UPDATE people SET role = 'owner' WHERE id = ?")).bind(heir).execute(&mut *self.conn).await?;
                 }
                 self.effects.settings = true;
                 heir
             } else {
-                sqlx::query_scalar(&sql("SELECT id FROM people WHERE role = 'owner'")).fetch_optional(&mut *self.conn).await?
+                sqlx::query_scalar(sql("SELECT id FROM people WHERE role = 'owner'")).fetch_optional(&mut *self.conn).await?
             };
             // `default` with no owner left is the orrery owner's, as the first person's is (ORR-1106, ORR-1192).
             if let Some(heir) = &heir {
-                if sqlx::query(&sql("SELECT 1 FROM workspace_members WHERE workspace = 'default' AND role = 'owner'"))
+                if sqlx::query(sql("SELECT 1 FROM workspace_members WHERE workspace = 'default' AND role = 'owner'"))
                     .fetch_optional(&mut *self.conn)
                     .await?
                     .is_none()
                 {
-                    sqlx::query(&sql("DELETE FROM workspace_members WHERE workspace = 'default' AND person = ?")).bind(heir).execute(&mut *self.conn).await?;
-                    sqlx::query(&sql("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('default', ?, 'owner', ?)"))
+                    sqlx::query(sql("DELETE FROM workspace_members WHERE workspace = 'default' AND person = ?")).bind(heir).execute(&mut *self.conn).await?;
+                    sqlx::query(sql("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('default', ?, 'owner', ?)"))
                         .bind(heir)
                         .bind(crate::write::stamp())
                         .execute(&mut *self.conn)
@@ -186,7 +186,7 @@ impl People<'_> {
     /// can't be: the server needs it (a 409).
     pub async fn delete_own_workspace(&mut self, person: &str, workspace: &str, body: &Value) -> Result<()> {
         let row =
-            sqlx::query(&sql("SELECT w.name, m.role FROM workspaces w LEFT JOIN workspace_members m ON m.workspace = w.id AND m.person = ? WHERE w.id = ?"))
+            sqlx::query(sql("SELECT w.name, m.role FROM workspaces w LEFT JOIN workspace_members m ON m.workspace = w.id AND m.person = ? WHERE w.id = ?"))
                 .bind(person)
                 .bind(workspace)
                 .fetch_optional(&mut *self.conn)
@@ -218,7 +218,7 @@ impl People<'_> {
         let mut bytes = [0u8; 6];
         getrandom::getrandom(&mut bytes).expect("the system's randomness");
         let erased = format!("deleted_{}", bytes.iter().map(|b| format!("{b:02x}")).collect::<String>());
-        sqlx::query(&sql("UPDATE people SET id = ?, name = ?, handle = NULL WHERE id = ?"))
+        sqlx::query(sql("UPDATE people SET id = ?, name = ?, handle = NULL WHERE id = ?"))
             .bind(&erased)
             .bind(ERASED_NAME)
             .bind(person)
@@ -226,10 +226,10 @@ impl People<'_> {
             .await?;
         let old = person.to_lowercase();
         for (table, column) in WHO_COLUMNS {
-            sqlx::query(&sql(&format!("UPDATE {table} SET {column} = ? WHERE lower({column}) = ?"))).bind(&erased).bind(&old).execute(&mut *self.conn).await?;
+            sqlx::query(sql(&format!("UPDATE {table} SET {column} = ? WHERE lower({column}) = ?"))).bind(&erased).bind(&old).execute(&mut *self.conn).await?;
         }
         for side in ["\"before\"", "\"after\""] {
-            sqlx::query(&sql(&format!("UPDATE issue_events SET {side} = ? WHERE field = 'assignee' AND lower({side}) = ?")))
+            sqlx::query(sql(&format!("UPDATE issue_events SET {side} = ? WHERE field = 'assignee' AND lower({side}) = ?")))
                 .bind(&erased)
                 .bind(&old)
                 .execute(&mut *self.conn)
@@ -244,17 +244,17 @@ impl People<'_> {
     /// sees it, so its row stays, with what `DEFAULT_KEEPS` lists.
     async fn delete_workspace(&mut self, workspace: &str) -> Result<()> {
         let projects: Vec<String> =
-            sqlx::query_scalar(&sql("SELECT id FROM projects WHERE workspace = ? ORDER BY id")).bind(workspace).fetch_all(&mut *self.conn).await?;
+            sqlx::query_scalar(sql("SELECT id FROM projects WHERE workspace = ? ORDER BY id")).bind(workspace).fetch_all(&mut *self.conn).await?;
         for project in &projects {
             // A project elsewhere taking its releases from this one has none of its own now, as when its source changes.
-            let drawing: Vec<String> = sqlx::query_scalar(&sql("SELECT id FROM projects WHERE releases_from = ? AND workspace <> ?"))
+            let drawing: Vec<String> = sqlx::query_scalar(sql("SELECT id FROM projects WHERE releases_from = ? AND workspace <> ?"))
                 .bind(project)
                 .bind(workspace)
                 .fetch_all(&mut *self.conn)
                 .await?;
             for other in drawing {
-                sqlx::query(&sql("UPDATE issues SET ships_in = NULL WHERE project = ?")).bind(&other).execute(&mut *self.conn).await?;
-                sqlx::query(&sql("UPDATE projects SET release_mode = 'none', releases_from = NULL, updated_at = ? WHERE id = ?"))
+                sqlx::query(sql("UPDATE issues SET ships_in = NULL WHERE project = ?")).bind(&other).execute(&mut *self.conn).await?;
+                sqlx::query(sql("UPDATE projects SET release_mode = 'none', releases_from = NULL, updated_at = ? WHERE id = ?"))
                     .bind(crate::write::stamp())
                     .bind(&other)
                     .execute(&mut *self.conn)
@@ -264,7 +264,7 @@ impl People<'_> {
                 }
             }
             // Its own projects drawing on it go in this same loop, so none is left pointing at it.
-            sqlx::query(&sql("UPDATE projects SET releases_from = NULL WHERE releases_from = ?")).bind(project).execute(&mut *self.conn).await?;
+            sqlx::query(sql("UPDATE projects SET releases_from = NULL WHERE releases_from = ?")).bind(project).execute(&mut *self.conn).await?;
         }
         for project in &projects {
             let mut rows = Projects::of(&mut *self.conn, Workspace::across(Across::Deleting, workspace.to_string()));
@@ -275,7 +275,7 @@ impl People<'_> {
         }
         let default = workspace == "default";
         // An issue elsewhere in one of its epics is in none now, as when an epic is deleted.
-        sqlx::query(&sql("UPDATE issues SET epic = NULL WHERE epic IN (SELECT id FROM epics WHERE workspace = ?)"))
+        sqlx::query(sql("UPDATE issues SET epic = NULL WHERE epic IN (SELECT id FROM epics WHERE workspace = ?)"))
             .bind(workspace)
             .execute(&mut *self.conn)
             .await?;
@@ -285,13 +285,13 @@ impl People<'_> {
             }
             // `default`'s shipped presets stay with their seeding marks; the ones its people made go.
             let only = if default && table == "presets" { " AND default_key IS NULL" } else { "" };
-            sqlx::query(&sql(&format!("DELETE FROM {table} WHERE workspace = ?{only}"))).bind(workspace).execute(&mut *self.conn).await?;
+            sqlx::query(sql(&format!("DELETE FROM {table} WHERE workspace = ?{only}"))).bind(workspace).execute(&mut *self.conn).await?;
         }
         self.effects.epics = true;
-        sqlx::query(&sql("DELETE FROM workspace_settings WHERE workspace = ?")).bind(workspace).execute(&mut *self.conn).await?;
-        sqlx::query(&sql("DELETE FROM workspace_members WHERE workspace = ?")).bind(workspace).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM workspace_settings WHERE workspace = ?")).bind(workspace).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM workspace_members WHERE workspace = ?")).bind(workspace).execute(&mut *self.conn).await?;
         if !default {
-            sqlx::query(&sql("DELETE FROM workspaces WHERE id = ?")).bind(workspace).execute(&mut *self.conn).await?;
+            sqlx::query(sql("DELETE FROM workspaces WHERE id = ?")).bind(workspace).execute(&mut *self.conn).await?;
         }
         Ok(())
     }

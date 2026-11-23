@@ -122,7 +122,7 @@ impl<'c> SecretWrites<'c> {
         let at = fields.text("at");
         fields.done()?;
         changes::begin(self.conn).await?;
-        let done = sqlx::query(&sql(
+        let done = sqlx::query(sql(
             "INSERT INTO secrets (name, value, last4, hosts, projects, created_by, owned, created_at, updated_at, workspace) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (workspace, name) DO UPDATE SET value = excluded.value, last4 = excluded.last4, hosts = excluded.hosts, projects = excluded.projects, updated_at = excluded.updated_at",
         ))
@@ -148,7 +148,7 @@ impl<'c> SecretWrites<'c> {
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
             for statement in ["DELETE FROM secrets WHERE name = ? AND workspace = ?", "DELETE FROM secret_uses WHERE secret = ? AND workspace = ?"] {
-                sqlx::query(&sql(statement)).bind(name).bind(self.workspace.id()).execute(&mut *self.conn).await?;
+                sqlx::query(sql(statement)).bind(name).bind(self.workspace.id()).execute(&mut *self.conn).await?;
             }
             Ok(())
         }
@@ -174,7 +174,7 @@ impl<'c> SecretWrites<'c> {
         fields.done()?;
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            sqlx::query(&sql(
+            sqlx::query(sql(
                 "INSERT INTO secret_uses (secret, method, host, path, project, issue, status, error, created_by, created_at, workspace) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             ))
             .bind(name)
@@ -191,7 +191,7 @@ impl<'c> SecretWrites<'c> {
             .execute(&mut *self.conn)
             .await?;
             if let Some(keep) = keep {
-                sqlx::query(&sql(&format!(
+                sqlx::query(sql(&format!(
                     "DELETE FROM secret_uses WHERE secret = ? AND created_by = ? AND workspace = ? AND id NOT IN
                      (SELECT id FROM (SELECT id FROM secret_uses WHERE secret = ? AND created_by = ? AND workspace = ? ORDER BY id DESC LIMIT {keep}) AS latest)"
                 )))

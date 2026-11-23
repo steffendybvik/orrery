@@ -34,7 +34,7 @@ async fn milestone_row(State(app): Shared, scoped: ScopedProject, Path((_, miles
     }
     let mut conn = app.pool.acquire().await?;
     Issues::new(&mut conn).project(&project).await?;
-    let row = sqlx::query(&crate::db::sql("SELECT * FROM milestones WHERE project = ? AND id = ?"))
+    let row = sqlx::query(crate::db::sql("SELECT * FROM milestones WHERE project = ? AND id = ?"))
         .bind(&project)
         .bind(&milestone)
         .fetch_optional(&mut *conn)

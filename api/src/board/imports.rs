@@ -238,7 +238,7 @@ impl IssueWrites<'_> {
                 ));
             }
         }
-        let has = sqlx::query(&sql("SELECT 1 FROM issues WHERE project = ? UNION SELECT 1 FROM milestones WHERE project = ?"))
+        let has = sqlx::query(sql("SELECT 1 FROM issues WHERE project = ? UNION SELECT 1 FROM milestones WHERE project = ?"))
             .bind(project)
             .bind(project)
             .fetch_optional(&mut *self.conn)
@@ -256,7 +256,7 @@ impl IssueWrites<'_> {
             }
             let mut position = 0i64;
             for (i, milestone) in roadmap.milestones.iter().enumerate() {
-                sqlx::query(&sql(
+                sqlx::query(sql(
                     "INSERT INTO milestones (project, id, title, summary, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 ))
                 .bind(project)
@@ -285,18 +285,18 @@ impl IssueWrites<'_> {
     /// Clears the project's milestones and issues, and what names them without a foreign key (`issuesMoved` to null),
     /// so no id from the file comes to mean what was there.
     async fn clear_roadmap(&mut self, project: &str) -> Result<()> {
-        let gone: Vec<String> = sqlx::query_scalar(&sql("SELECT id FROM issues WHERE project = ?")).bind(project).fetch_all(&mut *self.conn).await?;
+        let gone: Vec<String> = sqlx::query_scalar(sql("SELECT id FROM issues WHERE project = ?")).bind(project).fetch_all(&mut *self.conn).await?;
         for old in &gone {
-            sqlx::query(&sql("DELETE FROM signals WHERE project = ? AND issue = ?")).bind(project).bind(old).execute(&mut *self.conn).await?;
+            sqlx::query(sql("DELETE FROM signals WHERE project = ? AND issue = ?")).bind(project).bind(old).execute(&mut *self.conn).await?;
             self.drop_blocker(project, old, &gone).await?;
-            sqlx::query(&sql("DELETE FROM issue_links WHERE (project = ? AND issue = ?) OR (on_project = ? AND on_issue = ?)"))
+            sqlx::query(sql("DELETE FROM issue_links WHERE (project = ? AND issue = ?) OR (on_project = ? AND on_issue = ?)"))
                 .bind(project)
                 .bind(old)
                 .bind(project)
                 .bind(old)
                 .execute(&mut *self.conn)
                 .await?;
-            sqlx::query(&sql("UPDATE schedule_runs SET issue = NULL WHERE issue = ? AND schedule IN (SELECT id FROM schedules WHERE project = ?)"))
+            sqlx::query(sql("UPDATE schedule_runs SET issue = NULL WHERE issue = ? AND schedule IN (SELECT id FROM schedules WHERE project = ?)"))
                 .bind(old)
                 .bind(project)
                 .execute(&mut *self.conn)
@@ -312,9 +312,9 @@ impl IssueWrites<'_> {
             "DELETE FROM issue_aliases WHERE project = ?",
             "DELETE FROM milestone_aliases WHERE project = ?",
         ] {
-            sqlx::query(&sql(statement)).bind(project).execute(&mut *self.conn).await?;
+            sqlx::query(sql(statement)).bind(project).execute(&mut *self.conn).await?;
         }
-        sqlx::query(&sql("DELETE FROM issue_links WHERE project = ? OR on_project = ?")).bind(project).bind(project).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM issue_links WHERE project = ? OR on_project = ?")).bind(project).bind(project).execute(&mut *self.conn).await?;
         Ok(())
     }
 
@@ -332,7 +332,7 @@ impl IssueWrites<'_> {
         now: &str,
     ) -> Result<()> {
         let status = resolve_status(statuses, Some(legacy_kind(task)), None)?;
-        sqlx::query(&sql(
+        sqlx::query(sql(
             "INSERT INTO issues (project, id, title, status, priority, assignee, labels, notes, parent, milestone, position, created_by, owned, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ))
@@ -365,14 +365,14 @@ impl IssueWrites<'_> {
     async fn owned_in(&mut self, project: &str) -> Result<Vec<String>> {
         let mut out = vec![];
         let milestones: Vec<String> =
-            sqlx::query_scalar(&sql("SELECT id FROM milestones WHERE project = ? AND owned = 1 ORDER BY id")).bind(project).fetch_all(&mut *self.conn).await?;
+            sqlx::query_scalar(sql("SELECT id FROM milestones WHERE project = ? AND owned = 1 ORDER BY id")).bind(project).fetch_all(&mut *self.conn).await?;
         out.extend(milestones.into_iter().map(|id| format!("milestone \"{id}\"")));
-        let releases: Vec<String> = sqlx::query_scalar(&sql("SELECT version FROM releases WHERE project = ? AND owned = 1 ORDER BY version"))
+        let releases: Vec<String> = sqlx::query_scalar(sql("SELECT version FROM releases WHERE project = ? AND owned = 1 ORDER BY version"))
             .bind(project)
             .fetch_all(&mut *self.conn)
             .await?;
         out.extend(releases.into_iter().map(|version| format!("release {version}")));
-        let issues: Vec<String> = sqlx::query_scalar(&sql("SELECT id FROM issues WHERE project = ?")).bind(project).fetch_all(&mut *self.conn).await?;
+        let issues: Vec<String> = sqlx::query_scalar(sql("SELECT id FROM issues WHERE project = ?")).bind(project).fetch_all(&mut *self.conn).await?;
         if !issues.is_empty() {
             out.extend(self.owned_under(project, &issues).await?);
         }
@@ -397,13 +397,13 @@ type Row3 = (String, Option<String>, Option<String>);
 type Children<'a> = HashMap<Option<String>, Vec<&'a Row3>>;
 
 async fn renumber(conn: &mut AnyConnection, project: &str) -> Result<()> {
-    let row = sqlx::query(&sql("SELECT key, next_number, next_milestone FROM projects WHERE id = ?")).bind(project).fetch_one(&mut *conn).await?;
+    let row = sqlx::query(sql("SELECT key, next_number, next_milestone FROM projects WHERE id = ?")).bind(project).fetch_one(&mut *conn).await?;
     let key: String = row.get("key");
     let next_number: i64 = row.get("next_number");
     let next_milestone: i64 = row.get("next_milestone");
     let milestones: Vec<String> =
-        sqlx::query_scalar(&sql("SELECT id FROM milestones WHERE project = ? ORDER BY position, created_at")).bind(project).fetch_all(&mut *conn).await?;
-    let issues: Vec<Row3> = sqlx::query(&sql("SELECT id, parent, milestone FROM issues WHERE project = ? ORDER BY position, created_at"))
+        sqlx::query_scalar(sql("SELECT id FROM milestones WHERE project = ? ORDER BY position, created_at")).bind(project).fetch_all(&mut *conn).await?;
+    let issues: Vec<Row3> = sqlx::query(sql("SELECT id, parent, milestone FROM issues WHERE project = ? ORDER BY position, created_at"))
         .bind(project)
         .fetch_all(&mut *conn)
         .await?
@@ -435,7 +435,7 @@ async fn renumber(conn: &mut AnyConnection, project: &str) -> Result<()> {
     let issue_ids = numbered(&order, &own, |n| format!("{key}-{n}"), next_number);
 
     let run = |statement: &'static str| sql(statement);
-    let mut statements: Vec<(String, Vec<String>)> = vec![];
+    let mut statements: Vec<(sqlx::SqlStr, Vec<String>)> = vec![];
     let mut push = |statement: &'static str, params: &[&str]| statements.push((run(statement), params.iter().map(|p| p.to_string()).collect()));
     for (from, to) in &milestone_ids {
         let moving = format!("{MOVING}{to}");
@@ -471,7 +471,7 @@ async fn renumber(conn: &mut AnyConnection, project: &str) -> Result<()> {
     push("DELETE FROM milestone_aliases WHERE project = ? AND alias IN (SELECT id FROM milestones WHERE project = ?)", &[project, project]);
     push("DELETE FROM issue_aliases WHERE project = ? AND alias IN (SELECT id FROM issues WHERE project = ?)", &[project, project]);
     for (statement, params) in &statements {
-        let mut query = sqlx::query(statement);
+        let mut query = sqlx::query(statement.clone());
         for param in params {
             query = query.bind(param);
         }
@@ -479,7 +479,7 @@ async fn renumber(conn: &mut AnyConnection, project: &str) -> Result<()> {
     }
     let issues_next = after(issue_ids.iter().map(|(_, to)| to.as_str()), &own, next_number);
     let milestones_next = after(milestone_ids.iter().map(|(_, to)| to.as_str()), &own_milestone, next_milestone);
-    sqlx::query(&sql("UPDATE projects SET next_number = ?, next_milestone = ? WHERE id = ?"))
+    sqlx::query(sql("UPDATE projects SET next_number = ?, next_milestone = ? WHERE id = ?"))
         .bind(issues_next)
         .bind(milestones_next)
         .bind(project)

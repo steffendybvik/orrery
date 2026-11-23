@@ -78,7 +78,7 @@ async fn list_people(State(app): Shared, headers: HeaderMap) -> Result<Response>
     let mut people = People::new(&mut conn).people().await?;
     let who = who_of(&headers);
     if let Some(who) = who.filter(|w| !w.owner) {
-        let rows = sqlx::query(&crate::db::sql(
+        let rows = sqlx::query(crate::db::sql(
             "SELECT DISTINCT o.person FROM workspace_members o JOIN workspace_members m ON m.workspace = o.workspace WHERE m.person = ?",
         ))
         .bind(&who.person)

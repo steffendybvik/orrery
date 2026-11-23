@@ -58,7 +58,7 @@ impl Seen {
         let own = own.filter(|_| actor.untrusted).map(|own| percent_decode_str(own).decode_utf8_lossy().into_owned());
         let person = Seen::person(conn, who, actor).await?;
         let mut workspaces: Vec<String> = match &person {
-            Some(person) => sqlx::query(&sql("SELECT workspace FROM workspace_members WHERE person = ? ORDER BY workspace"))
+            Some(person) => sqlx::query(sql("SELECT workspace FROM workspace_members WHERE person = ? ORDER BY workspace"))
                 .bind(person)
                 .fetch_all(&mut *conn)
                 .await?
@@ -81,7 +81,7 @@ impl Seen {
         let own = match own {
             Some(own) if who.is_some() => {
                 let there: Option<String> =
-                    sqlx::query_scalar(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(&own).fetch_optional(&mut *conn).await?;
+                    sqlx::query_scalar(sql("SELECT workspace FROM projects WHERE id = ?")).bind(&own).fetch_optional(&mut *conn).await?;
                 there.filter(|w| workspaces.contains(w)).map(|_| own)
             }
             own => own,
@@ -93,15 +93,15 @@ impl Seen {
     /// web/server/utils/roster.ts holds a member to them: the design's "a board you're not on is a 404, in lists and
     /// streams too". None with one person here, for the server's owner, or in a workspace they own: those see it all.
     pub(crate) async fn off_boards(conn: &mut AnyConnection, person: &str) -> Result<HashSet<String>> {
-        let present: i64 = sqlx::query_scalar(&sql("SELECT CAST(count(*) AS BIGINT) FROM people WHERE removed_at IS NULL")).fetch_one(&mut *conn).await?;
-        let owner: Option<String> = sqlx::query_scalar(&sql("SELECT id FROM people WHERE role = 'owner' AND removed_at IS NULL ORDER BY created_at LIMIT 1"))
+        let present: i64 = sqlx::query_scalar(sql("SELECT CAST(count(*) AS BIGINT) FROM people WHERE removed_at IS NULL")).fetch_one(&mut *conn).await?;
+        let owner: Option<String> = sqlx::query_scalar(sql("SELECT id FROM people WHERE role = 'owner' AND removed_at IS NULL ORDER BY created_at LIMIT 1"))
             .fetch_optional(&mut *conn)
             .await?;
         if present < 2 || owner.as_deref() == Some(person) {
             return Ok(HashSet::new());
         }
         let rows =
-            sqlx::query(&sql("SELECT p.id FROM projects p JOIN workspace_members w ON w.workspace = p.workspace AND w.person = ? AND w.role = 'member' \
+            sqlx::query(sql("SELECT p.id FROM projects p JOIN workspace_members w ON w.workspace = p.workspace AND w.person = ? AND w.role = 'member' \
              WHERE NOT EXISTS (SELECT 1 FROM project_members m WHERE m.project = p.id AND m.person = ?)"))
             .bind(person)
             .bind(person)
@@ -121,7 +121,7 @@ impl Seen {
             (None, None) => issues.person_asking(None, actor).await?,
         };
         let Some(person) = person else { return Ok(None) };
-        let here = sqlx::query(&sql("SELECT 1 FROM people WHERE id = ? AND removed_at IS NULL")).bind(&person).fetch_optional(&mut *conn).await?.is_some();
+        let here = sqlx::query(sql("SELECT 1 FROM people WHERE id = ? AND removed_at IS NULL")).bind(&person).fetch_optional(&mut *conn).await?.is_some();
         Ok(here.then_some(person))
     }
 
@@ -164,7 +164,7 @@ impl Seen {
         if let Seen::All = self {
             return Ok(HashSet::new());
         }
-        let rows = sqlx::query(&sql("SELECT id, workspace FROM projects")).fetch_all(&mut *conn).await?;
+        let rows = sqlx::query(sql("SELECT id, workspace FROM projects")).fetch_all(&mut *conn).await?;
         Ok(rows
             .iter()
             .map(|r| (r.get::<String, _>("id"), r.get::<String, _>("workspace")))

@@ -317,7 +317,7 @@ async fn the_chat_asks_only_for_its_settings_as_the_settings_take_them_and_only_
 
 /// Schedule `title` on `project`, put there with SQL.
 async fn nightly(api: &TestApi, project: &str) -> i64 {
-    sqlx::query_scalar::<_, i64>(&crate::db::sql(
+    sqlx::query_scalar::<_, i64>(crate::db::sql(
         "INSERT INTO schedules (project, title, kind, notes, cron, timezone, created_by, created_at, updated_at) \
          VALUES (?, 'Nightly', 'message', 'Hi', '0 2 * * *', 'UTC', 'owner', '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z') RETURNING id",
     ))

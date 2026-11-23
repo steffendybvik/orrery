@@ -196,13 +196,13 @@ impl<'a> Pulls<'a> {
 
     /// The issue's id from it or an old id, or a 404, as `ids` in web/server/utils/pulls.ts has it.
     async fn issue_id(&mut self, project: &str, issue: &str) -> Result<String> {
-        let alias = sqlx::query(&sql("SELECT issue FROM issue_aliases WHERE project = ? AND alias = ?"))
+        let alias = sqlx::query(sql("SELECT issue FROM issue_aliases WHERE project = ? AND alias = ?"))
             .bind(project)
             .bind(issue)
             .fetch_optional(&mut *self.conn)
             .await?;
         let id = alias.map(|r| r.get::<String, _>("issue")).unwrap_or_else(|| issue.to_string());
-        let found = sqlx::query(&sql("SELECT 1 FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&id).fetch_optional(&mut *self.conn).await?;
+        let found = sqlx::query(sql("SELECT 1 FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&id).fetch_optional(&mut *self.conn).await?;
         if found.is_none() {
             return Err(ApiError::not_found(format!("No issue {issue} in {project}")));
         }
@@ -221,7 +221,7 @@ impl<'a> Pulls<'a> {
                 format!("SELECT i.project, i.id FROM issue_aliases a JOIN issues i ON i.project = a.project AND i.id = a.issue WHERE a.project IN ({among}) AND a.alias = ?"),
             ] {
                 let statement = sql(&statement);
-                let mut query = sqlx::query(&statement);
+                let mut query = sqlx::query(statement.clone());
                 for project in projects {
                     query = query.bind(project);
                 }
@@ -245,7 +245,7 @@ impl<'a> Pulls<'a> {
                 AND (i.project = r.project OR i.project IN (SELECT id FROM projects WHERE release_mode = 'shared' AND releases_from = r.project))
              WHERE r.project IN ({among}) AND r.branch = ?"
         ));
-        let mut query = sqlx::query(&statement);
+        let mut query = sqlx::query(statement.clone());
         for project in projects {
             query = query.bind(project);
         }
@@ -280,11 +280,11 @@ impl<'a> Pulls<'a> {
         };
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            let rows = sqlx::query(&sql("SELECT project, issue FROM issue_pulls WHERE repo = ? AND number = ?")).bind(repo).bind(number).fetch_all(&mut *self.conn).await?;
+            let rows = sqlx::query(sql("SELECT project, issue FROM issue_pulls WHERE repo = ? AND number = ?")).bind(repo).bind(number).fetch_all(&mut *self.conn).await?;
             for row in rows {
                 let on: (String, String) = (row.get("project"), row.get("issue"));
                 if !issues.contains(&on) {
-                    sqlx::query(&sql("DELETE FROM issue_pulls WHERE project = ? AND issue = ? AND repo = ? AND number = ?"))
+                    sqlx::query(sql("DELETE FROM issue_pulls WHERE project = ? AND issue = ? AND repo = ? AND number = ?"))
                         .bind(&on.0)
                         .bind(&on.1)
                         .bind(repo)
@@ -294,7 +294,7 @@ impl<'a> Pulls<'a> {
                 }
             }
             for (project, id) in &issues {
-                sqlx::query(&sql("INSERT INTO issue_pulls (project, issue, repo, number, title, url, branch, base, author, state, merged_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                sqlx::query(sql("INSERT INTO issue_pulls (project, issue, repo, number, title, url, branch, base, author, state, merged_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (project, issue, repo, number) DO UPDATE SET title = excluded.title, url = excluded.url, branch = excluded.branch, base = excluded.base, author = excluded.author,
                     state = excluded.state, merged_at = excluded.merged_at, updated_at = excluded.updated_at"))
                     .bind(project)
@@ -322,12 +322,12 @@ impl<'a> Pulls<'a> {
     /// Rates the issue's PR `number` on `repo` (`rate`, ORR-879), or takes the rating away with none: `{risk}`. The
     /// owner's rating stands, as a session's doesn't replace it (409); 404 when orrery keeps no such PR on the issue.
     pub async fn rate(&mut self, project: &str, issue: &str, repo: &str, number: i64, risk: Option<(String, String)>, owner: bool) -> Result<Value> {
-        let found = sqlx::query(&sql("SELECT 1 FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
+        let found = sqlx::query(sql("SELECT 1 FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
         if found.is_none() {
             return Err(ApiError::not_found(format!("No project \"{project}\"")));
         }
         let id = self.issue_id(project, issue).await?;
-        let row = sqlx::query(&sql("SELECT repo, risk_by FROM issue_pulls WHERE project = ? AND issue = ? AND lower(repo) = lower(?) AND number = ?"))
+        let row = sqlx::query(sql("SELECT repo, risk_by FROM issue_pulls WHERE project = ? AND issue = ? AND lower(repo) = lower(?) AND number = ?"))
             .bind(project)
             .bind(&id)
             .bind(repo)
@@ -344,7 +344,7 @@ impl<'a> Pulls<'a> {
         let by = if owner { "owner" } else { "session" };
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            sqlx::query(&sql("UPDATE issue_pulls SET risk = ?, risk_why = ?, risk_by = ? WHERE project = ? AND issue = ? AND repo = ? AND number = ?"))
+            sqlx::query(sql("UPDATE issue_pulls SET risk = ?, risk_why = ?, risk_by = ? WHERE project = ? AND issue = ? AND repo = ? AND number = ?"))
                 .bind(risk.as_ref().map(|(level, _)| level.clone()))
                 .bind(risk.as_ref().map(|(_, why)| why.clone()))
                 .bind(risk.as_ref().map(|_| by))
@@ -365,7 +365,7 @@ impl<'a> Pulls<'a> {
 
     /// PR `number` on `repo` with every issue it's kept on (`forPull`, ORR-880), riskiest first; in full for the owner.
     pub async fn for_pull(&mut self, repo: &str, number: i64, owner: bool, hidden: &std::collections::HashSet<String>) -> Result<Value> {
-        let mut rows = sqlx::query(&sql(
+        let mut rows = sqlx::query(sql(
             "SELECT CAST(p.number AS BIGINT) AS number, p.title, p.url, p.branch, p.base, p.author, p.state, p.merged_at, p.updated_at, p.project, pr.name AS project_name, p.issue, i.title AS issue_title, i.status
              FROM issue_pulls p JOIN issues i ON i.project = p.project AND i.id = p.issue JOIN projects pr ON pr.id = p.project
              WHERE lower(p.repo) = lower(?) AND p.number = ? ORDER BY p.updated_at DESC",
@@ -393,7 +393,7 @@ impl<'a> Pulls<'a> {
         }
 
         // Each issue's riskiest rated PR (ORR-914), its own or this one; the first of a level stands (`highestRisk`).
-        let rated = sqlx::query(&sql("SELECT q.project, q.issue, q.risk, q.risk_why, q.risk_by FROM issue_pulls q
+        let rated = sqlx::query(sql("SELECT q.project, q.issue, q.risk, q.risk_why, q.risk_by FROM issue_pulls q
              JOIN issue_pulls p ON p.project = q.project AND p.issue = q.issue
              WHERE lower(p.repo) = lower(?) AND p.number = ? AND q.risk IS NOT NULL ORDER BY q.repo, q.number"))
         .bind(repo)
@@ -441,7 +441,7 @@ impl<'a> Pulls<'a> {
     /// on the issue (`issue_pulls`) as `open`, without where each stands.
     pub async fn for_issue(&mut self, project: &str, issue: &str) -> Result<Vec<Value>> {
         let id = self.issue_id(project, issue).await?;
-        let row = sqlx::query(&sql("SELECT repo FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
+        let row = sqlx::query(sql("SELECT repo FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
         let repo = crate::board::issues::github_repo(row.and_then(|r| r.get::<Option<String>, _>("repo")).as_deref());
         let shown = |row: &sqlx::any::AnyRow, state: String, merged_at: Option<String>| {
             let mut pull = Map::new();
@@ -462,7 +462,7 @@ impl<'a> Pulls<'a> {
         let mut open = vec![];
         let mut kept = false;
         if let Some(repo) = &repo {
-            let polled = sqlx::query(&sql("SELECT polled_at, CAST(token AS BIGINT) AS token FROM pull_repos WHERE repo = ?"))
+            let polled = sqlx::query(sql("SELECT polled_at, CAST(token AS BIGINT) AS token FROM pull_repos WHERE repo = ?"))
                 .bind(repo)
                 .fetch_optional(&mut *self.conn)
                 .await?;
@@ -473,13 +473,13 @@ impl<'a> Pulls<'a> {
             });
             if kept {
                 let mut ids = vec![id.to_uppercase()];
-                let aliases = sqlx::query(&sql("SELECT alias FROM issue_aliases WHERE project = ? AND issue = ?"))
+                let aliases = sqlx::query(sql("SELECT alias FROM issue_aliases WHERE project = ? AND issue = ?"))
                     .bind(project)
                     .bind(&id)
                     .fetch_all(&mut *self.conn)
                     .await?;
                 ids.extend(aliases.iter().map(|a| a.get::<String, _>("alias").to_uppercase()));
-                let rows = sqlx::query(&sql(
+                let rows = sqlx::query(sql(
                     "SELECT CAST(number AS BIGINT) AS number, names, base, url, author, state FROM pull_states WHERE repo = ? AND merged = 0 AND closed = 0 ORDER BY number",
                 ))
                 .bind(repo)
@@ -494,7 +494,7 @@ impl<'a> Pulls<'a> {
             }
         }
 
-        let rows = sqlx::query(&sql(
+        let rows = sqlx::query(sql(
             "SELECT repo, CAST(number AS BIGINT) AS number, base, url, author, state, merged_at FROM issue_pulls WHERE project = ? AND issue = ? ORDER BY updated_at DESC, number DESC",
         ))
         .bind(project)
@@ -526,10 +526,10 @@ impl<'a> Pulls<'a> {
     pub async fn kept_on_issue(&mut self, project: &str, issue: &str) -> Result<Value> {
         let id = self.issue_id(project, issue).await?;
         let aliases =
-            sqlx::query(&sql("SELECT alias FROM issue_aliases WHERE project = ? AND issue = ?")).bind(project).bind(&id).fetch_all(&mut *self.conn).await?;
+            sqlx::query(sql("SELECT alias FROM issue_aliases WHERE project = ? AND issue = ?")).bind(project).bind(&id).fetch_all(&mut *self.conn).await?;
         let mut ids = vec![id.clone()];
         ids.extend(aliases.iter().map(|a| a.get::<String, _>("alias")));
-        let pulls = sqlx::query(&sql(
+        let pulls = sqlx::query(sql(
             "SELECT repo, CAST(number AS BIGINT) AS number, title, url, branch, base, author, state, merged_at, updated_at, risk, risk_why, risk_by \
              FROM issue_pulls WHERE project = ? AND issue = ? ORDER BY updated_at DESC, number DESC",
         ))
@@ -553,7 +553,7 @@ impl<'a> Pulls<'a> {
     /// kind (`issueOf`, ORR-1153): what a PR or a branch naming it is shown on. Null when none is.
     pub async fn named(&mut self, projects: &[String], ids: &[String]) -> Result<Value> {
         let Some((project, id)) = self.issue_of(projects, ids).await? else { return Ok(json!({"issue": null})) };
-        let row = sqlx::query(&sql("SELECT i.title, s.kind FROM issues i LEFT JOIN statuses s ON s.id = i.status WHERE i.project = ? AND i.id = ?"))
+        let row = sqlx::query(sql("SELECT i.title, s.kind FROM issues i LEFT JOIN statuses s ON s.id = i.status WHERE i.project = ? AND i.id = ?"))
             .bind(&project)
             .bind(&id)
             .fetch_one(&mut *self.conn)

@@ -25,7 +25,7 @@ impl<'a> Presence<'a> {
     pub(crate) async fn keep(&mut self, session: &str, projects: &[String]) -> Result<()> {
         let now = stamp();
         for project in projects {
-            sqlx::query(&sql(
+            sqlx::query(sql(
                 "INSERT INTO session_presence (session, project, seen_at) VALUES (?, ?, ?) ON CONFLICT (session, project) DO UPDATE SET seen_at = excluded.seen_at",
             ))
             .bind(session)
@@ -34,23 +34,23 @@ impl<'a> Presence<'a> {
             .execute(&mut *self.conn)
             .await?;
         }
-        sqlx::query(&sql("DELETE FROM session_presence WHERE session = ? AND seen_at < ?")).bind(session).bind(&now).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM session_presence WHERE session = ? AND seen_at < ?")).bind(session).bind(&now).execute(&mut *self.conn).await?;
         // Those gone quiet for long are let go here too, so the table only holds what's recent.
         let stale = (chrono::Utc::now() - FRESH * 10).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        sqlx::query(&sql("DELETE FROM session_presence WHERE seen_at < ?")).bind(stale).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM session_presence WHERE seen_at < ?")).bind(stale).execute(&mut *self.conn).await?;
         Ok(())
     }
 
     /// The session has gone, from every project.
     pub(crate) async fn forget(&mut self, session: &str) -> Result<()> {
-        sqlx::query(&sql("DELETE FROM session_presence WHERE session = ?")).bind(session).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM session_presence WHERE session = ?")).bind(session).execute(&mut *self.conn).await?;
         Ok(())
     }
 
     /// Whether the session is there to hear on the project: said to be within `FRESH`.
     pub(crate) async fn present(&mut self, project: &str, session: &str) -> Result<bool> {
         let since = (chrono::Utc::now() - FRESH).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        let row = sqlx::query(&sql("SELECT 1 AS one FROM session_presence WHERE session = ? AND project = ? AND seen_at >= ?"))
+        let row = sqlx::query(sql("SELECT 1 AS one FROM session_presence WHERE session = ? AND project = ? AND seen_at >= ?"))
             .bind(session)
             .bind(project)
             .bind(since)
