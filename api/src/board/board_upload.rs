@@ -306,7 +306,7 @@ impl Writer<'_> {
                 .map(pair)
                 .unwrap_or_else(|| ("backlog".into(), "backlog".into()))
         };
-        let people = self.people(body).await?;
+        let people = self.people(body, workspace).await?;
         let person_for = |who: Option<&Value>| people.of(who);
         let on_this_board = |row: &Row| -> Row {
             let mut row = row.clone();
@@ -324,11 +324,10 @@ impl Writer<'_> {
 
         self.bring_uploads(body.get("uploads"), actor, workspace).await?;
 
-        // What points outside the board stays only where it leads somewhere here that the uploader may see.
+        // What points outside the board stays only where it leads somewhere here that the uploader may see, in the
+        // workspace the board comes into: another workspace's project is dropped as one that isn't here (ORR-1382).
         let releases_from = match source.get("releases_from") {
-            Some(Value::String(from)) if self.exists("SELECT 1 FROM project_members WHERE project = ? AND person = ?", &[from.as_str(), holder]).await? => {
-                Value::String(from.clone())
-            }
+            Some(Value::String(from)) if self.on_a_board_here(from, holder, workspace).await? => Value::String(from.clone()),
             _ => Value::Null,
         };
         let mut project = source.clone();
@@ -458,7 +457,7 @@ impl Writer<'_> {
             if !inside {
                 let Value::String(on) = &on else { continue };
                 let issue = link.get("on_issue").map(said).unwrap_or_default();
-                let seen = self.exists("SELECT 1 FROM project_members WHERE project = ? AND person = ?", &[on.as_str(), holder]).await?;
+                let seen = self.on_a_board_here(on, holder, workspace).await?;
                 if !seen || !self.exists("SELECT 1 FROM issues WHERE project = ? AND id = ?", &[on.as_str(), issue.as_str()]).await? {
                     continue;
                 }
@@ -503,14 +502,26 @@ impl Writer<'_> {
         Ok(())
     }
 
-    /// The people here, and those the file names, to find one by name.
-    async fn people(&mut self, body: &Value) -> Result<People> {
-        let here: Vec<(String, String)> = sqlx::query("SELECT id, name FROM people")
-            .fetch_all(&mut *self.conn)
-            .await?
-            .iter()
-            .map(|row| (row.get::<String, _>("id"), row.get::<String, _>("name")))
-            .collect();
+    /// Whether `project` is in `workspace` and `holder` is on its board: what a link out of an uploaded board may lead to.
+    async fn on_a_board_here(&mut self, project: &str, holder: &str, workspace: &str) -> Result<bool> {
+        self.exists(
+            "SELECT 1 FROM projects p JOIN project_members m ON m.project = p.id WHERE p.id = ? AND p.workspace = ? AND m.person = ?",
+            &[project, workspace, holder],
+        )
+        .await
+    }
+
+    /// The people of the workspace the board comes into, and those the file names, to find one by name. Someone only
+    /// in another workspace isn't found, so the file can't put them on the board or tell that they're here (ORR-1382).
+    async fn people(&mut self, body: &Value, workspace: &str) -> Result<People> {
+        let here: Vec<(String, String)> =
+            sqlx::query(&sql("SELECT p.id, p.name FROM people p JOIN workspace_members w ON w.person = p.id WHERE w.workspace = ?"))
+                .bind(workspace)
+                .fetch_all(&mut *self.conn)
+                .await?
+                .iter()
+                .map(|row| (row.get::<String, _>("id"), row.get::<String, _>("name")))
+                .collect();
         let named: HashMap<String, String> = rows(body.get("people"))
             .iter()
             .map(|person| (person.get("id").map(said).unwrap_or_default().to_lowercase(), person.get("name").map(said).unwrap_or_default().to_lowercase()))
@@ -531,7 +542,7 @@ impl Writer<'_> {
         if !held {
             return Err(ApiError::not_found(format!("No board {id} of yours to add to")));
         }
-        let people = self.people(body).await?;
+        let people = self.people(body, workspace).await?;
         self.later(upload, tables, &people).await?;
         Ok(())
     }
