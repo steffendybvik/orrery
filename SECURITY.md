@@ -397,8 +397,8 @@ releases (`steffendybvik/orrery`, public, no token) a few seconds after it start
 sidebar when a newer version is out. That request carries nothing of yours, and `ORRERY_UPDATE_CHECK=false` turns it
 off. Second, it shows the open pull requests on
 projects whose repo is there and to notice when one conflicts, merges or closes. It reads, never writes:
-each repo is polled in the background, once a minute with a token and every ten minutes without (a page
-open may also ask, no more than that), and it sends the `GITHUB_TOKEN` secret only when you've set one that
+each repo is polled in the background, every five minutes with a token (slower as its hourly allowance runs low)
+and every ten minutes without (a page open may also ask, no more than once a minute), and it sends the `GITHUB_TOKEN` secret only when you've set one that
 may go there. What it reads is kept in orrery's database: each PR's title, branch, state and the issue
 ids it names, not its body.
 

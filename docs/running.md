@@ -75,7 +75,9 @@ All optional, in a `.env` beside `docker-compose.yml` (see `.env.example`):
 
 orrery reads each project's pull requests off GitHub (the Pull requests page, an issue's PRs, and the comments it
 leaves when one conflicts, fails or merges). A public repo works without a token, but only its list, every ten
-minutes. With a token, a private repo works too, and orrery reads where each pull request stands every minute.
+minutes. With a token, a private repo works too, and orrery reads where each pull request stands every five minutes. That uses
+the token's person's hourly allowance on GitHub, which their own `gh` and sessions share: orrery logs what's left after
+each read and slows to every 15 minutes when it runs low, then waits for the reset when it's nearly gone.
 
 1. On GitHub, [make a fine-grained token](https://github.com/settings/personal-access-tokens/new) with
    *Pull requests: Read-only* on the repos your projects point at (a classic token needs `repo`). The Branches view
