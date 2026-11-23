@@ -308,6 +308,38 @@ async fn a_board_is_exported_as_one_file_named_for_the_day() {
     assert_eq!(api.get("/api/projects/nope/export").send().await.status, 404);
 }
 
+/// Another workspace's image named in a board's text stays out of its export (ORR-1384): the id alone gets nobody its bytes.
+#[tokio::test]
+async fn an_export_holds_only_its_own_workspaces_images() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let rockets = api.acme(&["bo"]).await;
+    let project = api.project("Primes").await;
+    for (id, workspace) in [("aaaaaaaaaaaaaaaaaaaaaaaa", "default"), ("bbbbbbbbbbbbbbbbbbbbbbbb", "acme")] {
+        sqlx::query(crate::db::sql(
+            "INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at, workspace) VALUES (?, 'image/png', 'dot.png', 3, ?, 'owner', 1, ?, ?)",
+        ))
+        .bind(id)
+        .bind(vec![1_u8, 2, 3])
+        .bind("2026-11-07T00:00:00.000Z")
+        .bind(workspace)
+        .execute(&api.app.pool)
+        .await
+        .unwrap();
+    }
+    let body = "![mine](/api/uploads/aaaaaaaaaaaaaaaaaaaaaaaa) ![theirs](/api/uploads/bbbbbbbbbbbbbbbbbbbbbbbb)";
+    api.post(&format!("/api/projects/{project}/docs"), json!({"title": "Plan", "body": body})).send().await;
+    let reply = api.get(&format!("/api/projects/{project}/export?uploads=1")).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    let ids: Vec<&str> = reply.body["uploads"].as_array().unwrap().iter().map(|u| u["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["aaaaaaaaaaaaaaaaaaaaaaaa"], "acme's image isn't Primes'");
+    // And acme's board, naming default's image, gets none of it.
+    api.post(&format!("/api/projects/{rockets}/docs"), json!({"title": "Plan", "body": body})).send().await;
+    let theirs = api.get(&format!("/api/projects/{rockets}/export?uploads=1")).send().await;
+    let ids: Vec<&str> = theirs.body["uploads"].as_array().unwrap().iter().map(|u| u["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["bbbbbbbbbbbbbbbbbbbbbbbb"]);
+}
+
 #[tokio::test]
 async fn a_new_project_shares_releases_only_from_one_with_its_own() {
     let api = TestApi::new().await;
