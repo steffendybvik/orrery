@@ -260,10 +260,14 @@ export class Secrets {
             throw badRequest(`"url" isn't a URL: ${template}`)
         }
         if (url.protocol !== 'https:') throw badRequest('Secrets only go over https')
-        const host = scrub(url.host)
+        // What's said and kept is the url as the agent wrote it, never the filled one: a value put in the host comes
+        // back lowercased, or cut at a `/`, in no form the scrubber knows, and a whole address's path is part of it (ORR-1389).
+        const asSent = sentAs(template)
         for (const [name, {hosts}] of secrets) {
-            if (!hosts.includes(url.host)) throw refusedFor('secrets.egress', `${name} may only go to ${hosts.join(', ')}, not ${host}`)
+            if (!hosts.includes(url.host)) throw refusedFor('secrets.egress', `${name} may only go to ${hosts.join(', ')}, not ${scrub(asSent.host)}`)
         }
+        // One of the hosts the secrets allow, so not a value.
+        const host = url.host
 
         const sent = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k, fill(v)]))
         if (text !== undefined && typeof (body as {body?: unknown}).body !== 'string' && !Object.keys(sent).some(k => k.toLowerCase() === 'content-type')) {
@@ -275,7 +279,7 @@ export class Secrets {
                 : undefined
         const record = async (status: number | null, error: string | null) => {
             for (const name of names) {
-                await this.keepUse(name, {method, host, path: scrub(url.pathname), project, issue, status, error, created_by: actor.name, created_at: new Date().toISOString()})
+                await this.keepUse(name, {method, host, path: scrub(asSent.path), project, issue, status, error, created_by: actor.name, created_at: new Date().toISOString()})
             }
             await this.changed(true)
             // Not its path: what the secret is used on is the secret's own record, not the log's.
@@ -508,6 +512,19 @@ function fillUrl(template: string, fill: (part: string, escape?: (value: string)
     const at = rest.search(/[?#]/)
     const [path, query] = at < 0 ? [rest, ''] : [rest.slice(0, at), rest.slice(at)]
     return fill(lead) + fill(path, inPath) + fill(query, encodeURIComponent)
+}
+
+/** Where `template` goes, as written, placeholders and all: never a filled value or any part of one. A url that
+ * starts with a whole address has its host in the secret, so it's said as that placeholder's. */
+function sentAs(template: string): {host: string, path: string} {
+    const lead = template.match(/^\{\{secret:[A-Za-z0-9_]+\}\}/)?.[0] ?? ''
+    const rest = template.slice(lead.length)
+    const at = rest.search(/[?#]/)
+    const before = at < 0 ? rest : rest.slice(0, at)
+    if (lead) return {host: `the address in ${lead}`, path: lead + before}
+    const parts = before.match(/^[A-Za-z][A-Za-z0-9+.-]*:[/\\]{2}([^/\\]*)(.*)$/s)
+    const [, authority = before, path = ''] = parts ?? []
+    return {host: authority.slice(authority.lastIndexOf('@') + 1), path: path || '/'}
 }
 
 const inPath = (value: string) => encodeURIComponent(value).replaceAll('%2F', '/')
