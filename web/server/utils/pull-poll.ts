@@ -3,8 +3,10 @@
 // closed, or back to ready or approved) says so once, as a `PullChange`, for what acts on it. The pages read what it
 // keeps while it's fresh (pulls.ts).
 //
-// With a GITHUB_TOKEN secret each repo is one GraphQL query a minute: its open PRs, and those most recently merged or
-// closed. Without one GitHub allows 60 requests an hour, so it's two REST lists every ten minutes, which say nothing of
+// With a GITHUB_TOKEN secret each repo is one GraphQL query every five minutes: its open PRs, and those most recently
+// merged or closed. It costs about 4 of GitHub's 5,000 points an hour, which the token's person shares with everything
+// else they run (their sessions' `gh` too), so each query reads what's left, logs it, and the poll slows as it runs low
+// (ORR-1394). Without one GitHub allows 60 requests an hour, so it's two REST lists every ten minutes, which say nothing of
 // a PR's state but do say it merged or closed. A repo with more than 100 open costs a query (or list) more for each
 // hundred, up to 300 read (ORR-615); past that it's cut short, says so on the page, and closes none it didn't read. A repo's first poll only records, as does its first with a token after
 // polls without one: turning it on, or adding a token, tells nothing of the PRs already open. A rate limit holds the repo until GitHub's reset (shared with the pages); a refused token holds it an
@@ -19,7 +21,12 @@ import {writeToApi} from './api-router'
 import {ORRERY} from '../store/schema'
 
 /** How often a repo is polled: with a token, and without one. */
-const POLL_EVERY = 60_000
+export const POLL_EVERY = 5 * 60_000
+/** With a token, how often while GitHub's GraphQL points left are under `LOW`; under `LAST`, not till they reset, so the
+ * token's person keeps the rest for their own (ORR-1394). The owner's Poll now still goes. */
+export const POLL_WHEN_LOW = 15 * 60_000
+const LOW = 1000
+const LAST = 250
 export const POLL_WITHOUT_TOKEN = 10 * 60_000
 /** Without a token, how soon the owner's Poll now may poll a repo again after the last one they asked for, and after any
  * read: two of GitHub's 60 requests an hour each time, so pressing it as often as it allows, with the background poll,
@@ -28,7 +35,7 @@ const POLL_NOW_WITHOUT_TOKEN = 5 * 60_000
 const READ_AGAIN_WITHOUT_TOKEN = 60_000
 /** How long a refused token holds a repo before it's tried again. */
 const REFUSED_FOR = 60 * 60_000
-/** The most recently merged or closed PRs each poll reads: enough for a busy minute, or ten minutes without a token. */
+/** The most recently merged or closed PRs each poll reads: enough for a busy five minutes, or ten without a token. */
 const DONE = 30
 /** How long a merged or closed PR, or a repo nobody points at any more, is kept. */
 const KEEP = 7 * 24 * 60 * 60_000
@@ -96,7 +103,10 @@ const FIELDS = `number title url body isDraft headRefName baseRefName headRefOid
     author { login } mergeStateStatus reviewDecision merged mergedAt closed mergeCommit { oid }
     reviews(last: 1, states: [CHANGES_REQUESTED]) { nodes { id author { login } body comments(first: 20) { nodes { path line body } } } }
     commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`
+/** What a query cost of GitHub's GraphQL points, and how many are left till when (ORR-1394). */
+const RATE = 'rateLimit { cost remaining resetAt }'
 const QUERY = `query($owner: String!, $name: String!) {
+    ${RATE}
     repository(owner: $owner, name: $name) {
         open: pullRequests(states: OPEN, first: ${PAGE}, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { ${FIELDS} } pageInfo { hasNextPage endCursor } }
         done: pullRequests(states: [MERGED, CLOSED], first: ${DONE}, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { ${FIELDS}
@@ -105,10 +115,18 @@ const QUERY = `query($owner: String!, $name: String!) {
 }`
 /** The open PRs after the first page, while there are more (ORR-615). */
 const OPEN_AFTER = `query($owner: String!, $name: String!, $after: String!) {
+    ${RATE}
     repository(owner: $owner, name: $name) {
         open: pullRequests(states: OPEN, first: ${PAGE}, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { ${FIELDS} } pageInfo { hasNextPage endCursor } }
     }
 }`
+
+/** GitHub's GraphQL points after a query: what it cost, how many are left, and when they're back to full. */
+interface RateLimit {
+    cost: number
+    remaining: number
+    resetAt: string
+}
 
 /** A page of a repo's PRs as GitHub's GraphQL gives it. */
 interface GraphPage {
@@ -211,6 +229,8 @@ export interface PolledRow {
 export class PullPoll {
     /** When each repo was last polled (or tried), and with a token or not, in this process. */
     private readonly last = new Map<string, {at: number, token: boolean}>()
+    /** GitHub's GraphQL points left after each repo's last poll with a token, and when they reset (ORR-1394). */
+    private readonly points = new Map<string, {remaining: number, resets: number}>()
     /** When the owner's Poll now last polled each repo without a token. */
     private readonly pressed = new Map<string, number>()
     /** Repos whose token GitHub turned down, until when; and those said so in the log. */
@@ -297,7 +317,7 @@ export class PullPoll {
         const [asker = ''] = projects
         const token = await this.hasToken(asker)
         const last = this.last.get(repo)
-        if (!force && last && last.token === token && now - last.at < (token ? POLL_EVERY : POLL_WITHOUT_TOKEN)) return
+        if (!force && last && last.token === token && now - last.at < (token ? this.every(repo, now) : POLL_WITHOUT_TOKEN)) return
         if (force && !token) {
             const after = Math.max(last && !last.token ? last.at + READ_AGAIN_WITHOUT_TOKEN : 0, (this.pressed.get(repo) ?? 0) + POLL_NOW_WITHOUT_TOKEN)
             if (now < after) return `Read without a token a moment ago: it can be polled again at ${clock(after)} UTC (a GITHUB_TOKEN secret lifts this)`
@@ -305,6 +325,15 @@ export class PullPoll {
         }
         this.last.set(repo, {at: now, token})
         await this.poll(repo, projects, asker, token)
+    }
+
+    /** How long after its last poll a repo with a token is polled again: slower as GitHub's points run low, and not
+     * till they reset once few are left (ORR-1394). */
+    private every(repo: string, now: number): number {
+        const points = this.points.get(repo)
+        if (!points || points.resets <= now) return POLL_EVERY
+        if (points.remaining < LAST) return points.resets - (this.last.get(repo)?.at ?? now)
+        return points.remaining < LOW ? POLL_WHEN_LOW : POLL_EVERY
     }
 
     /** Reads the repo's PRs, keeps what each is, and tells what changed. */
@@ -420,6 +449,8 @@ export class PullPoll {
             const {value} = await this.pulls.ask<{data?: {repository: {open: GraphPage, done?: GraphPage} | null}, errors?: {message: string}[]}>(
                 repo, asker, '/graphql', {query: text, variables: {owner, name, ...after ? {after} : {}}})
             if (value.errors?.length) throw new Error(`GitHub answered for ${repo}: ${value.errors.map(e => e.message).join('; ')}`)
+            const rate = (value.data as {rateLimit?: RateLimit} | undefined)?.rateLimit
+            if (rate) this.spent(repo, rate)
             const found = value.data?.repository
             if (!found) throw new Error(`GitHub has no ${repo} that the ${GITHUB_SECRET} secret can read`)
             return found
@@ -435,6 +466,13 @@ export class PullPoll {
         return {open, done: (first.done?.nodes ?? []).map(fromGraph), more: !!page?.hasNextPage}
     }
 
+    /** Keeps what a query left of GitHub's points, and logs it, so how fast the poll spends them can be seen (ORR-1394). */
+    private spent(repo: string, rate: RateLimit) {
+        const resets = Date.parse(rate.resetAt)
+        this.points.set(repo, {remaining: rate.remaining, resets: Number.isNaN(resets) ? this.now() : resets})
+        console.log(`[orrery] polled ${repo}'s pull requests: cost ${rate.cost}, ${rate.remaining} of GitHub's points left until ${Number.isNaN(resets) ? '?' : clock(resets)} UTC`)
+    }
+
     private async lists(repo: string, asker: string): Promise<{open: Polled[], done: Polled[], more: boolean}> {
         const open = await this.pulls.askPages<ListedPull>(repo, asker, `/repos/${repo}/pulls?state=open&per_page=${PAGE}`)
         const done = await this.pulls.ask<ListedPull[]>(repo, asker, `/repos/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=${DONE}`)
@@ -446,6 +484,7 @@ export class PullPoll {
         for (const repo of await this.keepForgotten(repos, new Date(this.now() - KEEP).toISOString())) {
             this.last.delete(repo)
             this.pressed.delete(repo)
+            this.points.delete(repo)
         }
     }
 

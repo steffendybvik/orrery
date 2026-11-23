@@ -3,6 +3,7 @@
 // seals and opens it stays with the local app (decision-rust-api-secrets-settings), which checks each write, seals it,
 // tells the event log and sends what's kept here. So these routes are the local app's alone: the router sends none of
 // them, and a browser can't reach them without the API's token.
+use crate::access::scope::Workspace;
 use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
@@ -93,12 +94,12 @@ pub struct SecretWrites<'c> {
     pub effects: Effects,
     pub outbox: Option<Outbox>,
     /// The workspace whose secrets these are (ORR-1107).
-    pub workspace: String,
+    pub workspace: Workspace,
 }
 
 impl<'c> SecretWrites<'c> {
-    pub fn new(conn: &'c mut AnyConnection) -> Self {
-        SecretWrites { conn, effects: Effects::default(), outbox: None, workspace: "default".into() }
+    pub fn of(conn: &'c mut AnyConnection, workspace: Workspace) -> Self {
+        SecretWrites { conn, effects: Effects::default(), outbox: None, workspace }
     }
 
     /// Keeps the secret `name` as the local app sealed it (`set`, `narrow`): `{value, last4, hosts, projects,
@@ -134,7 +135,7 @@ impl<'c> SecretWrites<'c> {
         .bind(i64::from(owned))
         .bind(&at)
         .bind(&at)
-        .bind(&self.workspace)
+        .bind(self.workspace.id())
         .execute(&mut *self.conn)
         .await
         .map(|_| ())
@@ -147,7 +148,7 @@ impl<'c> SecretWrites<'c> {
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
             for statement in ["DELETE FROM secrets WHERE name = ? AND workspace = ?", "DELETE FROM secret_uses WHERE secret = ? AND workspace = ?"] {
-                sqlx::query(&sql(statement)).bind(name).bind(&self.workspace).execute(&mut *self.conn).await?;
+                sqlx::query(&sql(statement)).bind(name).bind(self.workspace.id()).execute(&mut *self.conn).await?;
             }
             Ok(())
         }
@@ -186,7 +187,7 @@ impl<'c> SecretWrites<'c> {
             .bind(error)
             .bind(&created_by)
             .bind(created_at)
-            .bind(&self.workspace)
+            .bind(self.workspace.id())
             .execute(&mut *self.conn)
             .await?;
             if let Some(keep) = keep {
@@ -196,10 +197,10 @@ impl<'c> SecretWrites<'c> {
                 )))
                 .bind(name)
                 .bind(&created_by)
-                .bind(&self.workspace)
+                .bind(self.workspace.id())
                 .bind(name)
                 .bind(&created_by)
-                .bind(&self.workspace)
+                .bind(self.workspace.id())
                 .execute(&mut *self.conn)
                 .await?;
             }

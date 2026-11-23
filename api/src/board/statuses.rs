@@ -1,6 +1,7 @@
 // The orrery's issue statuses (ORR-926): what web/server/store/statuses.ts does with them, on the same table, answering
 // as web/server/api/statuses/ does. Every board has them, so a change tells every project and the settings stream
 // (`Effects.settings`), which the router in front fires as the store's `statusesChanged` would.
+use crate::access::scope::Workspace;
 use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
@@ -118,22 +119,18 @@ pub struct Statuses<'c> {
     pub outbox: Option<Outbox>,
     /// The workspace whose statuses these are (ORR-1107). Ids stay unique across the server: `default`'s are as they
     /// always were, another workspace's start with its id (`acme-todo`), so issues keep pointing at one by its id.
-    pub workspace: String,
+    pub workspace: Workspace,
 }
 
 impl<'c> Statuses<'c> {
-    pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Statuses { conn, effects: Effects::default(), outbox: None, workspace: "default".into() }
-    }
-
     /// The statuses of `workspace`.
-    pub fn of(conn: &'c mut AnyConnection, workspace: String) -> Self {
-        Statuses { workspace, ..Statuses::new(conn) }
+    pub fn of(conn: &'c mut AnyConnection, workspace: Workspace) -> Self {
+        Statuses { conn, effects: Effects::default(), outbox: None, workspace }
     }
 
     /// A new status's id in this workspace: as given in `default`, and with the workspace's id in front elsewhere.
     fn id_here(&self, id: &str) -> String {
-        if self.workspace == "default" || id.starts_with(&format!("{}-", self.workspace)) {
+        if self.workspace.is_default() || id.starts_with(&format!("{}-", self.workspace)) {
             id.to_string()
         } else {
             format!("{}-{id}", self.workspace)
@@ -147,7 +144,7 @@ impl<'c> Statuses<'c> {
         let row = sqlx::query(&sql("SELECT workspace FROM statuses WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
         match row.map(|r| r.get::<String, _>("workspace")) {
             None => return Ok(id.to_string()),
-            Some(here) if here == self.workspace => return Err(ApiError::conflict(format!("There is already a status \"{id}\""))),
+            Some(here) if here == self.workspace.id() => return Err(ApiError::conflict(format!("There is already a status \"{id}\""))),
             Some(_) => {}
         }
         let mut n = 1;
@@ -163,11 +160,13 @@ impl<'c> Statuses<'c> {
     /// Gives a workspace with no statuses yet the set orrery ships (ORR-1107), its ids its own (`acme-todo`), so a new
     /// workspace's boards can be drawn however it was made. `default` has had them since step 020.
     async fn seed(&mut self) -> Result<()> {
-        if self.workspace == "default" {
+        if self.workspace.is_default() {
             return Ok(());
         }
-        let any = sqlx::query(&sql("SELECT 1 FROM statuses WHERE workspace = ? LIMIT 1")).bind(&self.workspace).fetch_optional(&mut *self.conn).await?;
-        if any.is_some() || sqlx::query(&sql("SELECT 1 FROM workspaces WHERE id = ?")).bind(&self.workspace).fetch_optional(&mut *self.conn).await?.is_none() {
+        let any = sqlx::query(&sql("SELECT 1 FROM statuses WHERE workspace = ? LIMIT 1")).bind(self.workspace.id()).fetch_optional(&mut *self.conn).await?;
+        if any.is_some()
+            || sqlx::query(&sql("SELECT 1 FROM workspaces WHERE id = ?")).bind(self.workspace.id()).fetch_optional(&mut *self.conn).await?.is_none()
+        {
             return Ok(());
         }
         for (position, (id, name, kind, color)) in SHIPPED.iter().enumerate() {
@@ -179,7 +178,7 @@ impl<'c> Statuses<'c> {
                 .bind(*kind)
                 .bind(*color)
                 .bind(position as f64)
-                .bind(&self.workspace)
+                .bind(self.workspace.id())
                 .execute(&mut *self.conn)
                 .await?;
         }
@@ -192,7 +191,7 @@ impl<'c> Statuses<'c> {
         let rows = sqlx::query(&sql(
             "SELECT id, name, kind, color, CAST(position AS DOUBLE PRECISION) AS position FROM statuses WHERE workspace = ? ORDER BY position, id",
         ))
-        .bind(&self.workspace)
+        .bind(self.workspace.id())
         .fetch_all(&mut *self.conn)
         .await?;
         let all: Vec<Status> = rows
@@ -215,7 +214,7 @@ impl<'c> Statuses<'c> {
 
     /// Every board is drawn again with them, and the page gets the new list with the settings.
     async fn changed(&mut self) -> Result<()> {
-        let rows = sqlx::query(&sql("SELECT id FROM projects WHERE workspace = ?")).bind(&self.workspace).fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(&sql("SELECT id FROM projects WHERE workspace = ?")).bind(self.workspace.id()).fetch_all(&mut *self.conn).await?;
         self.effects.changed = rows.iter().map(|r| r.get::<String, _>("id")).collect();
         self.effects.settings = true;
         Ok(())
@@ -245,7 +244,7 @@ impl<'c> Statuses<'c> {
             Some(position) => position,
             None => {
                 let row = sqlx::query(&sql("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM statuses WHERE workspace = ?"))
-                    .bind(&self.workspace)
+                    .bind(self.workspace.id())
                     .fetch_one(&mut *self.conn)
                     .await?;
                 row.get::<Option<f64>, _>("n").unwrap_or(0.0) + 1.0
@@ -260,7 +259,7 @@ impl<'c> Statuses<'c> {
                 .bind(input["kind"].as_str().unwrap_or_default())
                 .bind(color)
                 .bind(position)
-                .bind(&self.workspace)
+                .bind(self.workspace.id())
                 .execute(&mut *self.conn)
                 .await?;
             self.changed().await

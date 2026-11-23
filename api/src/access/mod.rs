@@ -7,6 +7,7 @@ pub(crate) mod phone;
 pub(crate) mod presence;
 pub(crate) mod rails;
 pub(crate) mod rewrites;
+pub(crate) mod scope;
 pub(crate) mod secrets;
 pub(crate) mod seen;
 pub(crate) mod session_records;

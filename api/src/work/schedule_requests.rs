@@ -108,7 +108,7 @@ impl<'c> ScheduleRequests<'c> {
         if ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let all = Presets::new(self.conn).list(Some(project)).await?;
+        let all = Presets::for_project(&mut *self.conn, project).await?.list(Some(project)).await?;
         Ok(all
             .as_array()
             .into_iter()
@@ -146,14 +146,14 @@ impl<'c> ScheduleRequests<'c> {
                     .ok_or_else(|| ApiError::bad_request("Send \"id\" as the number of the schedule to change, or leave it out to make one"))?,
             ),
         };
-        let uid = Presets::new(self.conn).uid().await?;
+        let uid = crate::work::presets::uid(self.conn).await?;
         let current = match target {
-            Some(id) => Some(Schedules::new(self.conn).get(project, &id.to_string(), &uid).await?),
+            Some(id) => Some(Schedules::for_project(&mut *self.conn, project).await?.get(project, &id.to_string(), &uid).await?),
             None => None,
         };
         let owner = Actor { name: IssueWrites::new(self.conn).owner_id().await?, owner: true, ..Actor::default() };
         let body = Value::Object(fields.clone());
-        Schedules::new(self.conn).check(project, target, &body, &uid, &owner).await?;
+        Schedules::for_project(&mut *self.conn, project).await?.check(project, target, &body, &uid, &owner).await?;
         let mut ids: Vec<Value> = fields.get("presets").and_then(Value::as_array).cloned().unwrap_or_default();
         ids.extend(current.as_ref().and_then(|c| c["presets"].as_array().cloned()).unwrap_or_default());
         let presets = self.preset_names(project, &ids).await?;
@@ -296,8 +296,8 @@ impl ScheduleRequests<'_> {
         let line = ask_line(&request);
         let mut effects = Effects::default();
         let made = if allow {
-            let uid = Presets::new(self.conn).uid().await?;
-            let mut schedules = Schedules::new(self.conn);
+            let uid = crate::work::presets::uid(self.conn).await?;
+            let mut schedules = Schedules::for_project(&mut *self.conn, project).await?;
             schedules.outbox = Some(Outbox::new(actor.clone()));
             let made = match request.get("id").and_then(Value::as_i64) {
                 Some(schedule) => schedules.update(project, &schedule.to_string(), &request["body"], &uid, actor).await?,

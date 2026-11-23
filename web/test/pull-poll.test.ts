@@ -1,13 +1,13 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest'
 import type {EventEntry} from '../server/utils/event-log'
 import type {PullChange, PullStill} from '../server/utils/pull-poll'
-import {changesOf, PullPoll, POLL_WITHOUT_TOKEN} from '../server/utils/pull-poll'
+import {changesOf, PullPoll, POLL_EVERY, POLL_WHEN_LOW, POLL_WITHOUT_TOKEN} from '../server/utils/pull-poll'
 import {Pulls} from '../server/utils/pulls'
 import {Secrets} from '../server/utils/secrets'
 import {Store} from '../server/utils/store'
 import {testDb} from './db'
 
-// The background poll of the projects' PRs (ORR-506), with GitHub stubbed: one GraphQL query a minute with a token,
+// The background poll of the projects' PRs (ORR-506), with GitHub stubbed: one GraphQL query every five minutes with a token,
 // two REST lists every ten minutes without, what each PR was kept, and each change told once.
 const me = {name: 'skoll', owner: true}
 const TOKEN = 'ghp_abcdef1234567890'
@@ -21,6 +21,9 @@ let rest: Record<string, () => Response>
 let history: number[]
 let older: Record<string, unknown>[][]
 let refuse: boolean
+/** GitHub's GraphQL points as each query reports them, when set (ORR-1394); `limited` answers RATE_LIMITED instead. */
+let rate: {cost: number, remaining: number, resetAt: string} | undefined
+let limited: boolean
 let changes: PullChange[]
 let notes: EventEntry[]
 let pulls: Pulls
@@ -52,6 +55,8 @@ beforeEach(async () => {
     history = []
     older = []
     refuse = false
+    rate = undefined
+    limited = false
     changes = []
     notes = []
     const send = async (url: string | URL | Request, init?: RequestInit) => {
@@ -66,11 +71,13 @@ beforeEach(async () => {
         asked.push({url: String(url), method: init?.method ?? 'GET', auth: headers.get('authorization')})
         if (refuse) return json({message: 'Bad credentials'}, 401)
         if (path === '/graphql') {
+            if (limited) return new Response(JSON.stringify({errors: [{type: 'RATE_LIMITED', message: 'API rate limit exceeded for user ID 1.'}]}),
+                {status: 200, headers: {'content-type': 'application/json', 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Date.parse('2026-10-29T11:00:00Z') / 1000)}})
             // A hundred open to a page, as GitHub gives them, the cursor being where the next starts.
             const after = (JSON.parse(String(init?.body)) as {variables: {after?: string}}).variables.after
             const from = Number(after ?? 0)
             const page = {nodes: open.slice(from, from + 100), pageInfo: {hasNextPage: from + 100 < open.length, endCursor: String(from + 100)}}
-            return json({data: {repository: after ? {open: page} : {open: page, done: {nodes: done}}}})
+            return json({data: {...rate ? {rateLimit: rate} : {}, repository: after ? {open: page} : {open: page, done: {nodes: done}}}})
         }
         return rest[path]?.() ?? json({message: 'Not Found'}, 404)
     }
@@ -83,9 +90,9 @@ beforeEach(async () => {
 
 const withToken = () => secrets.set('GITHUB_TOKEN', {value: TOKEN, hosts: ['api.github.com']}, me)
 const done_ = (...pulls: Record<string, unknown>[]) => done = pulls
-/** The next poll, a minute on. */
-async function minuteOn() {
-    now += 60_000
+/** The next poll, one turn on. */
+async function pollOn() {
+    now += POLL_EVERY
     await poll.tick()
 }
 
@@ -102,7 +109,7 @@ describe('what an issue keeps of its pull requests (ORR-795)', () => {
         expect(await done()).toEqual([])
         open = []
         done_(pr(1, {merged: true, closed: true, mergedAt: '2026-10-29T10:30:00Z', updatedAt: '2026-10-29T10:30:00Z'}))
-        await minuteOn()
+        await pollOn()
         expect(await done()).toMatchObject([{number: 1, state: 'merged', base: 'main', branch: 'feat/sho-1-work', merged_at: '2026-10-29T10:30:00Z'}])
         done_()
         now += 8 * 24 * 60 * 60_000
@@ -117,11 +124,11 @@ describe('what an issue keeps of its pull requests (ORR-795)', () => {
         await poll.tick()
         expect(history).toEqual([1])
         expect((await done()).map(p => p.number)).toEqual([40])
-        await minuteOn()
+        await pollOn()
         expect(history).toEqual([1, 2])
         expect((await done()).map(p => [p.number, p.state]).sort()).toEqual([[40, 'merged'], [41, 'closed']])
         expect(await done('SHO-2')).toMatchObject([{number: 42}])
-        await minuteOn()
+        await pollOn()
         expect(history).toEqual([1, 2])
     })
 
@@ -146,7 +153,7 @@ describe('what an issue keeps of its pull requests (ORR-795)', () => {
         const rows = () => store.db.all<{issue: string, number: number}>('SELECT issue, number FROM issue_pulls ORDER BY issue, number')
         expect(await rows()).toEqual([{issue: 'SHO-1', number: 1}, {issue: 'SHO-2', number: 1}])
         open = [pr(1, {headRefName: 'work', body: 'Issue: http://o/p/shop/issues/SHO-2', updatedAt: '2026-10-29T11:00:00Z'}), pr(2, {headRefName: 'nothing'})]
-        await minuteOn()
+        await pollOn()
         expect(await rows()).toEqual([{issue: 'SHO-2', number: 1}])
     })
 
@@ -156,7 +163,7 @@ describe('what an issue keeps of its pull requests (ORR-795)', () => {
         done_(pr(2, {merged: true, closed: true, headRefName: 'feat/sho-1-two', mergedAt: '2026-10-29T09:00:00Z'}))
         await poll.tick()
         await store.updateProject('shop', {repo: null}, me)
-        await minuteOn()
+        await pollOn()
         const answer = await pulls.forIssue('shop', 'SHO-1')
         expect(answer).toMatchObject({repo: null, pulls: []})
         expect(answer.done.map(p => [p.number, p.state]).sort()).toEqual([[1, 'open'], [2, 'merged']])
@@ -181,16 +188,16 @@ describe('the pull request poll', () => {
         await watching.tick()
         // The first poll only records.
         expect(still).toEqual([])
-        now += 60_000
+        now += POLL_EVERY
         await watching.tick()
         expect(still).toEqual([{project: 'shop', issue: 'SHO-1', repo: 'you/shop', number: 1, updated_at: '2026-10-29T09:00:00Z', needs: ['conflicting']}])
         // News of it this poll is told as news, not as still needing work.
         still.length = 0
         open = [pr(1, {mergeStateStatus: 'DIRTY', commits: {nodes: [{commit: {statusCheckRollup: {state: 'FAILURE'}}}]}}), pr(2)]
-        now += 60_000
+        now += POLL_EVERY
         await watching.tick()
         expect(still).toEqual([])
-        now += 60_000
+        now += POLL_EVERY
         await watching.tick()
         expect(still.map(s => s.needs)).toEqual([['conflicting', 'checks_failed']])
     })
@@ -204,21 +211,21 @@ describe('the pull request poll', () => {
         expect(asked).toMatchObject([{url: 'https://api.github.com/graphql', method: 'POST', auth: `Bearer ${TOKEN}`}])
 
         open = [pr(1, {mergeStateStatus: 'DIRTY'}), pr(2, {mergeStateStatus: 'DIRTY'})]
-        await minuteOn()
+        await pollOn()
         expect(changes).toEqual([{project: 'shop', issue: 'SHO-2', repo: 'you/shop', kind: 'conflicting', key: 'you/shop#2 conflicting sha2a',
             pull: {number: 2, title: 'PR 2', url: 'https://github.com/you/shop/pull/2', branch: 'feat/sho-2-work', base: 'main', head_sha: 'sha2a', merge_sha: null, closed_by: null, review_id: null}}])
 
         // GitHub working it out again, then conflicting again on the same commit: nothing new.
         open = [pr(1, {mergeStateStatus: 'DIRTY'}), pr(2, {mergeStateStatus: 'UNKNOWN'})]
-        await minuteOn()
+        await pollOn()
         open = [pr(1, {mergeStateStatus: 'DIRTY'}), pr(2, {mergeStateStatus: 'DIRTY'})]
-        await minuteOn()
+        await pollOn()
         expect(changes).toHaveLength(1)
         // A new commit that still conflicts is a new change.
         open = [pr(1, {mergeStateStatus: 'DIRTY'}), pr(2, {mergeStateStatus: 'CLEAN', headRefOid: 'sha2b'})]
-        await minuteOn()
+        await pollOn()
         open = [pr(1, {mergeStateStatus: 'DIRTY'}), pr(2, {mergeStateStatus: 'DIRTY', headRefOid: 'sha2b'})]
-        await minuteOn()
+        await pollOn()
         expect(changes.map(c => [c.kind, c.key])).toEqual([
             ['conflicting', 'you/shop#2 conflicting sha2a'],
             ['ready', 'you/shop#2 ready sha2b'],
@@ -226,15 +233,57 @@ describe('the pull request poll', () => {
         ])
     })
 
-    it('asks a repo once a minute with a token', async () => {
+    it('asks a repo every five minutes with a token (ORR-1394)', async () => {
         await withToken()
         await poll.tick()
-        now += 30_000
+        now += POLL_EVERY - 15_000
         await poll.tick()
         expect(asked).toHaveLength(1)
-        now += 30_000
+        now += 15_000
         await poll.tick()
         expect(asked).toHaveLength(2)
+    })
+
+    it("slows down as GitHub's points run low, and waits for the reset when few are left (ORR-1394)", async () => {
+        await withToken()
+        const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+        rate = {cost: 4, remaining: 900, resetAt: '2026-10-29T11:00:00Z'}
+        await poll.tick()
+        expect(log).toHaveBeenCalledWith("[orrery] polled you/shop's pull requests: cost 4, 900 of GitHub's points left until 11:00 UTC")
+        await pollOn()
+        expect(asked).toHaveLength(1)
+        now += POLL_WHEN_LOW - POLL_EVERY
+        rate = {cost: 4, remaining: 200, resetAt: '2026-10-29T11:00:00Z'}
+        await poll.tick()
+        expect(asked).toHaveLength(2)
+        // Nothing more till 11:00, but the owner's Poll now still goes.
+        now = Date.parse('2026-10-29T10:59:00Z')
+        await poll.tick()
+        expect(asked).toHaveLength(2)
+        await poll.pollNow()
+        expect(asked).toHaveLength(3)
+        // Reset, and a turn after that Poll now: back to every five minutes.
+        rate = {cost: 4, remaining: 4996, resetAt: '2026-10-29T12:00:00Z'}
+        now = Date.parse('2026-10-29T11:04:00Z')
+        await poll.tick()
+        expect(asked).toHaveLength(4)
+        await pollOn()
+        expect(asked).toHaveLength(5)
+        log.mockRestore()
+    })
+
+    it('holds a repo till the reset when GraphQL answers RATE_LIMITED, the pages too (ORR-1394)', async () => {
+        await withToken()
+        open = [pr(1)]
+        await poll.tick()
+        limited = true
+        await pollOn()
+        expect(asked).toHaveLength(2)
+        expect((await pulls.forIssue('shop', 'SHO-1')).error).toBe("GitHub's rate limit is used up until 11:00 UTC")
+        await pollOn()
+        await pollOn()
+        expect(asked).toHaveLength(2)
+        expect((await poll.pollNow()).get('you/shop')).toBe("GitHub's rate limit is used up until 11:00 UTC")
     })
 
     it('tells failing checks, changes requested by each review, and approval', async () => {
@@ -242,13 +291,13 @@ describe('the pull request poll', () => {
         open = [pr(1)]
         await poll.tick()
         open = [pr(1, {commits: {nodes: [{commit: {statusCheckRollup: {state: 'FAILURE'}}}]}, mergeStateStatus: 'UNSTABLE'})]
-        await minuteOn()
+        await pollOn()
         open = [pr(1, {reviewDecision: 'CHANGES_REQUESTED', reviews: {nodes: [{id: 'R1'}]}})]
-        await minuteOn()
+        await pollOn()
         open = [pr(1, {reviewDecision: 'APPROVED', reviews: {nodes: [{id: 'R1'}]}})]
-        await minuteOn()
+        await pollOn()
         open = [pr(1, {reviewDecision: 'CHANGES_REQUESTED', reviews: {nodes: [{id: 'R2'}]}})]
-        await minuteOn()
+        await pollOn()
         expect(changes.map(c => c.key)).toEqual([
             'you/shop#1 checks_failed sha1a',
             // Green again: back to ready.
@@ -268,12 +317,12 @@ describe('the pull request poll', () => {
         for (const sha of ['f1', 'pending:ok1', 'ok1', 'f2']) {
             open = [sha.startsWith('pending:') ? pr(1, {headRefOid: sha.slice(8), commits: {nodes: [{commit: {statusCheckRollup: {state: 'PENDING'}}}]}})
                 : sha.startsWith('ok') ? pr(1, {headRefOid: sha}) : failing(sha)]
-            await minuteOn()
+            await pollOn()
         }
         // Green in between counts them afresh (ORR-529).
         expect(changes.filter(c => c.kind === 'checks_failed').map(c => c.failures)).toEqual([1, 1])
         open = [pr(1, {headRefOid: 'f2', reviewDecision: 'CHANGES_REQUESTED', reviews: {nodes: [{id: 'R1', author: {login: 'skoll'}, body: 'Split it.', comments: {nodes: [{path: 'a.ts', line: 3, body: 'Rename.'}]}}]}})]
-        await minuteOn()
+        await pollOn()
         expect(changes.at(-1)).toMatchObject({kind: 'changes_requested', review: {by: 'skoll', body: 'Split it.', comments: [{path: 'a.ts', line: 3, body: 'Rename.'}]}})
     })
 
@@ -287,9 +336,9 @@ describe('the pull request poll', () => {
             pr(2, {closed: true, timelineItems: {nodes: [{actor: {login: 'sam'}}]}}),
             pr(3, {merged: true, closed: true, mergeCommit: {oid: 'm3'}}),
         ]
-        await minuteOn()
+        await pollOn()
         expect(changes.map(c => [c.kind, c.issue, c.pull.merge_sha, c.pull.closed_by])).toEqual([['merged', 'SHO-1', 'm1', null], ['closed', 'SHO-2', null, 'sam']])
-        await minuteOn()
+        await pollOn()
         expect(changes).toHaveLength(2)
     })
 
@@ -300,7 +349,7 @@ describe('the pull request poll', () => {
         open = []
         rest['/repos/you/shop/pulls/1/files?per_page=100'] = () => json([{filename: 'web/server/utils/migrations/sqlite.ts'}, {filename: 'docs/API.md'}])
         done = [pr(1, {merged: true, closed: true, mergeCommit: {oid: 'm1'}}), pr(2, {merged: true, closed: true, mergeCommit: {oid: 'm2'}})]
-        await minuteOn()
+        await pollOn()
         expect(changes.map(c => [c.pull.number, c.files])).toEqual([[1, ['web/server/utils/migrations/sqlite.ts', 'docs/API.md']], [2, undefined]])
     })
 
@@ -309,7 +358,7 @@ describe('the pull request poll', () => {
         open = [pr(5, {headRefName: 'chore/deps'})]
         await poll.tick()
         open = [pr(5, {headRefName: 'chore/deps', mergeStateStatus: 'DIRTY'})]
-        await minuteOn()
+        await pollOn()
         expect(changes).toEqual([])
         expect((await pulls.all()).pulls.map(p => [p.number, p.state, p.issue])).toEqual([[5, 'conflicting', undefined]])
     })
@@ -325,7 +374,7 @@ describe('the pull request poll', () => {
         expect((await pulls.all()).pulls.map(p => [p.number, p.issue?.id])).toEqual([[1, 'SHO-2'], [2, 'SHO-2']])
         expect(asked).toEqual([])
         // Gone stale (the poll stopped), the pages ask GitHub again.
-        now += 4 * 60_000
+        now += 21 * 60_000
         rest['/repos/you/shop/pulls?state=open&per_page=100'] = () => json([])
         await pulls.forIssue('shop', 'SHO-1')
         expect(asked.map(a => a.url)).toEqual(['https://api.github.com/repos/you/shop/pulls?state=open&per_page=100'])
@@ -340,7 +389,7 @@ describe('the pull request poll', () => {
         rest['/repos/you/shop/pulls?state=closed&sort=updated&direction=desc&per_page=30'] = () => json([])
         await poll.tick()
         expect(asked.map(a => [a.method, a.auth])).toEqual([['GET', null], ['GET', null]])
-        await minuteOn()
+        await pollOn()
         expect(asked).toHaveLength(2)
         rest['/repos/you/shop/pulls?state=open&per_page=100'] = () => json([])
         rest['/repos/you/shop/pulls?state=closed&sort=updated&direction=desc&per_page=30'] = () => json([listed(1, {merged_at: '2026-10-29T10:05:00Z', merge_commit_sha: 'm1', closed_at: '2026-10-29T10:05:00Z'})])
@@ -359,7 +408,7 @@ describe('the pull request poll', () => {
         refuse = true
         await poll.tick()
         expect(notes).toMatchObject([{level: 'warn', kind: 'github.refused'}])
-        await minuteOn()
+        await pollOn()
         expect(asked).toHaveLength(1)
         now += 60 * 60_000
         await poll.tick()
@@ -370,7 +419,7 @@ describe('the pull request poll', () => {
         now += 60 * 60_000
         await poll.tick()
         refuse = true
-        await minuteOn()
+        await pollOn()
         expect(notes).toHaveLength(2)
     })
 
@@ -386,7 +435,7 @@ describe('the pull request poll', () => {
         expect(changes).toEqual([])
         // And tells what changes after it.
         open = [pr(1, {mergeStateStatus: 'BEHIND'}), pr(2, {commits: {nodes: [{commit: {statusCheckRollup: {state: 'FAILURE'}}}]}})]
-        await minuteOn()
+        await pollOn()
         expect(changes.map(c => c.key)).toEqual(['you/shop#1 behind sha1a'])
     })
 
@@ -401,10 +450,10 @@ describe('the pull request poll', () => {
         // Long conflicting and failing, which polls without a token couldn't tell.
         await withToken()
         open = [pr(1, {mergeStateStatus: 'DIRTY'}), pr(2, {reviewDecision: 'CHANGES_REQUESTED', reviews: {nodes: [{id: 'R1'}]}, commits: {nodes: [{commit: {statusCheckRollup: {state: 'FAILURE'}}}]}})]
-        await minuteOn()
+        await pollOn()
         expect(changes).toEqual([])
         open = [pr(1, {mergeStateStatus: 'CLEAN'}), pr(2, {reviewDecision: 'CHANGES_REQUESTED', reviews: {nodes: [{id: 'R1'}]}, commits: {nodes: [{commit: {statusCheckRollup: {state: 'FAILURE'}}}]}})]
-        await minuteOn()
+        await pollOn()
         expect(changes.map(c => c.key)).toEqual(['you/shop#1 ready sha1a'])
     })
 
@@ -470,7 +519,7 @@ describe('the pull request poll', () => {
         })
         rest['/repos/you/shop/pulls?state=open&per_page=100'] = () => json([listed(1, false), listed(2, true)])
         rest['/repos/you/shop/pulls?state=closed&sort=updated&direction=desc&per_page=30'] = () => json([])
-        await minuteOn()
+        await pollOn()
         const all = await pulls.all()
         expect(all.pulls.map(p => [p.number, p.state])).toEqual([[1, 'checking'], [2, 'draft']])
         expect(all.needs).toBe(0)
@@ -504,7 +553,7 @@ describe('the pull request poll', () => {
         await withToken()
         open = [pr(1)]
         await poll.tick()
-        now += 60_000
+        now += POLL_EVERY
         const background = poll.tick()
         const asking = poll.pollNow()
         await Promise.all([background, asking])
@@ -565,7 +614,7 @@ describe('the pull request poll', () => {
         expect(all.repos[0]!.cut).toBeUndefined()
         open = Array.from({length: 350}, (_, i) => pr(i + 1))
         asked = []
-        await minuteOn()
+        await pollOn()
         expect(asked).toHaveLength(3)
         all = await pulls.all()
         expect(all.open).toBe(300)
@@ -578,12 +627,12 @@ describe('the pull request poll', () => {
         await poll.tick()
         // Five newer ones push the last five past what's read: still open, not closed.
         open = [...Array.from({length: 5}, (_, i) => pr(1000 + i)), ...open]
-        await minuteOn()
+        await pollOn()
         expect(await store.db.get('SELECT COUNT(*) AS n FROM pull_states WHERE closed = 1')).toEqual({n: 0})
         expect((await pulls.all()).repos[0]!.cut).toBe(300)
         // Back under the cut, one gone from the list is closed again.
         open = open.slice(0, 200)
-        await minuteOn()
+        await pollOn()
         expect((await pulls.all()).repos[0]!.cut).toBeUndefined()
         expect(await store.db.get('SELECT COUNT(*) AS n FROM pull_states WHERE closed = 1')).toEqual({n: 105})
     })
@@ -593,7 +642,7 @@ describe('the pull request poll', () => {
         open = [pr(1)]
         await poll.tick()
         await store.updateProject('shop', {repo: 'https://gitlab.com/you/shop'}, me)
-        await minuteOn()
+        await pollOn()
         expect(await store.db.all('SELECT * FROM pull_states')).toEqual([])
         expect(await store.db.all('SELECT * FROM pull_repos')).toEqual([])
     })

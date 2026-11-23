@@ -4,6 +4,7 @@
 // deleting one, and sending one out (egress), stay the Nuxt server's routes: it checks each, seals the value with the
 // key and tells the event log, then keeps the row through work/secrets.rs (ORR-1096). The router sends only these reads here.
 // The sealed rows, `value` and all, go only to the local app, which holds the key to open them (`sealed`, ORR-1143).
+use crate::access::scope::Workspace;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
 use serde_json::{json, Map, Value};
@@ -72,29 +73,25 @@ fn use_of(row: &AnyRow) -> Value {
 pub struct Secrets<'c> {
     conn: &'c mut AnyConnection,
     /// The workspace whose secrets these are (ORR-1107): each has its own, by name.
-    workspace: String,
+    workspace: Workspace,
 }
 
 impl<'c> Secrets<'c> {
-    pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Secrets { conn, workspace: "default".into() }
-    }
-
     /// The secrets of `workspace`.
-    pub fn of(conn: &'c mut AnyConnection, workspace: String) -> Self {
+    pub fn of(conn: &'c mut AnyConnection, workspace: Workspace) -> Self {
         Secrets { conn, workspace }
     }
 
     /// Every secret by name, each with its latest use (`list`).
     pub async fn list(&mut self) -> Result<Value> {
         let rows = sqlx::query(&sql(&format!("SELECT {SECRET_COLUMNS} FROM secrets WHERE workspace = ? ORDER BY name")))
-            .bind(&self.workspace)
+            .bind(self.workspace.id())
             .fetch_all(&mut *self.conn)
             .await?;
         let last = sqlx::query(&sql(&format!(
             "SELECT {USE_COLUMNS} FROM secret_uses WHERE id IN (SELECT max(id) FROM secret_uses WHERE workspace = ? GROUP BY secret)"
         )))
-        .bind(&self.workspace)
+        .bind(self.workspace.id())
         .fetch_all(&mut *self.conn)
         .await?;
         Ok(Value::Array(
@@ -112,13 +109,13 @@ impl<'c> Secrets<'c> {
     pub async fn secret(&mut self, name: &str) -> Result<Value> {
         let row = sqlx::query(&sql(&format!("SELECT {SECRET_COLUMNS} FROM secrets WHERE name = ? AND workspace = ?")))
             .bind(name)
-            .bind(&self.workspace)
+            .bind(self.workspace.id())
             .fetch_optional(&mut *self.conn)
             .await?
             .ok_or_else(|| ApiError::not_found(format!("No secret {name}")))?;
         let uses: Vec<Value> = sqlx::query(&sql(&format!("SELECT {USE_COLUMNS} FROM secret_uses WHERE secret = ? AND workspace = ? ORDER BY id DESC LIMIT ?")))
             .bind(name)
-            .bind(&self.workspace)
+            .bind(self.workspace.id())
             .bind(USES)
             .fetch_all(&mut *self.conn)
             .await?
@@ -134,7 +131,7 @@ impl<'c> Secrets<'c> {
     pub async fn sealed(&mut self, name: &str) -> Result<Option<Value>> {
         let row = sqlx::query(&sql(&format!("SELECT {SEALED_COLUMNS} FROM secrets WHERE name = ? AND workspace = ?")))
             .bind(name)
-            .bind(&self.workspace)
+            .bind(self.workspace.id())
             .fetch_optional(&mut *self.conn)
             .await?;
         Ok(row.as_ref().map(sealed_of))

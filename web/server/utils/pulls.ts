@@ -4,7 +4,7 @@
 // failing checks, waiting on a review, or ready.
 //
 // A page that shows an issue's PRs, or the Pull requests page and the sidebar's count of those needing someone
-// (ORR-491), asks. While the poll (pull-poll.ts) has just read the repo with a token, they're read off what it keeps;
+// (ORR-491), asks. While the poll (pull-poll.ts) has read the repo with a token in the last 20 minutes, they're read off what it keeps;
 // otherwise GitHub is asked, and the answers kept for a minute (five without a token, as GitHub allows 60 requests an
 // hour then), so many pages and issues cost one list per repo.
 import type {H3Event} from 'h3'
@@ -30,9 +30,9 @@ export const PAGES = 3
 export type GitHubGet = (url: string, project: string, headers: Record<string, string>, init?: {method?: 'GET' | 'POST' | 'DELETE', body?: string})
     => Promise<{response: Response, secret: boolean}>
 
-/** How long what the poll keeps of a repo stands in for asking GitHub: a few of its minutes, so one late poll doesn't
- * send every page to GitHub. */
-const POLL_STANDS = 3 * 60_000
+/** How long what the poll keeps of a repo stands in for asking GitHub: past its slowest turn (every 15 minutes while
+ * GitHub's points run low, ORR-1394), so one late poll doesn't send every page to GitHub, a request a PR. */
+const POLL_STANDS = 20 * 60_000
 
 /** A PR as the poll keeps it (pull_states). */
 export interface KeptPull {
@@ -607,7 +607,15 @@ export class Pulls {
         }, body === undefined ? undefined : {method: 'POST', body: JSON.stringify(body)})
         if (response.ok) {
             const next = response.headers.get('link')?.match(/<([^>]+)>;\s*rel="next"/)?.[1]
-            return {value: await response.json() as T, secret, ...next ? {next} : {}}
+            const value = await response.json() as T
+            // GraphQL says its points ran out with a 200 and an error, not a 403 (ORR-1394): held till they're back as well.
+            if ((value as {errors?: {type?: string}[]} | null)?.errors?.some(e => e.type === 'RATE_LIMITED')) {
+                const reset = Number(response.headers.get('x-ratelimit-reset')) * 1000
+                const until = reset > this.now() ? reset : this.now() + FRESH
+                this.limited.set(repo, until)
+                throw new Error(limitMessage(until, secret))
+            }
+            return {value, secret, ...next ? {next} : {}}
         }
         const left = response.headers.get('x-ratelimit-remaining')
         if (response.status === 429 || (response.status === 403 && left === '0')) {

@@ -7,6 +7,7 @@
 // ORR-1130), once the Nuxt server has checked its claim, as only that knows which sessions are there to hear. The rails are the
 // store's: an agent changes only its person's issue, or its own proposal, moves one only under an issue that's its
 // person's too, and hands one on only back to the owner.
+use crate::access::scope::Workspace;
 use crate::board::issue_writes::IssueWrites;
 use crate::board::issues::{github_issue_of, github_repo, link_ref, Issues, GITHUB_OWN};
 use crate::changes;
@@ -1084,14 +1085,15 @@ impl IssueWrites<'_> {
         Ok(Placement { parent, moved, sent_parent: words.parent.is_some(), milestone, release: words.release.clone() })
     }
 
-    /// The epic sent as its number, `EPC-1` or its full id (`epicRow`, ORR-995), 404 when there's none.
+    /// The epic sent as its number, `EPC-1` or its full id (`epicRow`, ORR-995), 404 when there's none in `project`'s
+    /// workspace: another workspace's epic is as if it weren't here (ORR-1355).
     async fn epic_id(&mut self, project: &str, sent: &str) -> Result<i64> {
-        let settings = crate::work::settings::Settings::new(&mut *self.conn).get().await?;
-        let found = match epic_number(sent, settings["uid"].as_str().unwrap_or_default()).and_then(|n| n.parse::<i64>().ok()) {
-            // An epic of the issue's own workspace: another's is as if it weren't there (ORR-1347).
-            Some(id) => sqlx::query(&sql("SELECT e.id FROM epics e JOIN projects p ON p.workspace = e.workspace WHERE e.id = ? AND p.id = ?"))
+        let uid = crate::work::presets::uid(&mut *self.conn).await?;
+        let workspace = Workspace::of_project(&mut *self.conn, project).await?;
+        let found = match epic_number(sent, &uid).and_then(|n| n.parse::<i64>().ok()) {
+            Some(id) => sqlx::query(&sql("SELECT id FROM epics WHERE id = ? AND workspace = ?"))
                 .bind(id)
-                .bind(project)
+                .bind(workspace.id())
                 .fetch_optional(&mut *self.conn)
                 .await?
                 .map(|_| id),
