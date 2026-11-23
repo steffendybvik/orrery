@@ -255,6 +255,30 @@ struct ReleaseRow {
 
 /// Refused with a 409 saying where it went if `project` is marked as moved (ORR-1225): its copy here only reads, so
 /// nothing moves into it, takes its releases or waits on its issues either (ORR-1229).
+/// The id a new project in `workspace` gets when it asks for `id` (ORR-1350). Ids stay unique across the server, as
+/// every table and route names a project by its id alone, but one workspace's never blocks another's: an id this
+/// workspace has already is a 409, and one only another workspace has is quietly given `-2`, `-3`… until it's free, as
+/// a workspace's own id is. So nothing says another workspace has it.
+pub(crate) async fn free_project_id(conn: &mut AnyConnection, workspace: &str, id: &str) -> Result<String> {
+    let row = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(id).fetch_optional(&mut *conn).await?;
+    match row.map(|r| r.get::<String, _>("workspace")) {
+        None => return Ok(id.to_string()),
+        Some(here) if here == workspace => return Err(ApiError::conflict(format!("There is already a project \"{id}\": choose another id"))),
+        Some(_) => {}
+    }
+    let mut n = 1;
+    loop {
+        n += 1;
+        let tail = format!("-{n}");
+        let base: String = id.chars().take(40 - tail.len()).collect();
+        let next = format!("{}{tail}", base.trim_end_matches('-'));
+        let taken = sqlx::query(&sql("SELECT 1 FROM projects WHERE id = ?")).bind(&next).fetch_optional(&mut *conn).await?.is_some();
+        if !taken {
+            return Ok(next);
+        }
+    }
+}
+
 pub(crate) async fn not_moved(conn: &mut AnyConnection, project: &str) -> Result<()> {
     let moved: Option<String> =
         sqlx::query_scalar(&sql("SELECT moved_to FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *conn).await?.flatten();
@@ -386,11 +410,18 @@ impl<'c> Projects<'c> {
     }
 
     /// Whether `id` can take its releases from `from`: another project with releases of its own, one level only (`checkReleasesFrom`).
-    async fn check_releases_from(&mut self, id: &str, from: &str) -> Result<()> {
+    /// Only a project in `workspace`, the one `id` is in: another workspace's is as if it weren't here (ORR-1350).
+    async fn check_releases_from(&mut self, id: &str, from: &str, workspace: &str) -> Result<()> {
         if from == id {
             return Err(ApiError::bad_request("A project can't take its releases from itself; send release_mode \"own\" to give it its own"));
         }
-        let Some(source) = self.release_row(from).await? else {
+        let same =
+            sqlx::query(&sql("SELECT 1 FROM projects WHERE id = ? AND workspace = ?")).bind(from).bind(workspace).fetch_optional(&mut *self.conn).await?;
+        let source = match same {
+            Some(_) => self.release_row(from).await?,
+            None => None,
+        };
+        let Some(source) = source else {
             return Err(ApiError::bad_request(format!("No project \"{from}\" to take releases from")));
         };
         not_moved(self.conn, from).await?;
@@ -418,7 +449,8 @@ impl<'c> Projects<'c> {
             }
         }
         if let Some(from) = from {
-            self.check_releases_from(&row.id, from).await?;
+            let workspace: String = sqlx::query_scalar(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(&row.id).fetch_one(&mut *self.conn).await?;
+            self.check_releases_from(&row.id, from, &workspace).await?;
         }
         Ok(())
     }
@@ -439,9 +471,7 @@ impl<'c> Projects<'c> {
         if RESERVED_PROJECT_IDS.contains(&id.as_str()) {
             return Err(ApiError::bad_request(format!("\"{id}\" is one of a workspace's own pages; give another id in \"id\"")));
         }
-        if self.release_row(&id).await?.is_some() {
-            return Err(ApiError::conflict(format!("There is already a project \"{id}\"")));
-        }
+        let id = free_project_id(&mut *self.conn, &self.workspace, &id).await?;
         let key = match input.get("key").and_then(Value::as_str) {
             Some(key) => key.to_string(),
             None => key_for(&name),
@@ -453,7 +483,8 @@ impl<'c> Projects<'c> {
         }
         let (mode, from) = release_mode_of(&input, "none", &None)?;
         if let Some(from) = &from {
-            self.check_releases_from(&id, from).await?;
+            let workspace = self.workspace.clone();
+            self.check_releases_from(&id, from, &workspace).await?;
         }
         let holder = match IssueWrites::new(&mut *self.conn).person_asking(who, actor).await? {
             Some(holder) => holder,

@@ -321,3 +321,28 @@ async fn the_rest_of_a_big_board_comes_into_it_after_it() {
     assert_eq!(api.count("SELECT count(*) FROM signals WHERE project = 'copy'").await, 0, "nothing is signalled");
     assert_eq!(api.get("/api/projects/copy/comments/unanswered").send().await.body, json!([]));
 }
+
+/// A board's id and key are its workspace's (ORR-1350): one only another workspace has comes in with `-2` and the key
+/// as asked, and the later parts go to the id it was given. One its own workspace has is still a 409.
+#[tokio::test]
+async fn a_boards_id_or_key_another_workspace_has_is_no_clash() {
+    let api = TestApi::new().await;
+    let (project, file) = primes(&api).await;
+    api.acme(&["sam"]).await;
+    let reply = api.post("/api/boards", sent(&file, &project, "PRI")).header("orrery-workspace", "acme").send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert_eq!((&reply.body["id"], &reply.body["key"]), (&json!("primes-2"), &json!("PRI")), "{}", reply.body);
+    assert_eq!(api.count("SELECT count(*) FROM issues WHERE project = 'primes-2'").await, 2);
+    assert_eq!(api.count("SELECT count(*) FROM issues WHERE project = 'primes'").await, 2, "default's board is as it was");
+
+    let mut later = sent(&file, "primes-2", "PRI");
+    later["into"] = json!(true);
+    later["tables"] = json!({"projects": file["tables"]["projects"], "comments": file["tables"]["comments"]});
+    let added = api.post("/api/boards", later).header("orrery-workspace", "acme").send().await;
+    assert_eq!(added.status, 200, "{}", added.body);
+
+    let again = api.post("/api/boards", sent(&file, &project, "OTH")).send().await;
+    assert_eq!(again.status, 409, "{}", again.body);
+    let again = api.post("/api/boards", sent(&file, "fresh", "PRI")).send().await;
+    assert_eq!(again.status, 409, "{}", again.body);
+}

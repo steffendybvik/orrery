@@ -269,7 +269,8 @@ impl Writer<'_> {
         if self.exists("SELECT 1 FROM projects WHERE id = ?", &[id]).await? {
             return Err(ApiError::conflict(format!("There is already a project \"{id}\": choose another id")));
         }
-        if self.exists("SELECT 1 FROM projects WHERE key = ?", &[key]).await? {
+        // A key is its workspace's: another workspace's project with it is no clash (ORR-1350).
+        if self.exists("SELECT 1 FROM projects WHERE key = ? AND workspace = ?", &[key, workspace]).await? {
             return Err(ApiError::conflict(format!("There is already a project with the key {key}: choose another")));
         }
         let now = stamp();
