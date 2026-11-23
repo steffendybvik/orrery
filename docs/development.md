@@ -271,7 +271,9 @@ workspace of their own, and neither sees the other's projects, workspaces or eve
 `pnpm --dir web test:e2e:restart` builds the app and runs `e2e/restart/` on it, with a fresh `web/.data/e2e-restart.db`:
 its specs stop and start the server themselves: what outlives a restart (the owner's chats, `chats.spec.ts`), and moving
 an orrery to another server as the hosting doc says, a board's file and the whole database with its key (`move.spec.ts`,
-ORR-1209). `RESTART_NO_BUILD=1` skips the build.
+ORR-1209), each spec on SQLite files of its own under `web/.data/`. `RESTART_NO_BUILD=1` skips the build. CI runs it in
+a job of its own (`restart`) whenever it runs the browser suite: on a pull request into `main` that isn't a draft, on a
+release tag and by hand (ORR-1310).
 
 `pnpm --dir web images:readme` takes the README's images into `docs/images`, all 1440×900, from the playground's demo on an orrery of
 its own with a fresh `web/.data/readme.db`. It's a script rather than a test, so it isn't part of `pnpm test:e2e`. It rewrites only the images that differ by more than a run's own noise. A machine that isn't Linux renders every image differently, so the real ones come from the **Images** workflow, in CI's Playwright image: `gh workflow run images.yml --ref v<version>`, on a release branch. Any that changed go on `images/v<version>`, as one commit on that branch's tip, and the run's summary links the pull request to open. Actions can't open it here, and its checks wouldn't start if it did. Someone looks at the images, so it doesn't merge itself. A later run updates an open one and starts its checks again.

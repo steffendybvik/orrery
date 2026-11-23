@@ -1,6 +1,6 @@
 # Tests, typecheck and the production image, on every push and pull request; also the gate a release
 # tag has to pass before `release.yml` publishes anything. The e2e flows in Chrome on SQLite, and the performance run on SQLite
-# and on Postgres, run on a pull request into `main` that isn't a draft, on a release tag, and by hand (Run workflow); any
+# and on Postgres, and the restart suite on SQLite, run on a pull request into `main` that isn't a draft, on a release tag, and by hand (Run workflow); any
 # other pull request runs the unit tests alone. Safari's engine and Firefox run a smaller set of the flows then (ORR-1269). Every job runs with the Rust API in front, as it's
 # no longer opt-in (ORR-1091).
 name: CI
@@ -300,6 +300,46 @@ jobs:
         with:
           name: playwright-report-${{ matrix.browser }}-${{ matrix.shard }}
           path: web/playwright-report/
+          retention-days: 7
+
+  # What outlives a restart (web/e2e/restart, ORR-1310): the built app, stopped and started on its own SQLite file, as a
+  # rebuild or a container restart does. The only test of a real import between two orrerys (`importOrrery`'s write path,
+  # what moving to a server goes through, ORR-1209) and of a chat carried on after orrery restarts. Run when the e2e flows
+  # are, in a job of its own, as it builds the app rather than running `nuxt dev`.
+  restart:
+    needs: [playwright, api]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v${{ needs.playwright.outputs.version }}-noble
+      options: --ipc=host
+    env:
+      NUXT_API_BIN: ${{ github.workspace }}/.api/orrery-api
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: orrery-api
+          path: .api
+      # An artifact doesn't keep the file's mode.
+      - run: chmod +x .api/orrery-api
+      # The api job's binary stands in for the script's own `cargo build`, as the image has no Rust.
+      - run: pnpm --dir web build
+      - run: pnpm --dir web test:e2e:restart
+        env:
+          RESTART_NO_BUILD: '1'
+          HOME: /root
+      - uses: actions/upload-artifact@v7
+        if: failure() || cancelled()
+        with:
+          name: playwright-report-restart
+          path: web/test-results-restart/
           retention-days: 7
 
   # The SQLite and Chrome shards' results and lines as one run, as the suite gave them whole: what `pnpm test:report`
