@@ -346,3 +346,35 @@ async fn a_boards_id_or_key_another_workspace_has_is_no_clash() {
     let again = api.post("/api/boards", sent(&file, "fresh", "PRI")).send().await;
     assert_eq!(again.status, 409, "{}", again.body);
 }
+
+/// What a board's file points at outside itself stays only within the workspace it comes into (ORR-1382): another
+/// workspace's releases, an issue there and a person only there are dropped as ones that aren't here, though the uploader
+/// is on that board. Into that workspace, the same file keeps all three.
+#[tokio::test]
+async fn a_boards_links_out_stay_inside_the_workspace_it_comes_into() {
+    let api = TestApi::new().await;
+    let (_, mut file) = primes(&api).await;
+    let rockets = api.acme(&["sam"]).await;
+    let launch = api.issue(&rockets, json!({"title": "Launch"})).await;
+    api.run("INSERT INTO people (id, name, role, created_at) VALUES ('bo', 'Bo', 'member', ?)", &["2026-11-23T00:00:00.000Z"]).await;
+    api.run("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('acme', 'bo', 'member', ?)", &["2026-11-23T00:00:00.000Z"]).await;
+    file["tables"]["projects"][0]["releases_from"] = json!(rockets);
+    file["tables"]["projects"][0]["release_mode"] = json!("shared");
+    file["tables"]["issue_links"] = json!([{"project": file["project"]["id"], "issue": "PRI-1", "on_project": rockets, "on_issue": launch,
+        "created_by": "sam", "owned": 0, "created_at": "2026-11-23T00:00:00.000Z"}]);
+    for issue in file["tables"]["issues"].as_array_mut().unwrap() {
+        issue["assignee"] = json!("bo");
+    }
+
+    let reply = api.post("/api/boards", sent(&file, "copy", "CPY")).send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert_eq!(api.count("SELECT count(*) FROM projects WHERE id = 'copy' AND releases_from IS NULL AND release_mode = 'none'").await, 1);
+    assert_eq!(api.count("SELECT count(*) FROM issue_links WHERE project = 'copy'").await, 0);
+    assert_eq!(api.count("SELECT count(*) FROM issues WHERE project = 'copy' AND assignee = 'bo'").await, 0);
+
+    let reply = api.post("/api/boards", sent(&file, "copy2", "CPZ")).header("orrery-workspace", "acme").send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert_eq!(api.count(&format!("SELECT count(*) FROM projects WHERE id = 'copy2' AND releases_from = '{rockets}'")).await, 1);
+    assert_eq!(api.count("SELECT count(*) FROM issue_links WHERE project = 'copy2'").await, 1);
+    assert_eq!(api.count("SELECT count(*) FROM issues WHERE project = 'copy2' AND assignee = 'bo'").await, 2);
+}

@@ -176,6 +176,36 @@ async fn step_94_puts_an_owner_in_no_workspace_in_default_and_nobody_else() {
 }
 
 #[tokio::test]
+async fn step_100_gives_a_board_sharing_another_workspaces_releases_none() {
+    // Shop takes its releases from Rockets in Acme, a link a board upload kept unchecked; Till takes its from Shop, in
+    // the same workspace, and keeps them (ORR-1382).
+    let (path, mut conn) = sqlite_at(99).await;
+    exec(
+        &mut conn,
+        "INSERT INTO workspaces (id, name, created_at) VALUES ('acme', 'Acme', '2026-01-01T00:00:00.000Z');
+         INSERT INTO projects (id, name, key, created_by, created_at, updated_at, workspace, release_mode, releases_from) VALUES
+            ('rockets', 'Rockets', 'ROC', 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'acme', 'own', NULL),
+            ('shop', 'Shop', 'SHO', 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'default', 'shared', 'rockets'),
+            ('mall', 'Mall', 'MAL', 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'default', 'own', NULL),
+            ('till', 'Till', 'TIL', 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'default', 'shared', 'mall');
+         INSERT INTO issues (project, id, title, status, position, created_by, created_at, updated_at, ships_in) VALUES
+            ('shop', 'SHO-1', 'Pay', 'todo', 0, 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '1.0'),
+            ('till', 'TIL-1', 'Count', 'todo', 0, 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '2.0');",
+    )
+    .await
+    .unwrap();
+    conn.close().await.unwrap();
+
+    assert_eq!(migrate(&path, None).await.unwrap().from, 99);
+    let mut conn = AnyConnection::connect(&format!("sqlite://{path}")).await.unwrap();
+    assert_eq!(
+        rows(&mut conn, "SELECT id, release_mode, releases_from FROM projects WHERE id IN ('shop', 'till') ORDER BY id").await,
+        vec![vec![Some("shop".into()), Some("none".into()), None], some(&["till", "shared", "mall"])],
+    );
+    assert_eq!(rows(&mut conn, "SELECT id, ships_in FROM issues ORDER BY id").await, vec![vec![Some("SHO-1".into()), None], some(&["TIL-1", "2.0"])]);
+}
+
+#[tokio::test]
 async fn a_new_orrery_has_the_default_workspace_with_nobody_in_it_yet() {
     let (path, conn) = sqlite_at(0).await;
     conn.close().await.unwrap();
