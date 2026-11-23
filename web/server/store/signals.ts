@@ -353,6 +353,11 @@ export abstract class SignalStore extends IssueStore {
         return (await sessionWork.focusing(project, issue)).length > 0
     }
 
+    /** The owner's focuses on the issue from the last day, heard or not (ORR-1159). */
+    async focusesOn(project: string, issue: string): Promise<Signal[]> {
+        return await sessionWork.focused(project, issue)
+    }
+
     /** The owner's and members' signals from the last day for one session orrery picks (pool.ts) that none has heard
      * yet: the next session to go idle that may hear them takes them. */
     async pooledWaiting(project: string): Promise<Signal[]> {

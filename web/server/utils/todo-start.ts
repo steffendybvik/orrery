@@ -10,7 +10,7 @@
 // way, nor again for one it started a session for in the last `RETRY_AFTER` (a session that passed it over, saying why,
 // isn't replaced by another that would do the same). Only the owner's work: this orrery's launchers are the owner's
 // (ORR-656). It runs on the launches check (every 30 seconds) and right after a Todo hand-out.
-import {launcherProjects, pendingOn, startLaunch} from './launches'
+import {launchTarget, launcherProjects, pendingOn, startLaunch} from './launches'
 import {pickable} from './pick'
 
 /** How long before orrery starts a session for the same issue again. */
@@ -56,6 +56,15 @@ async function freeSessions(project: string): Promise<number> {
     return free
 }
 
+/** Whether a focus on the issue from the last `RETRY_AFTER` reached a session still listening, or was aimed at one:
+ * it's that session's to start, even before it says so, as a real one reads and thinks first. Its focus is no longer
+ * on its way once heard, so without this a sweep in between started a second session on it. */
+async function handedOut(project: string, issue: string): Promise<boolean> {
+    const live = new Set(listSessions().filter(s => s.listening).flatMap(s => [...sessionIds(s.id), ...s.started?.launch ? [launchTarget(s.started.launch)] : []]))
+    return (await useStore().focusesOn(project, issue)).some(signal => Date.now() - Date.parse(signal.created_at) < RETRY_AFTER
+        && [signal.target, ...signal.delivered_to ?? []].some(to => !!to && live.has(to)))
+}
+
 async function startOn(project: string): Promise<number> {
     const store = useStore()
     const starts = await store.starts(project)
@@ -63,7 +72,7 @@ async function startOn(project: string): Promise<number> {
     const owner = (await store.ownerOf()).name
     const todo = []
     for (const issue of await pickable([project], owner)) {
-        if (startedFor.has(`${project} ${issue.id}`) || await store.focusOnItsWay(project, issue.id)) continue
+        if (startedFor.has(`${project} ${issue.id}`) || await store.focusOnItsWay(project, issue.id) || await handedOut(project, issue.id)) continue
         todo.push(issue)
     }
     // Those free now, and those on their way, take the most urgent first.
