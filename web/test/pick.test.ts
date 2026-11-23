@@ -17,6 +17,8 @@ let due: string[]
 let held: string[]
 /** Boards uploaded from a file and not let through to sessions yet (ORR-1224). */
 let uploaded: string[]
+/** Boards whose hold can't be read (ORR-1356). */
+let unreadable: string[]
 let sent: {project: string, session: string, text: string, owner: boolean}[]
 
 const issue = (id: string, kind: string, more: Record<string, unknown> = {}) =>
@@ -42,6 +44,7 @@ beforeEach(async () => {
     due = []
     held = []
     uploaded = []
+    unreadable = []
     sent = []
     vi.stubGlobal('sessionNow', (id: string) => sessions.find(s => s.id === id))
     vi.stubGlobal('listSessions', () => sessions)
@@ -59,7 +62,11 @@ beforeEach(async () => {
         settings: async () => ({pick_next: false}),
         ownerOf: async () => ({name: 'sam'}),
         listIssues: async (project: string) => board[project] ?? [],
-        picksHeld: async (project: string) => uploaded.includes(project),
+        picksHeld: async (project: string) => {
+            if (project === 'gone') throw Object.assign(new Error('No project "gone"'), {statusCode: 404})
+            if (unreadable.includes(project)) throw new Error('database is locked')
+            return uploaded.includes(project)
+        },
         heldAbove: async (_project: string, id: string) => held.includes(id) ? {parent: 'ORR-5', holder: 'builder'} : null,
         workingOn: async (_project: string, _ids: string[]) => working.map(w => typeof w === 'string' ? {id: w, status: 'in-progress'} : w),
         waiting: async (_project: string, _ids: string[]) => waiting,
@@ -246,6 +253,42 @@ describe('a session out of work', () => {
         expect(await pick.nextFor('w')).toEqual({issues: [], text: expect.stringMatching(/^Nothing to pick/)})
         uploaded = []
         expect((await pick.nextFor('w'))!.issues.map(i => i.id)).toEqual(['PAN-1', 'ORR-2', 'ORR-1'])
+    })
+
+    it('tells a session that asks which boards were held from it, and where the owner lets them go (ORR-1356)', async () => {
+        sessions[0]!.also = ['*', 'gone', 'dybben']
+        board.dybben = [issue('DYB-1', 'todo')]
+        uploaded = ['orrery', 'dybben']
+        const {issues, text} = (await pick.nextFor('w'))!
+        expect(issues).toEqual([])
+        expect(text).toMatch(/^Nothing to pick/)
+        expect(text).toContain('Held from sessions, so passed over: orrery, dybben')
+        expect(text).toContain('Let sessions pick from this board')
+        // Neither every project (`*`) nor a board gone since is one it couldn't read.
+        expect(text).not.toMatch(/Couldn't read/)
+        expect(await pick.pickNext('orrery', 'w')).toBe(false)
+    })
+
+    it("holds a board whose hold it can't read, logs it, and says so to a session that asks (ORR-1356)", async () => {
+        const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+        unreadable = ['orrery']
+        expect(await pick.heldFromPicks('orrery')).toBe(true)
+        expect(logged).toHaveBeenCalledWith(expect.stringContaining('orrery'), expect.any(Error))
+        const {issues, text} = (await pick.nextFor('w'))!
+        expect(issues).toEqual([])
+        expect(text).toContain("Couldn't read whether orrery is held from sessions")
+        expect(text).not.toContain('Held from sessions, so passed over')
+        logged.mockRestore()
+    })
+
+    it("hands the owner's session an issue that's nobody's, with more than one person (ORR-1332, ORR-1356)", async () => {
+        whoseWork = assignee => assignee === 'claude' ? 'sam' : assignee ?? null
+        sessions[0] = {...sessions[0]!, person: 'sam'} as Listed
+        board.orrery = [issue('ORR-1', 'todo', {priority: 'P1'}), issue('ORR-2', 'todo', {assignee: 'hati'})]
+        expect((await pick.nextFor('w'))!.issues.map(i => i.id)).toEqual(['ORR-1'])
+        // A session heard with no person isn't the owner's, so it's handed none of it.
+        sessions[0] = {...sessions[0]!, person: undefined} as Listed
+        expect((await pick.nextFor('w'))!.text).toMatch(/^Nothing to pick/)
     })
 
     it('hands the same list to a session that asks, by the same rules, and the push leaves it be (ORR-521)', async () => {

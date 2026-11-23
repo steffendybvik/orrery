@@ -26,7 +26,7 @@ vi.mock('../server/utils/launches', () => ({
     },
 }))
 vi.mock('../server/utils/pick', () => ({
-    pickable: async (_projects: string[], person?: string) => person === 'sam' ? todo.map(i => ({...i, project: 'orrery'})) : [],
+    pickable: async (_projects: string[], person?: string) => ({issues: person === 'sam' ? todo.map(i => ({...i, project: 'orrery'})) : [], held: [], unread: []}),
 }))
 
 let start: typeof import('../server/utils/todo-start')
