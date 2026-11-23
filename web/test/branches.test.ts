@@ -29,7 +29,7 @@ describe('what to do with a branch', () => {
 describe('reading the branches', () => {
     let store: Store
     let now: number
-    let asked: {url: string, method: string, body?: string}[]
+    let asked: {url: string, method: string, body?: string, project: string}[]
     let nodes: Record<string, unknown>[]
     let listed: {name: string, commit: {sha: string}}[]
     let token: boolean
@@ -50,8 +50,8 @@ describe('reading the branches', () => {
         listed = []
         token = true
         deleting = 204
-        const get = async (url: string, _project: string, _headers: Record<string, string>, init?: {method?: string, body?: string}) => {
-            asked.push({url, method: init?.method ?? 'GET', ...init?.body ? {body: init.body} : {}})
+        const get = async (url: string, project: string, _headers: Record<string, string>, init?: {method?: string, body?: string}) => {
+            asked.push({url, project, method: init?.method ?? 'GET', ...init?.body ? {body: init.body} : {}})
             if (init?.method === 'DELETE') return {response: new Response(null, {status: deleting}), secret: token}
             if (url.endsWith('/graphql')) return {response: json({data: {repository: {defaultBranchRef: {name: 'main'}, refs: {nodes, pageInfo: {hasNextPage: false, endCursor: null}}}}}), secret: true}
             return {response: json(listed), secret: false}
@@ -110,6 +110,19 @@ describe('reading the branches', () => {
         nodes = [node('feat/sho-1-cards', 'b', {number: 4, state: 'MERGED', headRefOid: 'a'})]
         await expect(branches.remove('you/shop', 'feat/sho-1-cards')).rejects.toThrow('commits since')
         expect(asked.some(a => a.method === 'DELETE')).toBe(false)
+    })
+
+    it('removes only on a repo of a project the asker sees, with that project\'s token (ORR-1374)', async () => {
+        await store.createProject({name: 'mine', key: 'MIN', repo: 'https://github.com/you/shop'})
+        const mine = await store.projectId('mine')
+        nodes = [node('feat/sho-1-cards', 'a', {number: 4, state: 'MERGED', headRefOid: 'a'})]
+        // Another person's: the same 404 as a repo on no project, and GitHub isn't asked.
+        await expect(branches.remove('you/shop', 'feat/sho-1-cards', new Set(['elsewhere']))).rejects.toThrow('No project\'s repo is you/shop')
+        expect(asked).toEqual([])
+        await branches.remove('you/shop', 'feat/sho-1-cards', new Set([mine]))
+        expect(asked.length).toBeGreaterThan(0)
+        expect(asked.every(a => a.project === mine)).toBe(true)
+        expect(asked.at(-1)).toMatchObject({method: 'DELETE'})
     })
 
     it('refuses a branch or repo it does not know, and what to keep', async () => {
