@@ -206,6 +206,31 @@ async fn step_100_gives_a_board_sharing_another_workspaces_releases_none() {
 }
 
 #[tokio::test]
+async fn step_101_takes_away_dependencies_on_another_workspaces_issues() {
+    // SHO-1 depends on Acme's ROC-1, a link depends_on took before ORR-1383, and on MAL-1 in its own workspace (ORR-1409).
+    let (path, mut conn) = sqlite_at(100).await;
+    exec(
+        &mut conn,
+        "INSERT INTO workspaces (id, name, created_at) VALUES ('acme', 'Acme', '2026-01-01T00:00:00.000Z');
+         INSERT INTO projects (id, name, key, created_by, created_at, updated_at, workspace) VALUES
+            ('rockets', 'Rockets', 'ROC', 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'acme'),
+            ('shop', 'Shop', 'SHO', 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'default'),
+            ('mall', 'Mall', 'MAL', 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'default');
+         INSERT INTO issue_links (project, issue, on_project, on_issue, created_by, created_at) VALUES
+            ('shop', 'SHO-1', 'rockets', 'ROC-1', 'ziggy', '2026-01-01T00:00:00.000Z'),
+            ('shop', 'SHO-1', 'mall', 'MAL-1', 'ziggy', '2026-01-01T00:00:00.000Z'),
+            ('rockets', 'ROC-2', 'shop', 'SHO-1', 'ziggy', '2026-01-01T00:00:00.000Z');",
+    )
+    .await
+    .unwrap();
+    conn.close().await.unwrap();
+
+    assert_eq!(migrate(&path, None).await.unwrap().from, 100);
+    let mut conn = AnyConnection::connect(&format!("sqlite://{path}")).await.unwrap();
+    assert_eq!(rows(&mut conn, "SELECT project, issue, on_project, on_issue FROM issue_links").await, vec![some(&["shop", "SHO-1", "mall", "MAL-1"])],);
+}
+
+#[tokio::test]
 async fn a_new_orrery_has_the_default_workspace_with_nobody_in_it_yet() {
     let (path, conn) = sqlite_at(0).await;
     conn.close().await.unwrap();
