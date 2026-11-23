@@ -238,11 +238,15 @@ export function launchEventSent(sent: LaunchEvent): {id?: string, event: string,
 }
 
 /** The folders a project's launchers run in. */
+/** The projects a launcher is connected for: those orrery can start a session on. */
+export const launcherProjects = (): string[] => [...folders.keys()].filter(p => launchersOf(p))
+
 const foldersOf =(project: string): string[] => [...folders.get(project)?.keys() ?? []]
 /** The folders its launchers run in, each with when it was picked up or connected, if it was. */
 const reposOf = (project: string): LauncherRepo[] => foldersOf(project).map(dir => ({dir, ...added.get(project)?.get(dir)}))
 
-function pendingOn(project?: string): number {
+/** How many launches are on their way, to the project or to any. */
+export function pendingOn(project?: string): number {
     for (const [id, launch] of pending) {
         const waits = !told.has(id) ? PENDING_FOR : launch.chat ? Infinity : REFUSED_FOR
         if (Date.now() - launch.at > waits) {
@@ -377,8 +381,8 @@ export const launchTarget = (launch: string) => `launch-${launch}`
  * project's latest signal; given an `issue`, from a focus on it made for this session alone; given a scope
  * (`statuses`, `release`), from a focus on the project's issues in it, made the same way. Needs the
  * owner's opt-in and a launcher, and counts the sessions on their way against the limit, as it doesn't stand
- * in for them the way a signal's launch does. */
-export async function startLaunch(project: string, {issue, statuses, release: version, context, hears, model, effort, global, dir, actor}: {issue?: string, statuses?: string[], release?: string, context?: SessionContext, hears?: string[], model?: string, effort?: Effort, global?: boolean, dir?: string, actor?: Actor} = {}): Promise<Launch> {
+ * in for them the way a signal's launch does. `note` goes with the focus on `issue`. */
+export async function startLaunch(project: string, {issue, statuses, release: version, context, hears, model, effort, global, dir, actor, note}: {issue?: string, note?: string, statuses?: string[], release?: string, context?: SessionContext, hears?: string[], model?: string, effort?: Effort, global?: boolean, dir?: string, actor?: Actor} = {}): Promise<Launch> {
     // A global session hears every project already (ORR-1079).
     if (global && hears) throw badRequest('Send {global} or {hears}, not both: a global session hears every project')
     // A global session starts in the orrery's default folder, never a repo's.
@@ -399,7 +403,7 @@ export async function startLaunch(project: string, {issue, statuses, release: ve
     try {
         const session = launchTarget(held.id)
         held.after = issue
-            ? (await useStore().focus(project, issue, {session}, actor)).id - 1
+            ? (await useStore().focus(project, issue, {session, ...note ? {note} : {}}, actor)).id - 1
             : statuses?.length || version
                 ? (await useStore().focusMilestone(project, 'all', {session, status: (statuses?.length ? statuses : SCOPE_STATUSES).join(','), release: version ?? null}, actor)).id - 1
                 : await useStore().lastSignal(project)

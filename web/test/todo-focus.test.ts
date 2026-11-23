@@ -50,6 +50,7 @@ beforeEach(async () => {
     vi.stubGlobal('currentId', (id: string) => id)
     vi.stubGlobal('chatSession', (id: string) => chats.includes(id))
     vi.stubGlobal('untrustedSession', () => false)
+    vi.stubGlobal('startForTodo', async () => 0)
     vi.stubGlobal('useStore', () => ({
         whoseWork: async (_project: string, assignee?: string | null) => whoseWork(assignee),
         statuses: async () => [{id: 'backlog', kind: 'backlog'}, {id: 'todo', kind: 'todo'}, {id: 'ready', kind: 'todo'}, {id: 'in-progress', kind: 'started'}, {id: 'done', kind: 'done'}, {id: 'canceled', kind: 'canceled'}],
