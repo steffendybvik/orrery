@@ -546,7 +546,10 @@ and keeps in `orrery.key` beside the database; only when it can't keep one there
   that much of the body is read. Redirects aren't followed: a 3xx comes back with its `location`. A `body` that isn't text
   goes as JSON. 30 seconds at most. An answer that breaks off is a 502, recorded like any use.
 - **Every use is recorded:** the secret, method, host, path (placeholders and all), project, issue,
-  who sent it, and the status or why it failed. Never the value.
+  who sent it, and the status or why it failed. Never the value. The path is the one the url was written
+  with, never the filled one, so a webhook sent as `{{secret:SLACK_WEBHOOK}}` is kept as just that.
+- **A refused host is said as it was written**, placeholders and all (`not {{secret:X}}.example.com`), as a
+  value filled into a host comes back lowercased or cut at a `/`, in no form the scrubbing knows (ORR-1389).
 
 orrery uses one secret itself: `GITHUB_TOKEN`, when it may go to `api.github.com` (and be used for the
 project), to read pull requests (`GET …/issues/:issue/pulls`, `GET /pulls`), polled in the background. It needs read access to the
