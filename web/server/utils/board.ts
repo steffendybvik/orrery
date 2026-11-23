@@ -12,6 +12,7 @@ import {PERMISSIONS} from '#shared/permissions'
 import {needsPerson, personOf} from './actor'
 import {boardsOf, isShared, onBoard, ownerNow} from './roster'
 import {lets, matchRoute} from './guard'
+import {memberSees} from './member-sees'
 import {notFound} from './input'
 import {refusedFor} from './permission'
 
@@ -54,6 +55,9 @@ export async function needsBoard(event: H3Event, project: string) {
 export async function boardsHeard(event: H3Event, projects: string[]): Promise<string[]> {
     if (untrustedWrite(event)) return projects
     await needsPerson(event)
+    // Only the projects its credential sees (ORR-1347): none in another person's workspace, the owner's sessions too.
+    const sees = await memberSees(event)
+    const seen = sees ? projects.filter(p => sees.has(p)) : projects
     const person = await personOf(event)
-    return person ? await boardsOf(person, projects) : projects
+    return person ? await boardsOf(person, seen) : seen
 }
