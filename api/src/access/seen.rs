@@ -75,6 +75,17 @@ impl Seen {
             Some(person) => Seen::off_boards(conn, person).await?,
             None => HashSet::new(),
         };
+        // A session's record is named by an id, not held by a credential, so a request with a credential (a login, a
+        // key) has its project counted only in a workspace that credential is in already: naming another workspace's
+        // session doesn't reach that workspace (ORR-1387). One with none, as with login off, is held by the record alone.
+        let own = match own {
+            Some(own) if who.is_some() => {
+                let there: Option<String> =
+                    sqlx::query_scalar(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(&own).fetch_optional(&mut *conn).await?;
+                there.filter(|w| workspaces.contains(w)).map(|_| own)
+            }
+            own => own,
+        };
         Ok(Seen::Only { workspaces, own, off })
     }
 

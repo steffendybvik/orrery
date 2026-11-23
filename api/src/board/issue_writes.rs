@@ -4,6 +4,8 @@
 // it (`claimIssue`, `releaseIssue`, `deleteIssue` in web/server/store). Its other writes are in comments.rs (comments),
 // issue_edits.rs (creating and changing an issue) and decisions.rs (deciding a proposal).
 use crate::access::people::Who;
+use crate::access::scope::Workspace;
+use crate::access::seen::Seen;
 use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
@@ -26,11 +28,27 @@ pub struct IssueWrites<'c> {
     /// The session an edit is for, by the id it goes by now (`Orrery-Worked-By`): starting the issue takes its lock
     /// (`lockFor`, ORR-1130). None for the owner, their chat and what orrery does itself.
     pub session: Option<String>,
+    /// What the request asking may see (ORR-1379, ORR-1383), set by the routes: another project an edit reaches (a move,
+    /// a dependency) must be one of these, past `scope::reach`'s hold to the asking project's workspace.
+    pub seen: Option<Seen>,
 }
 
 impl<'c> IssueWrites<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
-        IssueWrites { conn, effects: Effects::default(), outbox: None, session: None }
+        IssueWrites { conn, effects: Effects::default(), outbox: None, session: None, seen: None }
+    }
+
+    /// 404 for project `to`, reached from `from` by a move or a dependency, when the asker isn't on its board
+    /// (ORR-1379, ORR-1383): answered as for a project that isn't here. `scope::reach` holds it to `from`'s workspace
+    /// first; this holds a member to the boards they're on in it, where a route set what they see.
+    pub(crate) async fn reaches(&mut self, from: &str, to: &str) -> Result<()> {
+        let Some(seen) = &self.seen else { return Ok(()) };
+        let there = Workspace::of_project(&mut *self.conn, to).await?;
+        if from == to || seen.sees_in(there.id(), to) {
+            Ok(())
+        } else {
+            Err(ApiError::not_found(format!("No project \"{to}\"")))
+        }
     }
 
     /// Notes that `session` is working an issue it just made (`workedBy`), so the owner's comments on it go to that

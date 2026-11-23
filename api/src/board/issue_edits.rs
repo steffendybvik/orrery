@@ -823,6 +823,7 @@ impl IssueWrites<'_> {
         }
         // Only into a project of its own workspace, and not a board marked as moved, which only reads (ORR-1229).
         crate::access::scope::reach(self.conn, from, to).await?;
+        self.reaches(from, to).await?;
         let there = Issues::new(&mut *self.conn).project(to).await?;
         let parent = match parent.filter(|p| !p.is_empty()) {
             Some(sent) => Some(self.issue_id(to, sent).await?),
@@ -1152,8 +1153,11 @@ impl IssueWrites<'_> {
                 return Err(ApiError::bad_request(format!("\"{sent}\" in \"depends_on\" isn't an issue: use its id, or project/ID for another project's")));
             }
             // Another project's only in this one's workspace, and not on a board marked as moved, which can't change any
-            // more, so nothing new waits on it (ORR-1229).
+            // more, so nothing new waits on it (ORR-1229); and only on a board the asker is on (ORR-1383).
             crate::access::scope::reach(self.conn, project, &on_project).await?;
+            if on_project != project {
+                self.reaches(project, &on_project).await?;
+            }
             let on_id = self.issue_id(&on_project, &on_id).await?;
             self.issue_there(&on_project, &on_id).await?;
             if on_project == project && on_id == issue {
