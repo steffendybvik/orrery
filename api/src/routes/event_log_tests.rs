@@ -128,6 +128,19 @@ async fn the_local_app_writes_a_line_and_a_repeat_of_an_open_one_is_no_news() {
     assert_eq!(api.put("/api/events/log/lines", line).send().await.body["fresh"], json!(true));
 }
 
+/// Each line in the outbox says whose log it's in (ORR-1386), so the local app pushes it to that workspace's pages alone.
+#[tokio::test]
+async fn a_line_in_the_outbox_names_its_workspace() {
+    let api = TestApi::new().await;
+    let before = api.outbox().await.len();
+    let written = api.put("/api/events/log/lines", json!({"level": "error", "kind": "server.error", "message": "Boom"})).send().await;
+    api.post(&format!("/api/events/log/{}/resolve", written.body["event"]["id"]), json!({})).send().await;
+    let rows = api.outbox().await;
+    let logged: Vec<Value> = rows[before..].iter().filter(|r| r.kind == "event.logged").map(|r| r.payload()).collect();
+    assert_eq!(logged.len(), 2, "the write and the resolve");
+    assert!(logged.iter().all(|line| line["workspace"] == "default"), "{logged:?}");
+}
+
 #[tokio::test]
 async fn a_change_to_the_roadmap_is_always_news_and_keeps_its_subject() {
     let api = TestApi::new().await;

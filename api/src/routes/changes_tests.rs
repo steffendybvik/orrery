@@ -31,7 +31,7 @@ async fn first_event(app: &Arc<App>, after: Option<&str>, last_event_id: Option<
         .uri(after.map_or("/api/changes".into(), |a| format!("/api/changes?after={a}")))
         .header("orrery-api-token", TOKEN)
         .header("orrery-database", &app.database)
-        .header("orrery-came", "loopback")
+        .header("orrery-came", "server")
         .header("accept", "text/event-stream");
     if let Some(id) = last_event_id {
         request = request.header("last-event-id", id);
@@ -130,6 +130,9 @@ async fn the_feed_answers_only_the_router_in_front() {
     change(&api, "settings", None, None, false, AT).await;
     assert_eq!(api.get("/api/changes").without("orrery-api-token").send().await.status, 401);
     assert_eq!(api.get("/api/changes").header("orrery-database", "another").send().await.status, 421);
+    // A request the router passes on from a page or a session isn't the local app's own (ORR-1386).
+    let passed = api.get("/api/changes").header("orrery-came", "loopback").send().await;
+    assert_eq!(passed.status, 403, "{}", passed.body);
 }
 
 #[tokio::test]
