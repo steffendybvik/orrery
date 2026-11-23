@@ -242,8 +242,7 @@ fn targets(ids: &BTreeMap<&'static str, String>, mine: &BTreeMap<&'static str, S
 /// What the sweeps find that has an issue open for it (the security audit, ORR-1358): each a part of a leak's line
 /// and its issue. A leak not listed fails the test, and so does a line here that no leak matches any more, so a fix
 /// takes its line off.
-const KNOWN: &[(&str, &str)] =
-    &[("mcp work: create_schedule headed as bo's gives away", "ORR-1387"), ("mcp work: update_schedule headed as bo's gives away", "ORR-1387")];
+const KNOWN: &[(&str, &str)] = &[];
 
 /// Fails with the leaks no line of KNOWN expects, and the lines of KNOWN no leak matched. Whether any known one was
 /// found: a known write that lands changes bo's workspace, so what he sees can't be held unchanged until it's fixed.
