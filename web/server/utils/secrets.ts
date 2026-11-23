@@ -180,7 +180,7 @@ export class Secrets {
         if (value.length < 8) throw badRequest('"value" is too short to be a secret (8 characters at least)')
         const hosts = hostsOf(input.hosts as string[])
         if (!hosts.length) throw badRequest('"hosts" needs at least one host it may be sent to, e.g. api.stripe.com')
-        const projects = await this.projectsOf(input.projects as string[] | null | undefined)
+        const projects = await this.projectsOf(input.projects as string[] | null | undefined, workspace)
         const now = new Date().toISOString()
         const before = await this.sealedRow(name, {workspace})
         await this.keepSealed(name, {value: this.seal(name, value, hosts, projects), last4: value.slice(-4), hosts, projects, created_by: actor.name, owned: !!actor.owner, at: now}, {workspace})
@@ -197,7 +197,7 @@ export class Secrets {
         const input = checkInput(body, NARROW_FIELDS, true)
         const was = {hosts: JSON.parse(row.hosts) as string[], projects: row.projects ? JSON.parse(row.projects) as string[] : null}
         const hosts = input.hosts === undefined ? was.hosts : hostsOf(input.hosts as string[])
-        const projects = input.projects === undefined ? was.projects : await this.projectsOf(input.projects as string[] | null)
+        const projects = input.projects === undefined ? was.projects : await this.projectsOf(input.projects as string[] | null, workspace)
         if (!hosts.length) throw badRequest('"hosts" needs at least one host; delete the secret to stop it going anywhere')
         const wasIn = was.projects
         const wider = hosts.some(h => !was.hosts.includes(h)) || (wasIn !== null && (projects === null || projects.some(p => !wasIn.includes(p))))
@@ -380,10 +380,16 @@ export class Secrets {
         return row
     }
 
-    /** Projects as kept: each one there, by its id; none is null (any). */
-    private async projectsOf(sent: string[] | null | undefined): Promise<string[] | null> {
+    /** Projects as kept: each one there, by its id, and in the secret's workspace, as another workspace's project is
+     * answered as one that isn't there (ORR-1352); none is null (any). */
+    private async projectsOf(sent: string[] | null | undefined, workspace?: string): Promise<string[] | null> {
         if (!sent?.length) return null
-        const ids = await Promise.all(sent.map(p => this.store.projectId(p)))
+        const here = await this.workspaceOf({workspace})
+        const ids = await Promise.all(sent.map(async p => {
+            const id = await this.store.projectId(p)
+            if (await this.store.projectWorkspace(id) !== here) throw notFound(`No project "${p}"`)
+            return id
+        }))
         return [...new Set(ids)].sort()
     }
 
