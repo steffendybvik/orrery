@@ -6,6 +6,9 @@
 // constructor that falls back to `default`: forgetting the scope doesn't compile.
 use crate::db::sql;
 use crate::error::{ApiError, Result};
+use axum::extract::{FromRequestParts, OptionalFromRequestParts};
+use axum::http::request::Parts;
+use percent_encoding::percent_decode_str;
 use sqlx::{AnyConnection, Row};
 use std::fmt;
 
@@ -104,6 +107,70 @@ pub(crate) async fn reach(conn: &mut AnyConnection, from: &str, to: &str) -> Res
         }
     }
     crate::board::projects::not_moved(conn, to).await
+}
+
+/// A project a request may act on, and the workspace it's in (ORR-1395): what the stores of a project's rows (issues,
+/// comments, docs, milestones, releases…) are handed instead of a bare id. Only the rails make one, once the asker is
+/// checked against the project its path names (`workspace_check`), and `reach` makes one for a project named in a body,
+/// from one already made. Crossing workspaces is `ScopedProject::across`, for one of the reasons in `Across`. Its fields
+/// are private, so a store can't be pointed at a project by a string that skipped the guard.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ScopedProject {
+    id: String,
+    workspace: Workspace,
+}
+
+impl ScopedProject {
+    /// A project the rails checked the asker against.
+    pub(in crate::access) fn checked(id: String, workspace: String) -> ScopedProject {
+        ScopedProject { id, workspace: Workspace(workspace) }
+    }
+
+    /// Project `id`, crossing workspaces for `why`: a 404 when there's no such project.
+    pub(crate) async fn across(conn: &mut AnyConnection, _why: Across, id: &str) -> Result<ScopedProject> {
+        let workspace = Workspace::of_project(conn, id).await?;
+        Ok(ScopedProject { id: id.to_string(), workspace })
+    }
+
+    /// Its id, to bind in a query.
+    pub(crate) fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// The workspace it's in.
+    pub(crate) fn workspace(&self) -> &Workspace {
+        &self.workspace
+    }
+}
+
+impl fmt::Display for ScopedProject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.id)
+    }
+}
+
+/// A handler under `/api/projects/{project}` takes its project as a `ScopedProject`, which the rails put on the request.
+/// None there is the rails' 404, as for a project that isn't here: a route the rails don't run before can't reach one.
+impl<S: Send + Sync> FromRequestParts<S> for ScopedProject {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self> {
+        if let Some(project) = parts.extensions.get::<ScopedProject>() {
+            return Ok(project.clone());
+        }
+        let named = parts.uri.path().strip_prefix("/api/projects/").and_then(|rest| rest.split('/').next()).unwrap_or_default();
+        Err(ApiError::not_found(format!("No project \"{}\"", percent_decode_str(named).decode_utf8_lossy())))
+    }
+}
+
+/// As `Option<ScopedProject>`, for the Nuxt server's own routes that answer a project that isn't here with nothing
+/// rather than a 404 (`release-peers`, `issue-sessions`).
+impl<S: Send + Sync> OptionalFromRequestParts<S> for ScopedProject {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Option<Self>> {
+        Ok(parts.extensions.get::<ScopedProject>().cloned())
+    }
 }
 
 impl fmt::Display for Workspace {

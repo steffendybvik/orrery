@@ -1,5 +1,6 @@
 // A project's milestones: the handlers and the routes they answer (ORR-1048).
 use super::P;
+use crate::access::scope::ScopedProject;
 use crate::board::issues::Issues;
 use crate::board::milestones::Milestones;
 use crate::board::plans::Plans;
@@ -26,7 +27,8 @@ pub(crate) fn routes() -> Router<Arc<App>> {
 
 /// `GET …/milestones/:milestone/row` → the milestone's row as it's stored, by its id alone, for the local app's store
 /// (`milestoneRow`, ORR-1174), which checks a milestone a focus names. A 404 for a project or a milestone there isn't.
-async fn milestone_row(State(app): Shared, Path((project, milestone)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+async fn milestone_row(State(app): Shared, scoped: ScopedProject, Path((_, milestone)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    let project = scoped.id().to_string();
     if !came_of(&headers).server {
         return Err(ApiError::forbidden("Only the local app reads a milestone's row"));
     }
@@ -44,7 +46,8 @@ async fn milestone_row(State(app): Shared, Path((project, milestone)): Path<(Str
 /// `GET …/milestones/:milestone/id` → `{id}`: the milestone's id from its number as shown (`MLS-14`), a name it had
 /// before (an alias), or the full form of either, for the local app's store (`milestoneId`, ORR-1174). The one sent comes
 /// back when nothing matches; a 404 for a project there isn't.
-async fn milestone_id(State(app): Shared, Path((project, milestone)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+async fn milestone_id(State(app): Shared, scoped: ScopedProject, Path((_, milestone)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    let project = scoped.id().to_string();
     if !came_of(&headers).server {
         return Err(ApiError::forbidden("Only the local app resolves a milestone's id"));
     }
@@ -52,17 +55,20 @@ async fn milestone_id(State(app): Shared, Path((project, milestone)): Path<(Stri
     Ok(Json(serde_json::json!({"id": Issues::new(&mut conn).resolve(&project, &milestone, true).await?})).into_response())
 }
 
-async fn list_milestones(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
+async fn list_milestones(State(app): Shared, scoped: ScopedProject) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Plans::new(&mut Issues::new(&mut conn)).milestones(&project).await?).into_response())
 }
 
-async fn get_milestone(State(app): Shared, Path((project, milestone)): Path<(String, String)>) -> Result<Response> {
+async fn get_milestone(State(app): Shared, scoped: ScopedProject, Path((_, milestone)): Path<(String, String)>) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     Ok(Json(Plans::new(&mut Issues::new(&mut conn)).milestone(&project, &milestone).await?).into_response())
 }
 
-async fn create_milestone(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn create_milestone(State(app): Shared, scoped: ScopedProject, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let mut milestones = Milestones::new(&mut conn);
     milestones.outbox = Some(Outbox::new(actor_of(&headers)));
@@ -72,7 +78,14 @@ async fn create_milestone(State(app): Shared, Path(project): Path<String>, heade
     Ok(reply(StatusCode::CREATED, Some(value), effects))
 }
 
-async fn patch_milestone(State(app): Shared, Path((project, milestone)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn patch_milestone(
+    State(app): Shared,
+    scoped: ScopedProject,
+    Path((_, milestone)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let mut milestones = Milestones::new(&mut conn);
     milestones.outbox = Some(Outbox::new(actor_of(&headers)));
@@ -82,7 +95,8 @@ async fn patch_milestone(State(app): Shared, Path((project, milestone)): Path<(S
     Ok(reply(StatusCode::OK, Some(value), effects))
 }
 
-async fn delete_milestone(State(app): Shared, Path((project, milestone)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+async fn delete_milestone(State(app): Shared, scoped: ScopedProject, Path((_, milestone)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let mut milestones = Milestones::new(&mut conn);
     milestones.outbox = Some(Outbox::new(actor_of(&headers)));

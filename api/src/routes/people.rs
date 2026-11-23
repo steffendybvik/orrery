@@ -1,5 +1,6 @@
 // People, invites, keys and logins: the handlers and the routes they answer (ORR-1048).
 use crate::access::people::{holder_of, People};
+use crate::access::scope::ScopedProject;
 use crate::changes::Outbox;
 use crate::error::{ApiError, Result};
 use crate::reply::reply;
@@ -30,13 +31,15 @@ pub(crate) fn routes() -> Router<Arc<App>> {
 }
 
 /// `GET /api/projects/:project/members` → who's on the board, its holder first (ORR-1036).
-async fn list_members(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
+async fn list_members(State(app): Shared, scoped: ScopedProject) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     Ok(Json(People::new(&mut conn).members(&project).await?).into_response())
 }
 
 /// `POST /api/projects/:project/members` {person} → 201 them on the board: its holder's to do, or the owner's.
-async fn add_member(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn add_member(State(app): Shared, scoped: ScopedProject, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let mut people = People::new(&mut conn);
     people.outbox = Some(Outbox::new(actor_of(&headers)));
@@ -45,7 +48,8 @@ async fn add_member(State(app): Shared, Path(project): Path<String>, headers: He
 }
 
 /// `DELETE /api/projects/:project/members/:person` → 204: off the board, as adding does. Its holder stays (400).
-async fn remove_member(State(app): Shared, Path((project, person)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+async fn remove_member(State(app): Shared, scoped: ScopedProject, Path((_, person)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let mut people = People::new(&mut conn);
     people.outbox = Some(Outbox::new(actor_of(&headers)));
