@@ -128,7 +128,7 @@ Each board has one person holding it, and members. Existing boards are the owner
 | | |
 |---|---|
 | `GET /projects/:project/members` | who's on the board: `[{person, name, role, created_at}]`, its holder (`role` `owner`) first |
-| `POST /projects/:project/members` | `{person}` → 201 them on the board, a `member`: its holder's or the owner's, never an agent's (403). 404 for someone who isn't a person here; 409 for someone removed |
+| `POST /projects/:project/members` | `{person}` → 201 them on the board, a `member`: its holder's or the owner's, never an agent's (403). 404 for someone who isn't in the board's workspace, the same as for nobody (ORR-1385); 409 for someone in it who was removed |
 | `DELETE /projects/:project/members/:person` | 204: the same. 400 for its holder, who stays. Removing a person from the orrery takes them off every board, and what they held goes to the owner |
 
 With more than one person, every write is checked against the permissions table's `member` column (`GET /permissions`): anything else is the owner's and their sessions' alone (403), and on a board the person isn't on it answers 404, as if the board weren't there. A route the table doesn't name is refused. A session naming nobody gets a 409 for all but commenting and reporting what it's doing. Reads aren't held to a board yet. A session hears only the boards its person is on: a signal stream for any other is a 404, one naming nobody is a 409, and `/signals/stream` with `*` or several projects follows only theirs. With no login these are names, so they keep honest sessions apart and stop nobody else ([Security](../SECURITY.md#with-login-off-the-owner-is-a-name-not-a-password)); with one, the credential decides.

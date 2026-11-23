@@ -1045,7 +1045,18 @@ impl<'c> People<'c> {
     pub async fn add_member(&mut self, project: &str, body: &Value, actor: &Actor) -> Result<Value> {
         crate::board::issue_writes::IssueWrites::new(&mut *self.conn).project_uid(project).await?;
         self.manages_board(project, actor).await?;
-        let person = self.person(&actor_id(&member_of(body)?)).await?;
+        let wanted = actor_id(&member_of(body)?);
+        // Only someone in the board's workspace: anyone else is the same 404 as nobody, so a board's holder learns
+        // nothing of who else is on the server (ORR-1385).
+        let here = sqlx::query(sql("SELECT 1 AS one FROM workspace_members m JOIN projects p ON p.workspace = m.workspace WHERE p.id = ? AND m.person = ?"))
+            .bind(project)
+            .bind(&wanted)
+            .fetch_optional(&mut *self.conn)
+            .await?;
+        if here.is_none() {
+            return Err(ApiError::not_found(format!("No person \"{wanted}\"")));
+        }
+        let person = self.person(&wanted).await?;
         let id: String = person.get("id");
         if person.get::<Option<String>, _>("removed_at").is_some() {
             return Err(ApiError::conflict(format!("{} has been removed", person.get::<String, _>("name"))));
