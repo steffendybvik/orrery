@@ -1,6 +1,7 @@
 // The event log: the handlers and the routes they answer (ORR-1088). A page's error report (`POST /api/events/log`)
 // stays the Nuxt server's, as it counts each sender in memory and scrubs secrets' values out; the line it makes of it,
 // and each of its own, comes here (`PUT /api/events/log/lines`), as does its call to let old ones go.
+use crate::access::scope::{Across, Workspace};
 use crate::access::seen::Seen;
 use crate::error::{ApiError, Result};
 use crate::reply::reply;
@@ -71,7 +72,7 @@ async fn write_line(State(app): Shared, headers: HeaderMap, body: Bytes) -> Resu
 async fn prune_events(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     local_app_only(&headers)?;
     let mut conn = app.pool.acquire().await?;
-    let pruned = EventLog::new(&mut conn).prune().await?;
+    let pruned = EventLog::of(&mut conn, Workspace::across(Across::Server, "default")).prune().await?;
     Ok(Json(serde_json::json!({"pruned": pruned})).into_response())
 }
 

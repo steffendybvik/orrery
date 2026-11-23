@@ -4,6 +4,7 @@
 // page's reports in memory and checks Advanced, then sends the finished line here. Only while this API can't be
 // reached does it write the line itself, marked `details.local`. Each line written or resolved goes in the outbox
 // (`event.logged`), so the local app pushes it to open pages' bells: a new one with `fresh`, when it's news.
+use crate::access::scope::Workspace;
 use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
@@ -137,17 +138,13 @@ pub(crate) struct EventLog<'c> {
     pub outbox: Option<Outbox>,
     /// The workspace whose lines these are (ORR-1107): a line naming a project is its project's workspace's, one
     /// naming none this one's. Listing and resolving keep to it.
-    pub workspace: String,
+    pub workspace: Workspace,
 }
 
 impl<'c> EventLog<'c> {
-    pub fn new(conn: &'c mut AnyConnection) -> Self {
-        EventLog { conn, effects: Effects::default(), outbox: None, workspace: "default".into() }
-    }
-
     /// The lines of `workspace`.
-    pub fn of(conn: &'c mut AnyConnection, workspace: String) -> Self {
-        EventLog { workspace, ..EventLog::new(conn) }
+    pub fn of(conn: &'c mut AnyConnection, workspace: Workspace) -> Self {
+        EventLog { conn, effects: Effects::default(), outbox: None, workspace }
     }
 
     /// What the last resolve set off, for its reply.
@@ -238,9 +235,9 @@ impl<'c> EventLog<'c> {
 
     /// The workspace a line about `project` is in: the project's, or this log's for one naming none (or one gone).
     async fn workspace_of(&mut self, project: Option<&str>) -> Result<String> {
-        let Some(project) = project else { return Ok(self.workspace.clone()) };
-        let row = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
-        Ok(row.map(|r| r.get::<String, _>("workspace")).unwrap_or_else(|| self.workspace.clone()))
+        let Some(project) = project else { return Ok(self.workspace.id().to_string()) };
+        let row = Workspace::of_project_or_none(&mut *self.conn, project).await?;
+        Ok(row.unwrap_or_else(|| self.workspace.clone()).id().to_string())
     }
 
     /// Lets go of what's old: info after KEEP_INFO days, the rest after KEEP_PROBLEMS, and the oldest past MAX_ACTIVITY
@@ -272,7 +269,7 @@ impl<'c> EventLog<'c> {
     /// The lines that match, newest first (by when they were last seen).
     pub(crate) async fn list(&mut self, filter: &Filter<'_>) -> Result<Value> {
         let mut wheres: Vec<String> = vec!["workspace = ?".into()];
-        let mut binds: Vec<String> = vec![self.workspace.clone()];
+        let mut binds: Vec<String> = vec![self.workspace.id().to_string()];
         if let Some(level) = filter.level.filter(|l| !l.is_empty()) {
             let levels: Vec<&str> = level.split(',').map(str::trim).filter(|l| !l.is_empty()).collect();
             if let Some(wrong) = levels.iter().find(|l| !LEVELS.contains(l)) {
@@ -331,7 +328,7 @@ impl<'c> EventLog<'c> {
         .bind(who.clone())
         .bind(&at)
         .bind(id)
-        .bind(&self.workspace)
+        .bind(self.workspace.id())
         .fetch_optional(&mut *self.conn)
         .await?
         .ok_or_else(|| ApiError::not_found(format!("No event {id}")))?;
@@ -348,7 +345,7 @@ impl<'c> EventLog<'c> {
         .bind(&kind)
         .bind(project.unwrap_or_default())
         .bind(&message)
-        .bind(&self.workspace)
+        .bind(self.workspace.id())
         .fetch_all(&mut *self.conn)
         .await?;
         // In the order the store hears them: the repeats, then the line itself.

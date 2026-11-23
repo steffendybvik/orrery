@@ -3,6 +3,7 @@
 // epic is one piece of work across projects (ORR-895), with a number of its own across the orrery; its progress is its
 // issues', counted the way a release's are, from each project's board as `issues.rs` reads it. A write says the epics
 // changed (`Effects::epics`), for open pages to ask for them again. An epic's focus signals sessions, so it stays in Nuxt.
+use crate::access::scope::Workspace;
 use crate::board::issue_edits::epic_number;
 use crate::board::issues::{kinds_json, Board, Issues, Kinds, Node};
 use crate::changes::{self, Outbox};
@@ -133,21 +134,17 @@ pub struct Epics<'c> {
     /// Set for a write: what it sets off goes into the outbox in its transaction (ORR-929).
     pub outbox: Option<Outbox>,
     /// The workspace whose epics these are (ORR-1107): another's are as if they weren't here.
-    pub workspace: String,
+    pub workspace: Workspace,
 }
 
 impl<'c> Epics<'c> {
-    pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Epics { conn, effects: Effects::default(), outbox: None, workspace: "default".into() }
-    }
-
     /// The epics of `workspace`.
-    pub fn of(conn: &'c mut AnyConnection, workspace: String) -> Self {
-        Epics { workspace, ..Epics::new(conn) }
+    pub fn of(conn: &'c mut AnyConnection, workspace: Workspace) -> Self {
+        Epics { conn, effects: Effects::default(), outbox: None, workspace }
     }
 
     async fn uid(&mut self) -> Result<String> {
-        Ok(Settings::new(&mut *self.conn).get().await?["uid"].as_str().unwrap_or_default().to_string())
+        Ok(Settings::of(&mut *self.conn, Workspace::installation()).get().await?["uid"].as_str().unwrap_or_default().to_string())
     }
 
     /// The epic's number from its number or any form of its id, as `epicId` reads the URL, then its row (`epicRow`),
@@ -163,7 +160,7 @@ impl<'c> Epics<'c> {
     async fn row(&mut self, id: i64) -> Result<AnyRow> {
         sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM epics WHERE id = ? AND workspace = ?")))
             .bind(id)
-            .bind(&self.workspace)
+            .bind(self.workspace.id())
             .fetch_optional(&mut *self.conn)
             .await?
             .ok_or_else(|| ApiError::not_found(format!("No epic {id}: GET /api/epics lists them")))
@@ -184,7 +181,7 @@ impl<'c> Epics<'c> {
     /// (`epics`).
     pub async fn list(&mut self) -> Result<Value> {
         let rows = sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM epics WHERE workspace = ? ORDER BY position, id DESC")))
-            .bind(&self.workspace)
+            .bind(self.workspace.id())
             .fetch_all(&mut *self.conn)
             .await?;
         let ids: Vec<i64> = rows.iter().map(|r| r.get("id")).collect();
@@ -264,7 +261,7 @@ impl<'c> Epics<'c> {
     /// (`placeEpic`).
     async fn place(&mut self, id: i64, index: f64) -> Result<()> {
         let rows = sqlx::query(&sql("SELECT CAST(id AS BIGINT) AS id FROM epics WHERE workspace = ? ORDER BY position, id DESC"))
-            .bind(&self.workspace)
+            .bind(self.workspace.id())
             .fetch_all(&mut *self.conn)
             .await?;
         let mut order: Vec<i64> = rows.iter().map(|r| r.get::<i64, _>("id")).filter(|e| *e != id).collect();
@@ -285,7 +282,7 @@ impl<'c> Epics<'c> {
         changes::begin(self.conn).await?;
         let done: Result<i64> = async {
             let top: Option<i64> = sqlx::query(&sql("SELECT CAST(min(position) AS BIGINT) AS n FROM epics WHERE workspace = ?"))
-                .bind(&self.workspace)
+                .bind(self.workspace.id())
                 .fetch_one(&mut *self.conn)
                 .await?
                 .get("n");
@@ -299,7 +296,7 @@ impl<'c> Epics<'c> {
             .bind(i32::from(actor.owner))
             .bind(&now)
             .bind(&now)
-            .bind(&self.workspace)
+            .bind(self.workspace.id())
             .fetch_one(&mut *self.conn)
             .await?;
             let id: i64 = row.get("id");

@@ -2,12 +2,13 @@
 // pausing or activating all of a project's, making and changing one, and deleting one across projects (ORR-1082).
 use super::issues::handoff_headers;
 use super::P;
+use crate::access::scope::{Across, Workspace};
 use crate::access::seen::Seen;
 use crate::changes::Outbox;
 use crate::error::{ApiError, Result};
 use crate::reply::reply;
 use crate::request::{actor_of, body_of, came_of};
-use crate::work::presets::{server_id, Presets};
+use crate::work::presets::{self, server_id};
 use crate::work::schedule_requests::ScheduleRequests;
 use crate::work::schedule_runs::ScheduleRuns;
 use crate::work::schedules::Schedules;
@@ -73,7 +74,7 @@ fn clock_only(headers: &HeaderMap) -> Result<()> {
 
 /// The schedule's id as it's sent, a number or its full id.
 async fn schedule_id(conn: &mut sqlx::AnyConnection, sent: &str) -> Result<i64> {
-    let uid = Presets::new(conn).uid().await?;
+    let uid = presets::uid(conn).await?;
     server_id("sch-", "schedule", sent, &uid)
 }
 
@@ -126,20 +127,26 @@ async fn drop_held(State(app): Shared, Path(schedule): Path<String>, headers: He
 
 async fn all_schedules(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut value = Schedules::new(&mut conn).list(None).await?;
-    Seen::listed(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
+    let seen = Seen::listed(&mut conn, &headers).await?;
+    let mut value = match (&seen, seen.pick(None)) {
+        // The Nuxt server's clock runs every workspace's.
+        (Seen::All, _) => Schedules::of(&mut conn, Workspace::across(Across::Server, "default")).every().await?,
+        (_, Ok(workspace)) => Schedules::of(&mut conn, workspace).list(None).await?,
+        (_, Err(_)) => Value::Array(Vec::new()),
+    };
+    seen.keep(&mut conn, &mut value, "project").await?;
     Ok(Json(value).into_response())
 }
 
 async fn list_schedules(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Schedules::new(&mut conn).list(Some(&project)).await?).into_response())
+    Ok(Json(Schedules::for_project(&mut conn, &project).await?.list(Some(&project)).await?).into_response())
 }
 
 async fn get_schedule(State(app): Shared, Path((project, schedule)): Path<(String, String)>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let uid = Presets::new(&mut conn).uid().await?;
-    Ok(Json(Schedules::new(&mut conn).get(&project, &schedule, &uid).await?).into_response())
+    let uid = presets::uid(&mut conn).await?;
+    Ok(Json(Schedules::for_project(&mut conn, &project).await?.get(&project, &schedule, &uid).await?).into_response())
 }
 
 /// `POST …/schedules/:schedule/adopt` {seen?}: the owner making an agent's schedule theirs (ORR-456).
@@ -152,9 +159,9 @@ async fn adopt_schedule(State(app): Shared, Path((project, schedule)): Path<(Str
         Some(_) => return Err(ApiError::bad_request("\"seen\" is the updated_at you read the schedule at")),
     };
     let mut conn = app.pool.acquire().await?;
-    let uid = Presets::new(&mut conn).uid().await?;
+    let uid = presets::uid(&mut conn).await?;
     let actor = actor_of(&headers);
-    let mut schedules = Schedules::new(&mut conn);
+    let mut schedules = Schedules::for_project(&mut conn, &project).await?;
     schedules.outbox = Some(Outbox::new(actor.clone()));
     let adopted = schedules.adopt(&project, &schedule, &uid, &actor, seen.as_deref()).await?;
     Ok(reply(StatusCode::OK, Some(adopted), std::mem::take(&mut schedules.effects)))
@@ -167,9 +174,9 @@ async fn set_all_enabled(State(app): Shared, Path(project): Path<String>, header
         return Err(ApiError::bad_request("Send {\"enabled\": true} or {\"enabled\": false}"));
     };
     let mut conn = app.pool.acquire().await?;
-    let uid = Presets::new(&mut conn).uid().await?;
+    let uid = presets::uid(&mut conn).await?;
     let actor = actor_of(&headers);
-    let mut schedules = Schedules::new(&mut conn);
+    let mut schedules = Schedules::for_project(&mut conn, &project).await?;
     schedules.outbox = Some(Outbox::new(actor.clone()));
     let done = schedules.set_all_enabled(&project, enabled, &uid, &actor).await?;
     Ok(reply(StatusCode::OK, Some(done), std::mem::take(&mut schedules.effects)))
@@ -178,9 +185,9 @@ async fn set_all_enabled(State(app): Shared, Path(project): Path<String>, header
 /// `POST …/schedules` {title, cron | at | on, …} → the schedule (201), with its next run worked out.
 async fn create_schedule(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let uid = Presets::new(&mut conn).uid().await?;
+    let uid = presets::uid(&mut conn).await?;
     let actor = actor_of(&headers);
-    let mut schedules = Schedules::new(&mut conn);
+    let mut schedules = Schedules::for_project(&mut conn, &project).await?;
     schedules.outbox = Some(Outbox::new(actor.clone()));
     let made = schedules.create(&project, &body_of(&body), &uid, &actor).await?;
     Ok(reply(StatusCode::CREATED, Some(made), std::mem::take(&mut schedules.effects)))
@@ -189,9 +196,9 @@ async fn create_schedule(State(app): Shared, Path(project): Path<String>, header
 /// `PATCH …/schedules/:schedule` {any of its fields} → the schedule: `enabled: false` pauses it.
 async fn patch_schedule(State(app): Shared, Path((project, schedule)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let uid = Presets::new(&mut conn).uid().await?;
+    let uid = presets::uid(&mut conn).await?;
     let actor = actor_of(&headers);
-    let mut schedules = Schedules::new(&mut conn);
+    let mut schedules = Schedules::for_project(&mut conn, &project).await?;
     schedules.outbox = Some(Outbox::new(actor.clone()));
     let changed = schedules.update(&project, &schedule, &body_of(&body), &uid, &actor).await?;
     Ok(reply(StatusCode::OK, Some(changed), std::mem::take(&mut schedules.effects)))
@@ -200,9 +207,9 @@ async fn patch_schedule(State(app): Shared, Path((project, schedule)): Path<(Str
 /// `DELETE …/schedules/:schedule`: the issues it made stay.
 async fn delete_schedule(State(app): Shared, Path((project, schedule)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let uid = Presets::new(&mut conn).uid().await?;
+    let uid = presets::uid(&mut conn).await?;
     let actor = actor_of(&headers);
-    let mut schedules = Schedules::new(&mut conn);
+    let mut schedules = Schedules::for_project(&mut conn, &project).await?;
     schedules.outbox = Some(Outbox::new(actor.clone()));
     schedules.delete(&project, &schedule, &uid, &actor).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut schedules.effects)))
@@ -212,7 +219,7 @@ async fn delete_schedule(State(app): Shared, Path((project, schedule)): Path<(St
 async fn schedules_across(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let workspace = Seen::workspace(&mut conn, &headers).await?;
-    let mut value = Schedules::new(&mut conn).within(workspace).across().await?;
+    let mut value = Schedules::of(&mut conn, workspace).across().await?;
     let hidden = Seen::listed(&mut conn, &headers).await?.hidden(&mut conn).await?;
     if !hidden.is_empty() {
         if let Value::Array(across) = &mut value {
@@ -236,10 +243,10 @@ mod tests;
 /// each (ORR-1036). The owner's alone.
 async fn create_across(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let uid = Presets::new(&mut conn).uid().await?;
+    let uid = presets::uid(&mut conn).await?;
     let actor = actor_of(&headers);
     let workspace = Seen::workspace(&mut conn, &headers).await?;
-    let mut schedules = Schedules::new(&mut conn).within(workspace);
+    let mut schedules = Schedules::of(&mut conn, workspace);
     schedules.outbox = Some(Outbox::new(actor.clone()));
     let made = schedules.create_across(&body_of(&body), &uid, &actor).await?;
     Ok(reply(StatusCode::CREATED, Some(made), std::mem::take(&mut schedules.effects)))
@@ -249,10 +256,10 @@ async fn create_across(State(app): Shared, headers: HeaderMap, body: Bytes) -> R
 /// made from it (ORR-1036).
 async fn update_across(State(app): Shared, Path(across): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let uid = Presets::new(&mut conn).uid().await?;
+    let uid = presets::uid(&mut conn).await?;
     let actor = actor_of(&headers);
     let workspace = Seen::workspace(&mut conn, &headers).await?;
-    let mut schedules = Schedules::new(&mut conn).within(workspace);
+    let mut schedules = Schedules::of(&mut conn, workspace);
     schedules.outbox = Some(Outbox::new(actor.clone()));
     let changed = schedules.update_across(&across, &body_of(&body), &uid, &actor).await?;
     Ok(reply(StatusCode::OK, Some(changed), std::mem::take(&mut schedules.effects)))
@@ -262,7 +269,7 @@ async fn delete_across(State(app): Shared, Path(across): Path<String>, headers: 
     let mut conn = app.pool.acquire().await?;
     let actor = actor_of(&headers);
     let workspace = Seen::workspace(&mut conn, &headers).await?;
-    let mut schedules = Schedules::new(&mut conn).within(workspace);
+    let mut schedules = Schedules::of(&mut conn, workspace);
     schedules.outbox = Some(Outbox::new(actor.clone()));
     schedules.delete_across(&across, &actor).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut schedules.effects)))

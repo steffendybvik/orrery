@@ -5,6 +5,7 @@
 // is Nuxt's `GET /api/machine`. A change tells the settings stream (`Effects.settings`), every project when `starts`
 // changed (each says whether orrery starts its sessions), and the keys changed (`Effects.settings_keys`), which the
 // router notes in the event log as the Nuxt route did.
+use crate::access::scope::Workspace;
 use crate::board::statuses::{Statuses, TINT, TINTS};
 use crate::changes::{self, Outbox};
 use crate::db::sql;
@@ -302,23 +303,18 @@ pub struct Settings<'c> {
     /// Set for a write: what it sets off goes into the outbox in its transaction (ORR-929).
     pub outbox: Option<Outbox>,
     /// The workspace the settings are read for (ORR-1107): its statuses come with them.
-    pub workspace: String,
+    pub workspace: Workspace,
 }
 
 impl<'c> Settings<'c> {
-    pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Settings { conn, effects: Effects::default(), outbox: None, workspace: "default".into() }
+    pub fn of(conn: &'c mut AnyConnection, workspace: Workspace) -> Self {
+        Settings { conn, effects: Effects::default(), outbox: None, workspace }
     }
 
     /// The settings of `project`'s workspace.
     pub async fn for_project(conn: &'c mut AnyConnection, project: &str) -> Result<Self> {
-        let workspace = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?"))
-            .bind(project)
-            .fetch_optional(&mut *conn)
-            .await?
-            .map(|r| r.get::<String, _>("workspace"))
-            .unwrap_or_else(|| "default".into());
-        Ok(Settings { workspace, ..Settings::new(conn) })
+        let workspace = Workspace::of_project_or_none(&mut *conn, project).await?.unwrap_or_else(Workspace::installation);
+        Ok(Settings::of(conn, workspace))
     }
 
     /// The server's, the person's and the machine's from `settings`, and this workspace's own from
@@ -332,7 +328,8 @@ impl<'c> Settings<'c> {
             .map(parse)
             .filter(|(key, _)| !WORKSPACE_KEYS.contains(&key.as_str()))
             .collect();
-        let own = sqlx::query(&sql("SELECT key, value FROM workspace_settings WHERE workspace = ?")).bind(&self.workspace).fetch_all(&mut *self.conn).await?;
+        let own =
+            sqlx::query(&sql("SELECT key, value FROM workspace_settings WHERE workspace = ?")).bind(self.workspace.id()).fetch_all(&mut *self.conn).await?;
         rows.extend(own.iter().map(parse));
         Ok(rows)
     }
@@ -389,7 +386,7 @@ impl<'c> Settings<'c> {
                     sqlx::query(&sql(
                         "INSERT INTO workspace_settings (workspace, key, value) VALUES (?, ?, ?) ON CONFLICT (workspace, key) DO UPDATE SET value = excluded.value",
                     ))
-                    .bind(&self.workspace)
+                    .bind(self.workspace.id())
                     .bind(key)
                     .bind(js(value))
                     .execute(&mut *self.conn)
@@ -404,7 +401,7 @@ impl<'c> Settings<'c> {
             }
             self.effects.settings = true;
             if input.contains_key("starts") {
-                let rows = sqlx::query(&sql("SELECT id FROM projects WHERE workspace = ?")).bind(&self.workspace).fetch_all(&mut *self.conn).await?;
+                let rows = sqlx::query(&sql("SELECT id FROM projects WHERE workspace = ?")).bind(self.workspace.id()).fetch_all(&mut *self.conn).await?;
                 self.effects.changed = rows.iter().map(|r| r.get::<String, _>("id")).collect();
             }
             Ok(())

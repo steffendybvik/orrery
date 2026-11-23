@@ -4,6 +4,7 @@
 // `update`), and deleting one across projects (`delete_across`). Each write says the project's schedules changed
 // (`Effects::schedules`), so the local app's scheduler reads them again. Running them, the requests on comments, and
 // making and changing one across projects (`create_across`, `update_across`, ORR-1036) are here too.
+use crate::access::scope::Workspace;
 use crate::board::issue_edits::resolve_status;
 use crate::board::issues::Issues;
 use crate::board::milestones::Milestones;
@@ -52,7 +53,7 @@ pub struct Schedules<'c> {
     as_across: bool,
     /// The workspace whose schedules across projects these are (ORR-1107): one for every project is for every project
     /// of it alone.
-    pub workspace: String,
+    pub workspace: Workspace,
 }
 
 /// What a write needs of a schedule's row: whether it's the owner's, the schedule across projects it's made from, and
@@ -213,14 +214,24 @@ fn across_refused(actor: &Actor) -> ApiError {
     ApiError::refused_for("schedules.across", message)
 }
 
+/// Schedules soonest due first, then by title.
+fn by_due(mut listed: Vec<Value>) -> Vec<Value> {
+    let due = |s: &Value| s.get("next_run").and_then(Value::as_str).unwrap_or("~").to_string();
+    let title = |s: &Value| s["title"].as_str().unwrap_or_default().to_string();
+    listed.sort_by(|a, b| due(a).cmp(&due(b)).then_with(|| title_cmp(&title(a), &title(b))));
+    listed
+}
+
 impl<'c> Schedules<'c> {
-    pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Schedules { conn, effects: Effects::default(), outbox: None, dry: false, across: None, as_across: false, workspace: "default".into() }
+    /// The schedules of `workspace`: its projects' (each held to it) and its schedules across projects (ORR-1107).
+    pub fn of(conn: &'c mut AnyConnection, workspace: Workspace) -> Self {
+        Schedules { conn, effects: Effects::default(), outbox: None, dry: false, across: None, as_across: false, workspace }
     }
 
-    /// The same, for the schedules across projects of `workspace` (ORR-1107).
-    pub fn within(self, workspace: String) -> Self {
-        Schedules { workspace, ..self }
+    /// The schedules of `project`'s workspace, a 404 when there's no such project (see `Projects::for_project`).
+    pub async fn for_project(conn: &'c mut AnyConnection, project: &str) -> Result<Self> {
+        let workspace = Workspace::of_project(&mut *conn, project).await?;
+        Ok(Schedules::of(conn, workspace))
     }
 
     /// The schedule's row as a write needs it (`row`), or a 404.
@@ -565,7 +576,7 @@ impl<'c> Schedules<'c> {
         let (projects, skip, fields) = across_input(body)?;
         let projects = projects.ok_or_else(|| ApiError::bad_request("Send \"projects\": \"*\" for all of them, or a list of ids"))?;
         let skip = skip.unwrap_or_default();
-        let workspace = self.workspace.clone();
+        let workspace = self.workspace.id().to_string();
         let targets = self.across_targets(&workspace, &projects, &skip, false).await?;
         if targets.is_empty() {
             return Err(ApiError::bad_request("That leaves no project for it to run on"));
@@ -607,7 +618,7 @@ impl<'c> Schedules<'c> {
         let id = sent.parse::<i64>().map_err(|_| missing())?;
         let row = sqlx::query(&sql("SELECT projects, skip, body FROM schedules_across WHERE id = ? AND workspace = ?"))
             .bind(id)
-            .bind(&self.workspace)
+            .bind(self.workspace.id())
             .fetch_optional(&mut *self.conn)
             .await?
             .ok_or_else(missing)?;
@@ -627,7 +638,7 @@ impl<'c> Schedules<'c> {
         let stored: String = row.get("projects");
         let projects = projects.unwrap_or_else(|| if stored == "*" { Projects::Every } else { Projects::Named(string_list(&parsed(&stored))) });
         let skip = skip.unwrap_or_else(|| string_list(&parsed(&row.get::<String, _>("skip"))));
-        let workspace = self.workspace.clone();
+        let workspace = self.workspace.id().to_string();
         let targets = self.across_targets(&workspace, &projects, &skip, false).await?;
         let copies = self.copies(id).await?;
         let fields = Value::Object(fields);
@@ -752,7 +763,7 @@ impl<'c> Schedules<'c> {
         let id = sent.parse::<i64>().map_err(|_| missing())?;
         if sqlx::query(&sql("SELECT 1 FROM schedules_across WHERE id = ? AND workspace = ?"))
             .bind(id)
-            .bind(&self.workspace)
+            .bind(self.workspace.id())
             .fetch_optional(&mut *self.conn)
             .await?
             .is_none()
@@ -802,7 +813,7 @@ impl<'c> Schedules<'c> {
     /// The presets a message or session schedule is given (`presetsFor`): each one its project's sessions can have.
     async fn usable_presets(&mut self, project: &str, ids: &str) -> Result<()> {
         let ids: Vec<i64> = serde_json::from_str(ids).unwrap_or_default();
-        let usable = Presets::new(&mut *self.conn).list(Some(project)).await?;
+        let usable = Presets::of(&mut *self.conn, self.workspace.clone()).list(Some(project)).await?;
         let usable = usable.as_array().cloned().unwrap_or_default();
         let unknown: Vec<String> = ids.iter().filter(|id| !usable.iter().any(|p| p["id"] == json!(id))).map(i64::to_string).collect();
         if unknown.is_empty() {
@@ -838,12 +849,7 @@ impl<'c> Schedules<'c> {
 
     /// A status of `project`'s workspace as the API gives it (`status`), or a 404.
     async fn status(&mut self, project: &str, id: &str) -> Result<Value> {
-        let workspace = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?"))
-            .bind(project)
-            .fetch_optional(&mut *self.conn)
-            .await?
-            .map(|r| r.get::<String, _>("workspace"))
-            .unwrap_or_else(|| "default".into());
+        let workspace = Workspace::of_project(&mut *self.conn, project).await?;
         let statuses = Statuses::of(&mut *self.conn, workspace).list().await?;
         statuses.as_array().into_iter().flatten().find(|s| s["id"] == id).cloned().ok_or_else(|| ApiError::not_found(format!("No status \"{id}\"")))
     }
@@ -1003,16 +1009,29 @@ impl<'c> Schedules<'c> {
                 }
                 sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM schedules WHERE project = ?"))).bind(project).fetch_all(&mut *self.conn).await?
             }
-            None => sqlx::query(&format!("SELECT {COLUMNS} FROM schedules")).fetch_all(&mut *self.conn).await?,
+            // Every project's of this workspace; the caller's `Seen` leaves out boards a member isn't on.
+            None => {
+                sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM schedules WHERE project IN (SELECT id FROM projects WHERE workspace = ?)")))
+                    .bind(self.workspace.id())
+                    .fetch_all(&mut *self.conn)
+                    .await?
+            }
         };
         let mut listed = Vec::new();
         for row in &rows {
             listed.push(self.schedule_of(row).await?);
         }
-        let due = |s: &Value| s.get("next_run").and_then(Value::as_str).unwrap_or("~").to_string();
-        let title = |s: &Value| s["title"].as_str().unwrap_or_default().to_string();
-        listed.sort_by(|a, b| due(a).cmp(&due(b)).then_with(|| title_cmp(&title(a), &title(b))));
-        Ok(Value::Array(listed))
+        Ok(Value::Array(by_due(listed)))
+    }
+
+    /// Every workspace's schedules, for the Nuxt server's clock, which runs them all: `Across::Server` made this store.
+    pub async fn every(&mut self) -> Result<Value> {
+        let rows = sqlx::query(&format!("SELECT {COLUMNS} FROM schedules")).fetch_all(&mut *self.conn).await?;
+        let mut listed = Vec::new();
+        for row in &rows {
+            listed.push(self.schedule_of(row).await?);
+        }
+        Ok(Value::Array(by_due(listed)))
     }
 
     /// The schedule by its number or its full id (`sch-12-x7k2m9qd`), with its latest runs, or a 404.
@@ -1032,7 +1051,7 @@ impl<'c> Schedules<'c> {
         let rows = sqlx::query(&sql(
             "SELECT CAST(id AS BIGINT) AS id, projects, skip, body, created_by, created_at, updated_at FROM schedules_across WHERE workspace = ? ORDER BY id",
         ))
-        .bind(&self.workspace)
+        .bind(self.workspace.id())
         .fetch_all(&mut *self.conn)
         .await?;
         let mut out = Vec::new();

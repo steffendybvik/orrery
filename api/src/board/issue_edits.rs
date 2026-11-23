@@ -7,6 +7,7 @@
 // ORR-1130), once the Nuxt server has checked its claim, as only that knows which sessions are there to hear. The rails are the
 // store's: an agent changes only its person's issue, or its own proposal, moves one only under an issue that's its
 // person's too, and hands one on only back to the owner.
+use crate::access::scope::Workspace;
 use crate::board::issue_writes::IssueWrites;
 use crate::board::issues::{github_issue_of, github_repo, link_ref, Issues, GITHUB_OWN};
 use crate::changes;
@@ -386,7 +387,7 @@ impl IssueWrites<'_> {
             None => None,
         };
         let epic = match words.epic.as_ref().and_then(|e| e.as_deref()) {
-            Some(sent) => Some(self.epic_id(sent).await?),
+            Some(sent) => Some(self.epic_id(project, sent).await?),
             None => None,
         };
         let github = match &words.github_issues {
@@ -617,7 +618,7 @@ impl IssueWrites<'_> {
         let epic = match &words.epic {
             None => None,
             Some(None) => Some(None),
-            Some(Some(sent)) => Some(Some(self.epic_id(sent).await?)),
+            Some(Some(sent)) => Some(Some(self.epic_id(project, sent).await?)),
         };
         let statuses = Issues::new(&mut *self.conn).statuses(project).await?;
         let status = if words.status.is_some() || words.plan.is_some() {
@@ -1084,11 +1085,18 @@ impl IssueWrites<'_> {
         Ok(Placement { parent, moved, sent_parent: words.parent.is_some(), milestone, release: words.release.clone() })
     }
 
-    /// The epic sent as its number, `EPC-1` or its full id (`epicRow`, ORR-995), 404 when there's none.
-    async fn epic_id(&mut self, sent: &str) -> Result<i64> {
-        let settings = crate::work::settings::Settings::new(&mut *self.conn).get().await?;
-        let found = match epic_number(sent, settings["uid"].as_str().unwrap_or_default()).and_then(|n| n.parse::<i64>().ok()) {
-            Some(id) => sqlx::query(&sql("SELECT id FROM epics WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?.map(|_| id),
+    /// The epic sent as its number, `EPC-1` or its full id (`epicRow`, ORR-995), 404 when there's none in `project`'s
+    /// workspace: another workspace's epic is as if it weren't here (ORR-1355).
+    async fn epic_id(&mut self, project: &str, sent: &str) -> Result<i64> {
+        let uid = crate::work::presets::uid(&mut *self.conn).await?;
+        let workspace = Workspace::of_project(&mut *self.conn, project).await?;
+        let found = match epic_number(sent, &uid).and_then(|n| n.parse::<i64>().ok()) {
+            Some(id) => sqlx::query(&sql("SELECT id FROM epics WHERE id = ? AND workspace = ?"))
+                .bind(id)
+                .bind(workspace.id())
+                .fetch_optional(&mut *self.conn)
+                .await?
+                .map(|_| id),
             None => None,
         };
         found.ok_or_else(|| ApiError::not_found(format!("No epic {sent}: GET /api/epics lists them")))

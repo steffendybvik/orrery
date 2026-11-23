@@ -1,5 +1,6 @@
 // Session presets: the handlers and the routes they answer (ORR-1048).
 use super::P;
+use crate::access::scope::{Across, Workspace};
 use crate::access::seen::Seen;
 use crate::error::{ApiError, Result};
 use crate::reply::reply;
@@ -34,7 +35,7 @@ async fn list_presets(State(app): Shared, headers: HeaderMap) -> Result<Response
 
 async fn list_project_presets(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Presets::new(&mut conn).list(Some(&project)).await?).into_response())
+    Ok(Json(Presets::for_project(&mut conn, &project).await?.list(Some(&project)).await?).into_response())
 }
 
 async fn create_preset(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
@@ -46,7 +47,7 @@ async fn create_preset(State(app): Shared, headers: HeaderMap, body: Bytes) -> R
 
 async fn create_project_preset(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let preset = Presets::new(&mut conn).create(Some(&project), &body_of(&body), &actor_of(&headers)).await?;
+    let preset = Presets::for_project(&mut conn, &project).await?.create(Some(&project), &body_of(&body), &actor_of(&headers)).await?;
     Ok(reply(StatusCode::CREATED, Some(preset), Effects::default()))
 }
 
@@ -95,7 +96,7 @@ async fn seed_presets(State(app): Shared, headers: HeaderMap) -> Result<Response
         return Err(ApiError::forbidden("Only the local app seeds the presets orrery ships, as it starts"));
     }
     let mut conn = app.pool.acquire().await?;
-    let added = Presets::new(&mut conn).seed().await?;
+    let added = Presets::of(&mut conn, Workspace::across(Across::Server, "default")).seed().await?;
     Ok(Json(json!({"added": added})).into_response())
 }
 

@@ -1,6 +1,7 @@
 // The workspaces a request reaches, and the projects in them (ORR-1106, decision 6 of decision-workspaces): what the
 // rails hold a project's routes to, and what the lists and feeds across projects keep.
 use crate::access::people::Who;
+use crate::access::scope::Workspace;
 use crate::access::session_records::as_recorded;
 use crate::board::issue_writes::IssueWrites;
 use crate::db::sql;
@@ -42,7 +43,7 @@ impl Seen {
     pub(crate) async fn listed(conn: &mut AnyConnection, headers: &HeaderMap) -> Result<Seen> {
         let seen = Seen::of(conn, headers).await?;
         let named = header(headers, "orrery-workspace").map(|w| w.trim().to_string()).filter(|w| !w.is_empty());
-        let one = seen.pick(named.as_deref()).or_else(|_| seen.pick(None)).ok();
+        let one = seen.pick(named.as_deref()).or_else(|_| seen.pick(None)).ok().map(|w| w.id().to_string());
         Ok(match seen {
             Seen::Only { own, off, .. } => Seen::Only { workspaces: one.into_iter().collect(), own, off },
             all => all,
@@ -117,14 +118,14 @@ impl Seen {
     /// (ORR-1107): the one it names in `Orrery-Workspace`, else `default` when it's seen, else the first one seen. Naming
     /// one it doesn't see is a 404, as if it weren't here; seeing none at all is one too. The Nuxt server's own work acts
     /// in the one named, or `default`.
-    pub(crate) async fn workspace(conn: &mut AnyConnection, headers: &HeaderMap) -> Result<String> {
+    pub(crate) async fn workspace(conn: &mut AnyConnection, headers: &HeaderMap) -> Result<Workspace> {
         let named = header(headers, "orrery-workspace").map(|w| w.trim().to_string()).filter(|w| !w.is_empty());
         Seen::of(conn, headers).await?.pick(named.as_deref())
     }
 
     /// The workspace `named` (or the one to act in, with none named) among those seen; see `workspace`.
-    pub(crate) fn pick(&self, named: Option<&str>) -> Result<String> {
-        match (self, named) {
+    pub(crate) fn pick(&self, named: Option<&str>) -> Result<Workspace> {
+        let picked = match (self, named) {
             (Seen::All, Some(named)) => Ok(named.to_string()),
             (Seen::All, None) => Ok("default".to_string()),
             (Seen::Only { workspaces, .. }, Some(named)) if workspaces.iter().any(|w| w == named) => Ok(named.to_string()),
@@ -135,7 +136,8 @@ impl Seen {
                 .or_else(|| workspaces.first())
                 .cloned()
                 .ok_or_else(|| ApiError::not_found("You aren't in any workspace here")),
-        }
+        };
+        picked.map(Workspace::seen)
     }
 
     /// Whether a project in `workspace`, with id `project`, is seen.

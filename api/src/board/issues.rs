@@ -3,6 +3,7 @@
 // (web/server/store/reads.ts) and `buildBoard` (web/server/utils/roadmap.ts) build it: each issue's column, kind and
 // counts rolled up from its sub-issues. Writing issues stays the Nuxt server's for now, as a change wakes sessions
 // (ORR-929); the router sends only these reads here.
+use crate::access::scope::Workspace;
 use crate::board::statuses::Statuses;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
@@ -310,17 +311,12 @@ impl<'c> Issues<'c> {
 
     /// The statuses of `project`'s workspace (ORR-1107): its board, and what its issues may be set to.
     pub(crate) async fn statuses(&mut self, project: &str) -> Result<Vec<Status>> {
-        let workspace = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?"))
-            .bind(project)
-            .fetch_optional(&mut *self.conn)
-            .await?
-            .map(|r| r.get::<String, _>("workspace"))
-            .unwrap_or_else(|| "default".into());
+        let workspace = Workspace::of_project_or_none(&mut *self.conn, project).await?.unwrap_or_else(Workspace::installation);
         self.statuses_of(workspace).await
     }
 
     /// The statuses of `workspace`.
-    pub(crate) async fn statuses_of(&mut self, workspace: String) -> Result<Vec<Status>> {
+    pub(crate) async fn statuses_of(&mut self, workspace: Workspace) -> Result<Vec<Status>> {
         let listed = Statuses::of(&mut *self.conn, workspace).list().await?;
         Ok(listed
             .as_array()

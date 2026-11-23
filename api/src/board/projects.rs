@@ -6,6 +6,8 @@
 // Nuxt server's router adds. Making one (`createProject`) answers as `POST /api/projects` does, and deleting one (`deleteProject`) as
 // `DELETE /api/projects/:project` does.
 use crate::access::people::Who;
+use crate::access::scope::Workspace;
+use crate::access::seen::Seen;
 use crate::board::docs::Docs;
 use crate::board::issue_writes::IssueWrites;
 use crate::board::issues::{kinds_json, sum, Board, Issues};
@@ -270,12 +272,19 @@ pub struct Projects<'c> {
     /// Set for a write: what it sets off goes into the outbox in its transaction (ORR-929).
     pub outbox: Option<Outbox>,
     /// The workspace a new project goes into (ORR-1195): the one the request acts in.
-    pub workspace: String,
+    pub workspace: Workspace,
 }
 
 impl<'c> Projects<'c> {
-    pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Projects { conn, effects: Effects::default(), outbox: None, workspace: "default".into() }
+    pub fn of(conn: &'c mut AnyConnection, workspace: Workspace) -> Self {
+        Projects { conn, effects: Effects::default(), outbox: None, workspace }
+    }
+
+    /// The projects of `project`'s workspace, a 404 when there's no such project: for a route under
+    /// `/api/projects/:project`, which the rails let through only to a project the asker sees.
+    pub async fn for_project(conn: &'c mut AnyConnection, project: &str) -> Result<Self> {
+        let workspace = Workspace::of_project(&mut *conn, project).await?;
+        Ok(Projects::of(conn, workspace))
     }
 
     /// Whether orrery may start sessions, and within what: the workspace's setting, as every project in it shares it
@@ -335,20 +344,28 @@ impl<'c> Projects<'c> {
     /// The ids of the projects sharing releases with `id`: those drawing on it, and the one it draws on (ORR-1174), as
     /// the Nuxt store's `pushChanged` read them.
     pub async fn release_peers(&mut self, id: &str) -> Result<Vec<String>> {
-        let rows = sqlx::query(&sql("SELECT id FROM projects WHERE releases_from = ? OR id = (SELECT releases_from FROM projects WHERE id = ?) ORDER BY id"))
-            .bind(id)
-            .bind(id)
-            .fetch_all(&mut *self.conn)
-            .await?;
+        let rows = sqlx::query(&sql(
+            "SELECT id FROM projects WHERE workspace = ? AND (releases_from = ? OR id = (SELECT releases_from FROM projects WHERE id = ?)) ORDER BY id",
+        ))
+        .bind(self.workspace.id())
+        .bind(id)
+        .bind(id)
+        .fetch_all(&mut *self.conn)
+        .await?;
         Ok(rows.iter().map(|r| r.get::<String, _>("id")).collect())
     }
 
-    pub async fn list(&mut self, boards: bool) -> Result<Value> {
+    /// Every project `seen` sees, with its counts (or its board, with `boards`): the projects of other workspaces, and
+    /// boards a member isn't on, are left out here rather than by each caller (ORR-1355).
+    pub async fn list(&mut self, boards: bool, seen: &Seen) -> Result<Value> {
         let rows = sqlx::query(&sql(&format!("SELECT {PROJECT_COLUMNS} FROM projects ORDER BY lower(name), name"))).fetch_all(&mut *self.conn).await?;
         let mut starts = std::collections::HashMap::<String, Option<Value>>::new();
         let mut out = Vec::new();
         for row in &rows {
             let workspace: String = row.get("workspace");
+            if !seen.sees_in(&workspace, &row.get::<String, _>("id")) {
+                continue;
+            }
             if !starts.contains_key(&workspace) {
                 let read = self.starts(&workspace).await?;
                 starts.insert(workspace.clone(), read);
@@ -370,7 +387,12 @@ impl<'c> Projects<'c> {
             .fetch_optional(&mut *self.conn)
             .await?
             .ok_or_else(|| ApiError::not_found(format!("No project \"{id}\"")))?;
-        let starts = self.starts(&row.get::<String, _>("workspace")).await?;
+        // Another workspace's project is as if it weren't here (ORR-1355).
+        let workspace = row.get::<String, _>("workspace");
+        if workspace != self.workspace.id() {
+            return Err(ApiError::not_found(format!("No project \"{id}\"")));
+        }
+        let starts = self.starts(&workspace).await?;
         self.project_of(&row, &starts, false).await
     }
 
@@ -390,7 +412,9 @@ impl<'c> Projects<'c> {
         if from == id {
             return Err(ApiError::bad_request("A project can't take its releases from itself; send release_mode \"own\" to give it its own"));
         }
-        let Some(source) = self.release_row(from).await? else {
+        // Only a project of its own workspace: another's is as if it weren't here (ORR-1355).
+        let here = Workspace::of_project_or_none(&mut *self.conn, from).await?.is_some_and(|w| w == self.workspace);
+        let (true, Some(source)) = (here, self.release_row(from).await?) else {
             return Err(ApiError::bad_request(format!("No project \"{from}\" to take releases from")));
         };
         not_moved(self.conn, from).await?;
@@ -481,7 +505,7 @@ impl<'c> Projects<'c> {
             .bind(i64::from(actor.owner))
             .bind(&now)
             .bind(&now)
-            .bind(&self.workspace)
+            .bind(self.workspace.id())
             .execute(&mut *self.conn)
             .await?;
             let sets = prompt_columns(&input);
@@ -619,7 +643,7 @@ impl<'c> Projects<'c> {
         }
         .await;
         changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
-        let mut log = EventLog::new(&mut *self.conn);
+        let mut log = EventLog::of(&mut *self.conn, self.workspace.clone());
         log.outbox = self.outbox.as_ref().map(|_| Outbox::new(Actor::default()));
         let line = json!({
             "level": "info", "kind": "project.picks_let", "project": id,
