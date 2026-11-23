@@ -24,7 +24,7 @@ fn later() -> String {
 
 /// A login id as the logins table keeps one: 64 hex digits, its first 16 starting with `c`.
 fn hashed(c: char) -> String {
-    std::iter::repeat(c).take(64).collect()
+    std::iter::repeat_n(c, 64).collect()
 }
 
 #[tokio::test]

@@ -199,3 +199,36 @@ async fn an_epic_is_its_workspaces_alone() {
     let ana = api.signed(api.delete(&format!("/api/epics/{id}")).header("orrery-sent-origin", "http://localhost"), "ana").await.send().await;
     assert_eq!(ana.status, 404, "{}", ana.body);
 }
+
+/// Another workspace's issue carrying the same epic number isn't counted, named or listed in this workspace's epic,
+/// and an issue can't be put in another workspace's epic (ORR-1347).
+#[tokio::test]
+async fn an_epic_counts_only_its_own_workspace_s_projects() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let rockets = api.acme(&["bo"]).await;
+    let primes = api.project("Primes").await;
+    epic(&api, json!({"title": "Wheels"})).await;
+    api.issue(&primes, json!({"title": "Sieve", "epic": 1})).await;
+    // Acme's issue pointing at epic 1, as a row from before epics were held to a workspace could.
+    let fuel = api.issue(&rockets, json!({"title": "Fuel"})).await;
+    api.run("UPDATE issues SET epic = 1 WHERE project = ? AND id = ?", &[&rockets, &fuel]).await;
+
+    let listed = api.get("/api/epics").send().await.body;
+    assert_eq!(listed[0]["issues"], 1, "{listed}");
+    let parts: Vec<&str> = listed[0]["projects"].as_array().unwrap().iter().map(|p| p["project"].as_str().unwrap()).collect();
+    assert_eq!(parts, vec![primes.as_str()], "{listed}");
+    let read = api.get("/api/epics/1").send().await.body;
+    let named: Vec<&str> = read["parts"].as_array().unwrap().iter().map(|p| p["project"].as_str().unwrap_or_default()).collect();
+    assert!(!named.contains(&rockets.as_str()) && !read.to_string().contains("Rockets"), "{read}");
+
+    let made = api
+        .signed(api.post("/api/epics", json!({"title": "Launch"})).header("orrery-workspace", "acme").header("orrery-sent-origin", "http://localhost"), "bo")
+        .await
+        .send()
+        .await;
+    assert_eq!(made.status, 201, "{}", made.body);
+    let theirs = made.body["id"].as_i64().unwrap();
+    let refused = api.post(&format!("/api/projects/{primes}/issues"), json!({"title": "Gear", "epic": theirs})).send().await;
+    assert_eq!(refused.status, 404, "Acme's epic isn't Primes' workspace's: {}", refused.body);
+}

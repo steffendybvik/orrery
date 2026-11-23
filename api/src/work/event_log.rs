@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 /// `EVENT_LEVELS` in web/shared/roadmap/events.ts.
 pub(crate) const LEVELS: [&str; 3] = ["error", "warn", "info"];
-/// `ACTIVITY_FAMILIES`: the kinds under these are changes to the roadmap, kept apart from the rest when pruning.
+/// The kinds under these families (`issue.status`, `comment.added`, `release.frozen`…) are changes to the roadmap (ORR-378), kept apart from the rest when pruning.
 const ACTIVITY_FAMILIES: [&str; 5] = ["issue", "comment", "milestone", "doc", "release"];
 /// How long what orrery did is kept, and how long warnings and errors are, in days.
 const KEEP_INFO: i64 = 7;

@@ -14,7 +14,7 @@ use crate::write::{js, stamp, Actor, Effects};
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// What an epic's body may hold (`EPIC_FIELDS`).
 const FIELDS: [&str; 3] = ["title", "notes", "position"];
@@ -135,12 +135,15 @@ pub struct Epics<'c> {
     pub outbox: Option<Outbox>,
     /// The workspace whose epics these are (ORR-1107): another's are as if they weren't here.
     pub workspace: Workspace,
+    /// The projects the asker doesn't see (ORR-1381): a board they aren't on is left out of every epic's parts and
+    /// counts, as if its issues weren't set for it. Set by the routes; none for what orrery does itself.
+    pub hidden: HashSet<String>,
 }
 
 impl<'c> Epics<'c> {
     /// The epics of `workspace`.
     pub fn of(conn: &'c mut AnyConnection, workspace: Workspace) -> Self {
-        Epics { conn, effects: Effects::default(), outbox: None, workspace }
+        Epics { conn, effects: Effects::default(), outbox: None, workspace, hidden: HashSet::new() }
     }
 
     async fn uid(&mut self) -> Result<String> {
@@ -166,13 +169,29 @@ impl<'c> Epics<'c> {
             .ok_or_else(|| ApiError::not_found(format!("No epic {id}: GET /api/epics lists them")))
     }
 
-    /// The projects with an issue set for one of `epics` (every epic, without), by id (`projectsIn`).
+    /// The projects of this workspace the asker sees with an issue set for `epic` (every epic, without), by id
+    /// (`projectsIn`).
     async fn projects_in(&mut self, epic: Option<i64>) -> Result<Vec<String>> {
+        // Only this workspace's projects: another's issues may carry the same epic number, and counting them would
+        // show its projects, names and tallies here (ORR-1347).
         let rows = match epic {
-            Some(epic) => sqlx::query(sql("SELECT DISTINCT project FROM issues WHERE epic = ? ORDER BY project")).bind(epic).fetch_all(&mut *self.conn).await?,
-            None => sqlx::query("SELECT DISTINCT project FROM issues WHERE epic IS NOT NULL ORDER BY project").fetch_all(&mut *self.conn).await?,
+            Some(epic) => {
+                sqlx::query(sql(
+                    "SELECT DISTINCT i.project FROM issues i JOIN projects p ON p.id = i.project WHERE i.epic = ? AND p.workspace = ? ORDER BY i.project",
+                ))
+                .bind(epic)
+                .bind(self.workspace.id())
+                .fetch_all(&mut *self.conn)
+                .await?
+            }
+            None => sqlx::query(sql(
+                "SELECT DISTINCT i.project FROM issues i JOIN projects p ON p.id = i.project WHERE i.epic IS NOT NULL AND p.workspace = ? ORDER BY i.project",
+            ))
+            .bind(self.workspace.id())
+            .fetch_all(&mut *self.conn)
+            .await?,
         };
-        Ok(rows.iter().map(|r| r.get("project")).collect())
+        Ok(rows.iter().map(|r| r.get::<String, _>("project")).filter(|p| !self.hidden.contains(p)).collect())
     }
 
     /// Every epic, in the order they're arranged in, a new one on top, each with its progress and each project's part

@@ -144,9 +144,11 @@ async fn list_chats(State(app): Shared, headers: HeaderMap) -> Result<Response> 
 async fn keep_chat(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let body = body_of(&body);
-    // A chat kept on a project the asker can't see is one more row there: refused as that project isn't here.
+    // A chat kept on a project the asker can't see is one more row there: refused as a project that isn't here is, with
+    // the same 404, so the answer doesn't tell the two apart (ORR-1388).
     if let Some(project) = body["project"].as_str() {
-        if Seen::listed(&mut conn, &headers).await?.hidden(&mut conn).await?.contains(project) {
+        let here = crate::access::scope::Workspace::of_project_or_none(&mut conn, project).await?.is_some();
+        if !here || Seen::listed(&mut conn, &headers).await?.hidden(&mut conn).await?.contains(project) {
             return Err(ApiError::not_found(format!("No project \"{project}\"")));
         }
     }

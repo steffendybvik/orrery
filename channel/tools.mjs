@@ -93,7 +93,7 @@ export const TOOLS = [
         description: 'Comments on an issue (Markdown); asks waits at the top of the owner’s bell until they answer.',
         inputSchema: {type: 'object', required: ['id', 'body'], properties: {id: {type: 'string'}, body: {type: 'string'}, asks: {type: 'string', enum: ['decision', 'feedback']}}},
     },
-    {name: 'milestones', description: "Lists the project's milestones with their status and progress; done ones with all.", inputSchema: {type: 'object', properties: {all: {type: 'boolean', description: 'Done milestones too'}}}},
+    {name: 'milestones', description: "Lists the project's milestones, a line each: id, column, priority, title, progress, summary; done ones with all.", inputSchema: {type: 'object', properties: {all: {type: 'boolean', description: 'Done milestones too'}}}},
     {
         name: 'releases',
         description: "Lists the project's releases with their branches and progress; of the shipped ones, only the latest unless all.",
@@ -204,6 +204,12 @@ const MILESTONE_FIELDS = {
     summary: {type: ['string', 'null']},
     priority: {type: ['string', 'null'], enum: ['P0', 'P1', 'P2', 'P3', null]},
 }
+
+/** What of a milestone the tools send: the chat's fields, and a working session's position. */
+const MILESTONE_KEYS = ['title', 'summary', 'priority', 'position']
+
+/** Where a milestone sits on the Roadmap, which a working session may set too. */
+const MILESTONE_POSITION = {type: 'number', description: 'Its place among the milestones, 0 at the top'}
 
 const DOC_FIELDS = {
     title: {type: 'string'},
@@ -382,6 +388,21 @@ export const ASK_TOOLS = [
     },
 ]
 
+/** A working session's milestones, made and changed at once (ORR-1397), as the permissions let a session
+ * (`milestones.write`); named as the chat's, which say when the owner asks. Removing one stays the owner's. */
+export const MILESTONE_TOOLS = [
+    {
+        name: 'create_milestone',
+        description: 'Makes a milestone (a group of issues) in this project, at once; put issues in it with update_issue (milestone: its id).',
+        inputSchema: {type: 'object', required: ['title'], properties: {...MILESTONE_FIELDS, position: MILESTONE_POSITION}},
+    },
+    {
+        name: 'update_milestone',
+        description: "Changes one of this project's milestones, by its id (the milestones tool lists them), at once: send only what changes. Removing one is the owner's, on its page.",
+        inputSchema: {type: 'object', required: ['id'], properties: {id: {type: 'string'}, ...MILESTONE_FIELDS, position: MILESTONE_POSITION}},
+    },
+]
+
 /** A working session's releases, made and changed at once (ORR-2), as the permissions table lets a session write them
  * (`docs.write`); named as the chat's requests, which ask the owner instead. Removing one stays the owner's. */
 export const RELEASE_TOOLS = [
@@ -436,6 +457,7 @@ export const ON_DEMAND = {
     review: ['rate_pull'],
     epics: ['epics', 'create_epic', 'update_epic', 'comment_epic'],
     releases: ['create_release', 'update_release'],
+    milestones: ['milestones', 'create_milestone', 'update_milestone'],
     folder: ['link_folder'],
 }
 
@@ -457,6 +479,7 @@ const GROUPS_SAID = {
     review: 'review (rate each PR you open)',
     epics: 'epics (work across projects)',
     releases: 'releases (make and change them)',
+    milestones: 'milestones (list, make and change them)',
     folder: "folder (link this session's folder to a project)",
 }
 
@@ -501,7 +524,7 @@ function requestsOnly(tools, actions, said) {
 
 /** What an untrusted schedule's session goes without: what orrery refuses it (the permissions' untrusted column: it
  * only raises proposals and comments on them), and orrery's own log. */
-export const NOT_FOR_UNTRUSTED = ['link_folder', 'epics', 'create_epic', 'update_epic', 'comment_epic', 'update_issue', 'start_issue', 'next', 'finish_issue', 'rate_pull', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event']
+export const NOT_FOR_UNTRUSTED = ['milestones', 'link_folder', 'epics', 'create_epic', 'update_epic', 'comment_epic', 'update_issue', 'start_issue', 'next', 'finish_issue', 'rate_pull', 'write_doc', 'secrets', 'egress', 'events', 'resolve_event']
 
 /** The tools a chat goes without: those that take up or finish work, its one rule (ORR-750), `update_issue` among them as
  * it sets a status; `edit_issue` is its way to change the rest (its launcher refuses them too, `chatOnly`). Epics it
@@ -510,7 +533,7 @@ export const NOT_FOR_CHAT = ['start_issue', 'next', 'finish_issue', 'update_issu
 
 /** The reads only the chat has use for, helping the owner plan: a work session goes without them, so their definitions
  * don't ride on its every turn (ORR-544). */
-export const CHAT_READS = ['milestones', 'presets', 'preset', 'schedules']
+export const CHAT_READS = ['presets', 'preset', 'schedules']
 
 /** How many of a search's hits in the text the `issues` tool quotes (ORR-641), so a common word stays small. */
 const MATCHES_SHOWN = 15
@@ -558,7 +581,7 @@ export function toolsFor(projects, {chat = false, untrusted = false, loaded = []
     const work = TOOLS.filter(t => !CHAT_READS.includes(t.name))
     const all = chat ? [...TOOLS.filter(t => !NOT_FOR_CHAT.includes(t.name)), ...CHAT_TOOLS, ...GITHUB_TOOLS, GITHUB_PULLS]
         : untrusted ? [...work.filter(t => !NOT_FOR_UNTRUSTED.includes(t.name)), ...GITHUB_TOOLS]
-            : [...work, ...ASK_TOOLS, ...RELEASE_TOOLS]
+            : [...work, ...ASK_TOOLS, ...RELEASE_TOOLS, ...MILESTONE_TOOLS]
     const groups = split === 'served' ? SERVED_ON_DEMAND : ON_DEMAND
     const later = Object.entries(groups).filter(([group]) => !loaded.includes(group)).flatMap(([, names]) => names)
     const gated = tools => chat || untrusted ? tools : [...tools.filter(t => !later.includes(t.name)), ...later.length ? [split === 'served' ? SERVED_MORE_TOOLS : MORE_TOOLS] : []]
@@ -679,6 +702,12 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
                 if (!i.match_in) return line(i)
                 return `${line(i)}\n    in its ${i.match_in}${i.match && !untrusted && ++shown <= MATCHES_SHOWN ? `: ${i.match}` : ''}`
             })
+            // An empty milestone and one that isn't there both list nothing: say which (ORR-1397).
+            if (!said.length && args.milestone && args.milestone !== 'none') {
+                const project = await projectOf(args)
+                const there = await call('GET', `/milestones/${encodeURIComponent(args.milestone)}`, undefined, at(project)).then(() => true, () => false)
+                if (!there) return `No milestone "${args.milestone}" in ${project}: the milestones tool lists them.`
+            }
             return [said.length ? said.join('\n') : 'No issues match.', hidden].filter(Boolean).join('\n')
         },
         async issue({id, comments: which}) {
@@ -774,7 +803,7 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             const shown = all ? milestones : milestones.filter(c => c.kind !== 'done')
             const hidden = milestones.length - shown.length
             return [
-                ...shown.map(c => `${c.id || 'none'} [${c.column}${c.priority ? `, ${c.priority}` : ''}] ${c.title}: ${c.kinds.done}/${c.kinds.backlog + c.kinds.todo + c.kinds.started + c.kinds.done} done`),
+                ...shown.map(c => `${c.id || 'none'} [${c.column}${c.priority ? `, ${c.priority}` : ''}] ${c.title}: ${c.kinds.done}/${c.kinds.backlog + c.kinds.todo + c.kinds.started + c.kinds.done} done${c.summary ? `\n    ${firstLine(c.summary)}` : ''}`),
                 ...hidden ? [`${hidden} done milestone${hidden === 1 ? '' : 's'} not shown: all lists them`] : [],
             ].join('\n') || 'No milestones yet.'
         },
@@ -935,13 +964,13 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             await call('POST', `/chats/${encodeURIComponent(chat)}/requests`, {version, release, ...await on({project}), ...why ? {why} : {}}, root)
             return "Asked: the owner sees the change with Allow and Deny, and you'll hear which they pressed. Nothing is saved until they allow it."
         },
-        // Made and changed at once, as the owner asked in the chat (ORR-988).
+        // Made and changed at once: as the owner asked in the chat (ORR-988), or by a working session (ORR-1397).
         async create_milestone(args) {
-            const made = await call('POST', '/milestones', pick(args, ['title', 'summary', 'priority']), at(await projectOf(args)))
-            return `Made milestone ${made.id}: ${made.title}. Put issues in it with edit_issue (milestone: "${made.id}").`
+            const made = await call('POST', '/milestones', pick(args, MILESTONE_KEYS), at(await projectOf(args)))
+            return `Made milestone ${made.id}: ${made.title}. Put issues in it with ${chat ? 'edit_issue' : 'update_issue'} (milestone: "${made.id}").`
         },
         async update_milestone({id, ...args}) {
-            const changed = await call('PATCH', `/milestones/${encodeURIComponent(id)}`, pick(args, ['title', 'summary', 'priority']), at(await projectOf(args)))
+            const changed = await call('PATCH', `/milestones/${encodeURIComponent(id)}`, pick(args, MILESTONE_KEYS), at(await projectOf(args)))
             return `Milestone ${changed.id} is now: ${changed.title}`
         },
         async offer_issue({why, project, ...issue}) {
@@ -1033,7 +1062,7 @@ export function orreryTools({api, root = api?.replace(/\/projects\/[^/]+$/, ''),
             return {content: [{type: 'text', text}]}
         }
         // A work session's own, named as the chat's requests (ORR-458, ORR-2).
-        const asks = [...ASK_TOOLS, ...RELEASE_TOOLS].some(t => t.name === name)
+        const asks = [...ASK_TOOLS, ...RELEASE_TOOLS, ...MILESTONE_TOOLS].some(t => t.name === name)
         const chatOnly = !asks && [...CHAT_TOOLS, ...CHAT_REQUESTS].some(t => t.name === name) || CHAT_READS.includes(name)
         const github = GITHUB_TOOLS.some(t => t.name === name)
         const chatsGithub = name === GITHUB_PULLS.name

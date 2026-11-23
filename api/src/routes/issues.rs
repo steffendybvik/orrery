@@ -2,6 +2,7 @@
 // and the routes they answer (ORR-1048).
 use super::P;
 use crate::access::rewrites;
+use crate::access::seen::Seen;
 use crate::board::comments::{comment_id, Handoff};
 use crate::board::issue_edits;
 use crate::board::issue_writes::IssueWrites;
@@ -166,8 +167,10 @@ async fn create_issue(State(app): Shared, Path(project): Path<String>, headers: 
         sent
     };
     let mut conn = app.pool.acquire().await?;
+    let seen = Seen::of(&mut conn, &headers).await?;
     let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor.clone()));
+    comments.seen = Some(seen);
     let (id, urgent) = comments.create_issue(&project, &asked, &actor).await?;
     // The issue's made: not noting its session only means the owner's comments on it don't reach that session.
     if let Some(session) = rewrites::worked_by(&headers, actor.chat) {
@@ -191,8 +194,10 @@ async fn create_issue(State(app): Shared, Path(project): Path<String>, headers: 
 /// status is noted as working it, and starting it takes the session's lock on it (`claimed`, 409 when another has it).
 async fn patch_issue(State(app): Shared, Path((project, issue)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
+    let seen = Seen::of(&mut conn, &headers).await?;
     let mut comments = IssueWrites::new(&mut conn);
     comments.outbox = Some(Outbox::new(actor_of(&headers)));
+    comments.seen = Some(seen);
     let actor = actor_of(&headers);
     let mut edit = body_of(&body);
     // Sent with `project`, it moves there first (ORR-1129), with its new parent or milestone, and the rest of the edit

@@ -179,6 +179,85 @@ async fn bos_world(api: &TestApi) -> Theirs {
     Theirs { real, ghost }
 }
 
+/// ana's own world in `default`: two projects, so a tool has to take the `project` it's given rather than her only one,
+/// and on Primes an issue, an epic, a milestone and a doc of hers, for routes and tools that name bo's in their body.
+async fn anas_world(api: &TestApi, theirs: &Theirs) -> BTreeMap<&'static str, String> {
+    let primes: String = sqlx::query_scalar(crate::db::sql("SELECT id FROM projects WHERE workspace = 'default' ORDER BY created_at LIMIT 1"))
+        .fetch_one(&api.app.pool)
+        .await
+        .unwrap();
+    let evens = api.project("Evens").await;
+    api.on_board(&evens, &["ana"]).await;
+    let as_ana = move |req: Req| async move { api.signed(req.header("orrery-sent-origin", "http://localhost"), "ana").await.send().await };
+    let made = |reply: Reply| {
+        assert!(reply.status.is_success(), "seeding ana's: {} {}", reply.status, reply.body);
+        id_of(&reply)
+    };
+    let at = |path: &str| format!("/api/projects/{primes}{path}");
+    let issue = made(as_ana(api.post(&at("/issues"), json!({"title": "Sieve"}))).await);
+    let doc = made(as_ana(api.post(&at("/docs"), json!({"title": "Notes", "body": "mine"}))).await);
+    let milestone = made(as_ana(api.post(&at("/milestones"), json!({"title": "Halfway"}))).await);
+    let epic = made(as_ana(api.post("/api/epics", json!({"title": "Count"}))).await);
+    // Every other part of a path is one nobody has, made from none of bo's: a route on it is refused before its body
+    // is read, whoever's is named.
+    let mut mine: BTreeMap<&'static str, String> = theirs
+        .ghost
+        .iter()
+        .map(|(k, v)| {
+            let none = match *k {
+                _ if v.parse::<i64>().is_ok() => "999999".to_string(),
+                "release" => "9.9.9".to_string(),
+                "upload" => "e".repeat(v.len()),
+                "workspace" => "default".to_string(),
+                "person" => "ana".to_string(),
+                _ => format!("ana{k}none"),
+            };
+            (*k, none)
+        })
+        .collect();
+    mine.extend([("project", primes), ("issue", issue), ("doc", doc), ("milestone", milestone), ("epic", epic)]);
+    mine
+}
+
+/// Bodies that each name one of bo's rows as their target (or its ghost), alongside what a write to ana's own needs:
+/// an issue moved, filed under an epic or a parent, waiting on an issue, a project taking its releases, someone added
+/// to a board, an upload linked, many issues set at once.
+fn targets(ids: &BTreeMap<&'static str, String>, mine: &BTreeMap<&'static str, String>) -> Vec<(&'static str, Value)> {
+    let (project, issue, person) = (&ids["project"], &ids["issue"], &ids["person"]);
+    vec![
+        ("project", json!({"title": "Probe", "project": project})),
+        ("to", json!({"to": project})),
+        ("epic", json!({"title": "Probe", "epic": ids["epic"]})),
+        ("parent", json!({"title": "Probe", "parent": format!("{project}/{issue}")})),
+        ("depends_on", json!({"title": "Probe", "depends_on": [format!("{project}/{issue}")]})),
+        ("releases_from", json!({"release_mode": "shared", "releases_from": project})),
+        ("person", json!({"person": person, "role": "member"})),
+        ("assignee", json!({"title": "Probe", "assignee": person})),
+        ("upload", json!({"upload": ids["upload"]})),
+        ("set.epic", json!({"ids": [mine["issue"]], "set": {"epic": ids["epic"]}})),
+        ("set.project", json!({"ids": [mine["issue"]], "set": {"project": project}})),
+    ]
+}
+
+/// What the sweeps find that has an issue open for it (the security audit, ORR-1358): each a part of a leak's line
+/// and its issue. A leak not listed fails the test, and so does a line here that no leak matches any more, so a fix
+/// takes its line off.
+const KNOWN: &[(&str, &str)] = &[];
+
+/// Fails with the leaks no line of KNOWN expects, and the lines of KNOWN no leak matched. Whether any known one was
+/// found: a known write that lands changes bo's workspace, so what he sees can't be held unchanged until it's fixed.
+fn only_known(leaks: &[String], what: &str) -> bool {
+    let unexpected: Vec<&String> = leaks.iter().filter(|l| !KNOWN.iter().any(|(part, _)| l.contains(part))).collect();
+    let fixed: Vec<String> = KNOWN
+        .iter()
+        .filter(|(part, _)| part.starts_with(what) && !leaks.iter().any(|l| l.contains(part)))
+        .map(|(part, issue)| format!("{issue}: {part}"))
+        .collect();
+    assert!(unexpected.is_empty(), "{what} reached bo's workspace:\n{}", unexpected.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n"));
+    assert!(fixed.is_empty(), "these no longer leak: take them off KNOWN\n{}", fixed.join("\n"));
+    !leaks.is_empty()
+}
+
 /// `(method, path)` for every route in src, `/api/projects/{project}/…` included, as seen_tests.rs reads them.
 fn every_route() -> Vec<(String, String)> {
     fn walk(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
@@ -326,12 +405,110 @@ async fn no_route_shows_or_changes_another_workspaces_entries() {
     unchanged(&before, &bos_view(&api, &theirs).await, "something ana sent");
 }
 
+/// Every write route on ana's own rows, sent a body that names one of bo's as its target: it answers as it does to a
+/// target that doesn't exist, gives nothing of bo's away, and changes nothing of his. The rails check the project in
+/// the path; one named in the body has to be checked where it's read (ORR-1358).
+#[tokio::test]
+async fn no_body_reaches_another_workspaces_entries() {
+    let api = TestApi::new().await;
+    let theirs = bos_world(&api).await;
+    let mine = anas_world(&api, &theirs).await;
+    let before = bos_view(&api, &theirs).await;
+    let (real, ghost) = (targets(&theirs.real, &mine), targets(&theirs.ghost, &mine));
+    let mut leaks = Vec::new();
+    for actor in ["login", "key"] {
+        // A delete on ana's own rows would only take them from under the routes after it.
+        for (method, route) in every_route().into_iter().filter(|(m, _)| m != "GET" && m != "DELETE") {
+            let path = route
+                .split('/')
+                .map(|part| match part.strip_prefix('{').and_then(|p| p.strip_suffix('}')) {
+                    Some(name) => mine.get(name).cloned().unwrap_or_else(|| "1".to_string()),
+                    None => part.to_string(),
+                })
+                .collect::<Vec<_>>()
+                .join("/");
+            for ((target, real), (_, ghost)) in real.iter().zip(&ghost) {
+                let send = |body: &Value| {
+                    let (api, path, method, body) = (&api, path.clone(), method.clone(), body.clone());
+                    async move { as_ana(api, api.request(method.parse().unwrap(), &path).json(body), actor).await.send().await }
+                };
+                let ghost = send(ghost).await;
+                let real = send(real).await;
+                let said = real.body.to_string();
+                // The body names bo's ids, so an answer saying them back gives nothing away; one unlike the ghost's does.
+                if said.contains(MARK) {
+                    leaks.push(format!("body {actor}: {method} {route} {target} gives away {MARK}: {} {said}", real.status));
+                } else if real.status != ghost.status {
+                    leaks.push(format!("body {actor}: {method} {route} {target}: {} for bo's, {} for none: {said}", real.status, ghost.status));
+                } else if !real.status.is_success() && theirs.plain(&said, true) != theirs.plain(&ghost.body.to_string(), false) {
+                    leaks.push(format!("body {actor}: {method} {route} {target} answers bo's otherwise: {said} vs {}", ghost.body));
+                }
+            }
+        }
+    }
+    if !only_known(&leaks, "body") {
+        unchanged(&before, &bos_view(&api, &theirs).await, "a body ana sent");
+    }
+}
+
+/// dan is in Acme but not on Rockets' board: an epic or a release across Acme's projects shows him none of Rockets'
+/// name, issues or counts (ORR-1381).
+#[tokio::test]
+async fn a_member_off_a_board_sees_nothing_of_it_through_an_epic_or_a_release() {
+    let api = TestApi::new().await;
+    let theirs = bos_world(&api).await;
+    let stamp = "2026-11-20T10:00:00.000Z";
+    api.run("INSERT INTO people (id, name, role, created_at) VALUES ('dan', 'dan', 'member', ?)", &[stamp]).await;
+    api.run("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('acme', 'dan', 'member', ?)", &[stamp]).await;
+    let (rockets, epic) = (&theirs.real["project"], &theirs.real["epic"]);
+    let fuel = format!("Fuel {MARK}");
+    // bo files Rockets' issue under the epic, and a second Acme board, Boosters, takes its releases from Rockets.
+    as_bo(&api, api.patch(&format!("/api/projects/{rockets}/issues/{}", theirs.real["issue"]), json!({"epic": epic}))).await;
+    let boosters = api.project("Boosters").await;
+    api.run("UPDATE projects SET workspace = 'acme' WHERE id = ?", &[&boosters]).await;
+    api.on_board(&boosters, &["bo", "dan"]).await;
+    as_bo(&api, api.patch(&format!("/api/projects/{boosters}"), json!({"release_mode": "shared", "releases_from": rockets}))).await;
+    let mut leaks = Vec::new();
+    for path in ["/api/epics".to_string(), format!("/api/epics/{epic}"), "/api/releases".to_string(), format!("/api/projects/{boosters}/releases")] {
+        let reply = api.signed(api.get(&path).header("orrery-workspace", "acme"), "dan").await.send().await;
+        let said = reply.body.to_string();
+        if said.contains(&fuel) || said.contains(&format!("Rockets {MARK}")) || said.contains(&format!("\"{rockets}\"")) {
+            leaks.push(format!("member: GET {path} shows dan Rockets: {} {said}", reply.status));
+        }
+    }
+    // The other way round: dan is on Gantry, whose release Tanks, a board he isn't on, draws on. Gantry's releases
+    // and the release itself count and list none of Tanks' issues.
+    let gantry = api.project("Gantry").await;
+    let tanks = api.project(&format!("Tanks {MARK}")).await;
+    api.run("UPDATE projects SET workspace = 'acme', release_mode = 'own' WHERE id = ?", &[&gantry]).await;
+    api.run("UPDATE projects SET workspace = 'acme' WHERE id = ?", &[&tanks]).await;
+    api.on_board(&gantry, &["bo", "dan"]).await;
+    api.on_board(&tanks, &["bo"]).await;
+    as_bo(&api, api.post(&format!("/api/projects/{gantry}/releases"), json!({"version": "8.8.8"}))).await;
+    as_bo(&api, api.patch(&format!("/api/projects/{tanks}"), json!({"release_mode": "shared", "releases_from": gantry}))).await;
+    as_bo(&api, api.post(&format!("/api/projects/{tanks}/issues"), json!({"title": format!("Valve {MARK}"), "release": "8.8.8"}))).await;
+    let mut paths = vec!["/api/releases".to_string(), format!("/api/projects/{gantry}"), format!("/api/projects/{gantry}/releases")];
+    paths.push(format!("/api/projects/{gantry}/releases/8.8.8"));
+    for path in paths {
+        let reply = api.signed(api.get(&path).header("orrery-workspace", "acme"), "dan").await.send().await;
+        assert!(reply.status.is_success(), "dan reads {path}: {} {}", reply.status, reply.body);
+        let said = reply.body.to_string();
+        let counted = |v: &Value| v["releases"].as_array().or(v.as_array()).into_iter().flatten().any(|r| r["issues"].as_i64().unwrap_or(0) > 0);
+        if said.contains(&format!("Valve {MARK}")) || said.contains(&format!("\"{tanks}\"")) || said.contains(&format!("Tanks {MARK}")) || counted(&reply.body)
+        {
+            leaks.push(format!("member: GET {path} shows dan Tanks: {} {said}", reply.status));
+        }
+    }
+    only_known(&leaks, "member");
+}
+
 /// Every tool `/mcp` lists, for each kind of session, called by ana's agent key with bo's ids in each argument that
 /// takes one: none of bo's rows, ids or names come back, and bo's workspace is as it was.
 #[tokio::test]
 async fn no_mcp_tool_shows_or_changes_another_workspaces_entries() {
     let api = TestApi::new().await;
     let theirs = bos_world(&api).await;
+    let mine = anas_world(&api, &theirs).await;
     let before = bos_view(&api, &theirs).await;
     let key = api.key("ana", "agent").await;
     api.run("UPDATE keys SET workspace = 'default' WHERE hash = ?", &[&key]).await;
@@ -349,14 +526,30 @@ async fn no_mcp_tool_shows_or_changes_another_workspaces_entries() {
         .send()
         .await;
     let session = started.header("mcp-session-id").expect("a session").to_string();
-    for group in ["schedules", "secrets", "debug", "review", "epics"] {
+    for group in crate::mcp::tools::groups() {
         let call = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "more_tools", "arguments": {"group": group}}});
         mcp(call, "work", &session).send().await;
     }
     // What each argument is given, by its name: bo's id (or its ghost) where it takes one, else something plain.
-    let argument = |name: &str, schema: &Value, ids: &BTreeMap<&'static str, String>| -> Value {
+    // An `id` is the tool's own kind's: a doc's for `doc`, an epic's for `update_epic`, an issue's where none is named.
+    let argument = |tool: &str, name: &str, schema: &Value, ids: &BTreeMap<&'static str, String>| -> Value {
+        let id_of_tool = ["doc", "epic", "preset", "upload", "release", "schedule", "milestone", "secret", "event", "chat", "session", "status"]
+            .into_iter()
+            .find(|kind| tool.contains(kind))
+            .map(|kind| if kind == "secret" { "name" } else { kind })
+            .unwrap_or("issue");
+        if name == "depends_on" {
+            return json!([format!("{}/{}", ids["project"], ids["issue"])]);
+        }
+        if name == "parent" {
+            return json!(format!("{}/{}", ids["project"], ids["issue"]));
+        }
+        if matches!(name, "person" | "assignee") {
+            return json!(ids["person"]);
+        }
         let key = match name {
-            "id" | "issue" | "parent" => Some("issue"),
+            "id" => Some(id_of_tool),
+            "issue" => Some("issue"),
             "project" => Some("project"),
             "doc" => Some("doc"),
             "milestone" => Some("milestone"),
@@ -388,17 +581,21 @@ async fn no_mcp_tool_shows_or_changes_another_workspaces_entries() {
     for kind in ["work", "chat", "untrusted"] {
         let listed = mcp(json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}), kind, &session).send().await;
         if let Some(found) = gives_away(&theirs, &listed.body.to_string()) {
-            leaks.push(format!("{kind}: tools/list gives away {found}"));
+            leaks.push(format!("mcp {kind}: tools/list gives away {found}"));
         }
         for tool in listed.body["result"]["tools"].as_array().expect("a tool list") {
             let name = tool["name"].as_str().unwrap();
             let properties = tool["inputSchema"]["properties"].as_object().cloned().unwrap_or_default();
-            let args = |ids| Value::Object(properties.iter().map(|(k, s)| (k.clone(), argument(k, s, ids))).collect());
+            let args = |ids| Value::Object(properties.iter().map(|(k, s)| (k.clone(), argument(name, k, s, ids))).collect());
+            // ana's own ids in every argument but `only`, which names bo's (or its ghost).
+            let one = |only: &str, ids| {
+                Value::Object(properties.iter().map(|(k, s)| (k.clone(), argument(name, k, s, if k == only { ids } else { &mine }))).collect())
+            };
             let call = |args: Value| json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}});
             // With nothing, its own project and lists: nothing of bo's.
             let plain = mcp(call(json!({})), kind, &session).send().await;
             if let Some(found) = gives_away(&theirs, &text(&plain)) {
-                leaks.push(format!("{kind}: {name}() gives away {found}: {}", text(&plain)));
+                leaks.push(format!("mcp {kind}: {name}() gives away {found}: {}", text(&plain)));
             }
             // With bo's ids, as with ids that don't exist (the ghost first, so a wrong write can't change its answer).
             let ghost = mcp(call(args(&theirs.ghost)), kind, &session).send().await;
@@ -406,15 +603,45 @@ async fn no_mcp_tool_shows_or_changes_another_workspaces_entries() {
             called += 3;
             let (ghost_said, real_said) = (theirs.plain(&text(&ghost), false), theirs.plain(&text(&real), true));
             if text(&real).contains(MARK) {
-                leaks.push(format!("{kind}: {name} with bo's ids gives away {MARK}: {}", text(&real)));
+                leaks.push(format!("mcp {kind}: {name} with bo's ids gives away {MARK}: {}", text(&real)));
             } else if ghost.body["result"]["isError"] != real.body["result"]["isError"] || (real.body["result"]["isError"] == true && ghost_said != real_said) {
-                leaks.push(format!("{kind}: {name} answers bo's ids otherwise: {real_said} vs {ghost_said}"));
+                leaks.push(format!("mcp {kind}: {name} answers bo's ids otherwise: {real_said} vs {ghost_said}"));
+            }
+            // On ana's own rows, with bo's in one argument: the project to move to, the epic, the parent, a dependency.
+            for only in ["project", "epic", "parent", "milestone", "depends_on", "release", "upload", "doc", "person", "assignee"] {
+                if !properties.contains_key(only) || only == "id" {
+                    continue;
+                }
+                let ghost = mcp(call(one(only, &theirs.ghost)), kind, &session).send().await;
+                let real = mcp(call(one(only, &theirs.real)), kind, &session).send().await;
+                called += 2;
+                let (ghost_said, real_said) = (theirs.plain(&text(&ghost), false), theirs.plain(&text(&real), true));
+                // The argument names bo's ids, so an answer saying them back gives nothing away; one unlike the ghost's does.
+                if text(&real).contains(MARK) {
+                    leaks.push(format!("mcp {kind}: {name} {only} gives away {MARK}: {}", text(&real)));
+                } else if ghost.body["result"]["isError"] != real.body["result"]["isError"]
+                    || (real.body["result"]["isError"] == true && ghost_said != real_said)
+                {
+                    leaks.push(format!("mcp {kind}: {name} {only} answers bo's otherwise: {real_said} vs {ghost_said}"));
+                }
+            }
+            // Naming bo's workspace and session in the headers, on ana's own rows: as naming ones that don't exist.
+            let headed =
+                |workspace: &str, held: &str| mcp(call(args(&mine)), kind, &session).header("orrery-workspace", workspace).header("orrery-session", held);
+            let ghost = headed(&theirs.ghost["workspace"], &theirs.ghost["session"]).send().await;
+            let real = headed(&theirs.real["workspace"], &theirs.real["session"]).send().await;
+            called += 2;
+            if let Some(found) = gives_away(&theirs, &text(&real)) {
+                leaks.push(format!("mcp {kind}: {name} headed as bo's gives away {found}: {}", text(&real)));
+            } else if ghost.body["result"]["isError"] != real.body["result"]["isError"] {
+                leaks.push(format!("mcp {kind}: {name} headed as bo's answers otherwise: {} vs {}", text(&real), text(&ghost)));
             }
         }
     }
     assert!(called > 60, "only {called} calls: are the tools listed?");
-    assert!(leaks.is_empty(), "ana's tools reached bo's workspace:\n{}", leaks.join("\n"));
-    unchanged(&before, &bos_view(&api, &theirs).await, "a tool ana called");
+    if !only_known(&leaks, "mcp") {
+        unchanged(&before, &bos_view(&api, &theirs).await, "a tool ana called");
+    }
 }
 
 /// Fails with where bo's view changed, line by line, each a little either side of where it first differs.
@@ -430,4 +657,59 @@ fn unchanged(before: &str, after: &str, what: &str) {
         })
         .collect();
     assert!(changed.is_empty(), "{what} changed bo's workspace:\n{}", changed.join("\n"));
+}
+
+/// ana keeping a chat under bo's chat's id, on her own project, is a 404 as for a chat that isn't hers, and bo's chat
+/// is as it was (ORR-1388): the rails hold a chat id to the board it's on.
+#[tokio::test]
+async fn a_chat_isnt_written_over_from_another_workspace() {
+    let api = TestApi::new().await;
+    let theirs = bos_world(&api).await;
+    let mine = anas_world(&api, &theirs).await;
+    let chat = &theirs.real["chat"];
+    let before = bos_view(&api, &theirs).await;
+    for actor in ["login", "key"] {
+        let body = json!({"id": chat, "project": mine["project"], "started_at": "2026-11-21T10:00:00.000Z", "title": "ana's"});
+        let reply = as_ana(&api, api.put(&format!("/api/chats/{chat}"), body), actor).await.send().await;
+        assert_eq!(reply.status, 404, "{actor}: {}", reply.body);
+        assert!(!reply.body.to_string().contains(&theirs.real["project"]), "{actor}: {}", reply.body);
+    }
+    unchanged(&before, &bos_view(&api, &theirs).await, "ana keeping bo's chat");
+}
+
+/// dan is in Acme and on Boosters, not on Rockets: moving his issue there, or tying it to Rockets' issue, answers as a
+/// project that isn't here (ORR-1379, ORR-1383), and Rockets is as it was.
+#[tokio::test]
+async fn a_member_off_a_board_moves_and_links_nothing_into_it() {
+    let api = TestApi::new().await;
+    let theirs = bos_world(&api).await;
+    let stamp = "2026-11-20T10:00:00.000Z";
+    api.run("INSERT INTO people (id, name, role, created_at) VALUES ('dan', 'dan', 'member', ?)", &[stamp]).await;
+    api.run("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('acme', 'dan', 'member', ?)", &[stamp]).await;
+    let rockets = &theirs.real["project"];
+    let boosters = api.project("Boosters").await;
+    api.run("UPDATE projects SET workspace = 'acme' WHERE id = ?", &[&boosters]).await;
+    api.on_board(&boosters, &["bo", "dan"]).await;
+    let mine = id_of(&as_bo(&api, api.post(&format!("/api/projects/{boosters}/issues"), json!({"title": "Nozzle"}))).await);
+    let before = bos_view(&api, &theirs).await;
+    let dans = |body: Value| async {
+        api.signed(api.patch(&format!("/api/projects/{boosters}/issues/{mine}"), body).header("orrery-workspace", "acme"), "dan").await.send().await
+    };
+    for (what, body, none) in [
+        ("move", json!({"project": rockets}), json!({"project": "nowhere"})),
+        (
+            "depends_on",
+            json!({"depends_on": [format!("{rockets}/{}", theirs.real["issue"])]}),
+            json!({"depends_on": [format!("nowhere/{}", theirs.real["issue"])]}),
+        ),
+    ] {
+        let (reply, ghost) = (dans(body).await, dans(none).await);
+        assert_eq!(reply.status, 404, "{what}: {}", reply.body);
+        assert_eq!(
+            reply.body["message"].as_str().map(|m| m.replace(rockets.as_str(), "nowhere")),
+            ghost.body["message"].as_str().map(str::to_string),
+            "{what}"
+        );
+    }
+    unchanged(&before, &bos_view(&api, &theirs).await, "dan moving into Rockets");
 }

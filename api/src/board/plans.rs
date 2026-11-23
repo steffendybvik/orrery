@@ -8,7 +8,7 @@ use crate::error::{ApiError, Result};
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;
 use sqlx::Row;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// How many issues are set for a release, and how far their leaves are (`tallyReleases`).
 #[derive(Default, Clone)]
@@ -88,16 +88,25 @@ pub struct Plans<'c, 'i> {
     issues: &'i mut Issues<'c>,
     /// Whether only the boards' counts are wanted, so their outlines will do (ORR-1117).
     counted: bool,
+    /// The projects the asker doesn't see (ORR-1381): one taking its releases from a seen project is left out of the
+    /// release's parts and counts. None for what orrery does itself.
+    hidden: HashSet<String>,
 }
 
 impl<'c, 'i> Plans<'c, 'i> {
     pub fn new(issues: &'i mut Issues<'c>) -> Self {
-        Plans { issues, counted: false }
+        Plans { issues, counted: false, hidden: HashSet::new() }
     }
 
     /// For what only counts the boards up: a project's counts, its releases' tallies (ORR-1117).
     pub fn counting(issues: &'i mut Issues<'c>) -> Self {
-        Plans { issues, counted: true }
+        Plans { issues, counted: true, hidden: HashSet::new() }
+    }
+
+    /// Held to what the asker sees: `hidden`, the projects they don't (`Seen::hidden`), are left out.
+    pub fn hiding(mut self, hidden: HashSet<String>) -> Self {
+        self.hidden = hidden;
+        self
     }
 
     /// The project's board, or, counting, its outline.
@@ -155,7 +164,7 @@ impl<'c, 'i> Plans<'c, 'i> {
     /// The projects taking their releases from `project`, by id (`drawingOn`).
     async fn drawing_on(&mut self, project: &str) -> Result<Vec<String>> {
         let rows = sqlx::query(sql("SELECT id FROM projects WHERE releases_from = ? ORDER BY id")).bind(project).fetch_all(&mut *self.issues.conn).await?;
-        Ok(rows.iter().map(|r| r.get("id")).collect())
+        Ok(rows.iter().map(|r| r.get::<String, _>("id")).filter(|id| !self.hidden.contains(id)).collect())
     }
 
     async fn release_rows(&mut self, source: &str) -> Result<Vec<AnyRow>> {
@@ -274,7 +283,7 @@ impl<'c, 'i> Plans<'c, 'i> {
         let mut out = Vec::new();
         for (id, _, _) in shipping.iter().filter(|(_, mode, _)| mode == "own") {
             let projects: Vec<String> = std::iter::once(id.clone())
-                .chain(shipping.iter().filter(|(_, _, from)| from.as_deref() == Some(id.as_str())).map(|(p, _, _)| p.clone()))
+                .chain(shipping.iter().filter(|(p, _, from)| from.as_deref() == Some(id.as_str()) && !self.hidden.contains(p)).map(|(p, _, _)| p.clone()))
                 .collect();
             let rows = self.release_rows(id).await?;
             let versions: Vec<String> = rows.iter().map(|r| r.get("version")).collect();

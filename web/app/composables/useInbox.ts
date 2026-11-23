@@ -159,9 +159,12 @@ export function useInbox() {
     const changes = useState<NoticeChange[]>('notice-changes', () => [])
     /** Pending proposals the bell leaves out, being cleared, as `project/issue@updated_at`: no reason to read it again. */
     const hidden = useState<string[]>('notices-hidden', () => [])
+    // Read up to when, in this page's workspace (ORR-1364): opening the bell in one leaves another's unread. The
+    // browser's storage is the signed-in person's alone (utils/person-storage.ts). One from before keeps its old mark.
+    const seenKey = `orrery-notices-seen:${import.meta.client ? workspaceIn(location.pathname) ?? 'default' : 'default'}`
     const seenAt = useState<string>('notices-seen', () => {
         try {
-            return localStorage.getItem('orrery-notices-seen') ?? new Date().toISOString()
+            return localStorage.getItem(seenKey) ?? localStorage.getItem('orrery-notices-seen') ?? new Date().toISOString()
         } catch {
             return new Date().toISOString()
         }
@@ -175,7 +178,7 @@ export function useInbox() {
     function seen() {
         seenAt.value = notices.value.reduce((newest, n) => n.created_at > newest ? n.created_at : newest, seenAt.value)
         try {
-            localStorage.setItem('orrery-notices-seen', seenAt.value)
+            localStorage.setItem(seenKey, seenAt.value)
         } catch {
             // Private windows may refuse; it holds until a reload.
         }

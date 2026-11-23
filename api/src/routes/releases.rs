@@ -27,21 +27,23 @@ pub(crate) fn routes() -> Router<Arc<App>> {
 
 async fn create_release(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
+    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
     let mut releases = Releases::new(&mut conn);
     releases.outbox = Some(Outbox::new(actor_of(&headers)));
     let version = releases.create(&project, &body_of(&body), &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut releases.effects);
-    let value = Plans::new(&mut Issues::new(&mut conn)).release(&project, &version).await?;
+    let value = Plans::new(&mut Issues::new(&mut conn)).hiding(hidden).release(&project, &version).await?;
     Ok(reply(StatusCode::CREATED, Some(value), effects))
 }
 
 async fn patch_release(State(app): Shared, Path((project, release)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
+    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
     let mut releases = Releases::new(&mut conn);
     releases.outbox = Some(Outbox::new(actor_of(&headers)));
     releases.update(&project, &release, &body_of(&body)).await?;
     let effects = std::mem::take(&mut releases.effects);
-    let value = Plans::new(&mut Issues::new(&mut conn)).release(&project, &release).await?;
+    let value = Plans::new(&mut Issues::new(&mut conn)).hiding(hidden).release(&project, &release).await?;
     Ok(reply(StatusCode::OK, Some(value), effects))
 }
 
@@ -53,19 +55,22 @@ async fn delete_release(State(app): Shared, Path((project, release)): Path<(Stri
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut releases.effects)))
 }
 
-async fn list_releases(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
+async fn list_releases(State(app): Shared, Path(project): Path<String>, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Plans::new(&mut Issues::new(&mut conn)).releases(&project).await?).into_response())
+    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
+    Ok(Json(Plans::new(&mut Issues::new(&mut conn)).hiding(hidden).releases(&project).await?).into_response())
 }
 
-async fn get_release(State(app): Shared, Path((project, release)): Path<(String, String)>) -> Result<Response> {
+async fn get_release(State(app): Shared, Path((project, release)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Plans::new(&mut Issues::new(&mut conn)).release(&project, &release).await?).into_response())
+    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
+    Ok(Json(Plans::new(&mut Issues::new(&mut conn)).hiding(hidden).release(&project, &release).await?).into_response())
 }
 
 async fn all_releases(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut value = Plans::new(&mut Issues::new(&mut conn)).all_releases().await?;
+    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
+    let mut value = Plans::new(&mut Issues::new(&mut conn)).hiding(hidden).all_releases().await?;
     Seen::listed(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
     Ok(Json(value).into_response())
 }

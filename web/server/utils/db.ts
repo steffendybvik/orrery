@@ -23,7 +23,7 @@ function useDb(path: string): DatabaseSync {
 }
 
 /** Opens a SQLite file with its schema up to date: migrated by the Rust API when there's one to ask (ORR-931), else here. */
-export function openMigrated(path: string): DatabaseSync {
+function openMigrated(path: string): DatabaseSync {
     if (path !== ':memory:') mkdirSync(dirname(path), {recursive: true})
     const ran = path === ':memory:' ? undefined : migrateWithApi(path, MIGRATIONS.length)
     const opened = openDb(path, MIGRATIONS.length)
@@ -32,7 +32,7 @@ export function openMigrated(path: string): DatabaseSync {
 }
 
 /** Opens Postgres with its schema up to date: migrated by the Rust API when there's one to ask (ORR-931), else here. */
-export function openPostgres(url: string): PostgresDb {
+function openPostgres(url: string): PostgresDb {
     const ran = migrateWithApi(url, BASELINE + STEPS.length)
     const opened = new PostgresDb(url)
     if (ran) opened.migrated = ran
@@ -57,7 +57,7 @@ export function describeDatabase(): DatabaseInfo {
 }
 
 /** A Postgres URL as the owner sees it: `user@host:port/name`, no password. */
-export function hidePassword(url: string): string {
+function hidePassword(url: string): string {
     const parsed = new URL(url)
     return `${parsed.username ? `${decodeURIComponent(parsed.username)}@` : ''}${parsed.host}${parsed.pathname}`
 }

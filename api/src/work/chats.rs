@@ -351,7 +351,7 @@ impl<'c> Chats<'c> {
     /// asked before for the same schedule, still unanswered, expires. A 404 when the chat isn't running.
     pub async fn ask_schedule(&mut self, chat: &str, body: &Value) -> Result<Value> {
         let own = self.running(chat).await?;
-        let project = self.project_for(&own, body).await?;
+        let project = self.project_for(chat, &own, body).await?;
         let mut request = crate::work::schedule_requests::ScheduleRequests::new(&mut *self.conn)
             .request(&project, body.get("schedule"), body.get("id"), "The owner's chat")
             .await?;
@@ -369,7 +369,7 @@ impl<'c> Chats<'c> {
     /// when the chat isn't running.
     pub async fn ask_release(&mut self, chat: &str, body: &Value) -> Result<Value> {
         let own = self.running(chat).await?;
-        let project = self.project_for(&own, body).await?;
+        let project = self.project_for(chat, &own, body).await?;
         let fields = body.get("release").and_then(Value::as_object).filter(|f| !f.is_empty());
         let Some(fields) = fields else {
             return Err(ApiError::bad_request(format!(
@@ -416,7 +416,7 @@ impl<'c> Chats<'c> {
     /// still unanswered, expires. A 404 when the chat isn't running.
     pub async fn ask_issue(&mut self, chat: &str, body: &Value) -> Result<Value> {
         let own = self.running(chat).await?;
-        let project = self.project_for(&own, body).await?;
+        let project = self.project_for(chat, &own, body).await?;
         let Some(fields) = body.get("issue").and_then(Value::as_object) else {
             return Err(ApiError::bad_request(format!("Send {{issue: {{…}}}}: its {}", CHAT_ISSUE_FIELDS.join(", "))));
         };
@@ -455,7 +455,7 @@ impl<'c> Chats<'c> {
     /// nothing until they allow it, and one asked before for any of the same issues, still unanswered, expires.
     pub async fn ask_move(&mut self, chat: &str, body: &Value) -> Result<Moved> {
         let own = self.running(chat).await?;
-        let project = self.project_for(&own, body).await?;
+        let project = self.project_for(chat, &own, body).await?;
         let asked = body.get("move").filter(|m| m.is_object()).cloned().unwrap_or(Value::Null);
         let ids =
             asked.get("ids").and_then(Value::as_array).filter(|ids| !ids.is_empty() && ids.iter().all(|i| i.as_str().is_some_and(|i| !i.trim().is_empty())));
@@ -676,11 +676,18 @@ impl<'c> Chats<'c> {
 
     /// The project a chat's request is on (`projectFor`): the one `body` names, so a chat can ask on another project
     /// than its own (ORR-1063), or else the chat's own, `own`.
-    async fn project_for(&mut self, own: &str, body: &Value) -> Result<String> {
+    async fn project_for(&mut self, chat: &str, own: &str, body: &Value) -> Result<String> {
         match body.get("project") {
             None | Some(Value::Null) => Ok(own.to_string()),
             Some(Value::String(p)) if p.trim() == own => Ok(own.to_string()),
             Some(Value::String(p)) if !p.trim().is_empty() => {
+                // Only a project of the chat's own workspace: another's is as if it weren't here (ORR-1395).
+                let workspace: Option<String> =
+                    sqlx::query_scalar(sql("SELECT workspace FROM chats WHERE id = ?")).bind(chat).fetch_optional(&mut *self.conn).await?;
+                let there = Workspace::of_project_or_none(&mut *self.conn, p.trim()).await?;
+                if workspace.is_none() || there.as_ref().map(Workspace::id) != workspace.as_deref() {
+                    return Err(ApiError::not_found(format!("No project \"{}\"", p.trim())));
+                }
                 crate::board::issue_writes::IssueWrites::new(&mut *self.conn).project_uid(p.trim()).await?;
                 Ok(p.trim().to_string())
             }
@@ -695,7 +702,7 @@ impl<'c> Chats<'c> {
     /// expires. A 404 when the chat isn't running.
     pub async fn ask_doc(&mut self, chat: &str, body: &Value) -> Result<Value> {
         let own = self.running(chat).await?;
-        let project = self.project_for(&own, body).await?;
+        let project = self.project_for(chat, &own, body).await?;
         let mut request = crate::board::docs::Docs::new(&mut *self.conn).chat_request(&project, body.get("doc"), body.get("id")).await?;
         if project != own {
             request["project"] = json!(project);

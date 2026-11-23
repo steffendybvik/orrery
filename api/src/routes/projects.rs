@@ -104,9 +104,12 @@ async fn list_projects(State(app): Shared, headers: HeaderMap, Query(query): Que
 /// `GET /api/projects/{project}` → the project with its board (`project`), without the events stream's `rev`, which the
 /// Nuxt server adds; `?notes=0` leaves the issues' notes out (`withoutNotes`), and `?closed=0` the closed issues with no
 /// open sub-issue (`withoutClosed`).
-async fn get_project(State(app): Shared, Path(project): Path<String>, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+async fn get_project(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut value = Projects::for_project(&mut conn, &project).await?.project(&project).await?;
+    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
+    let mut projects = Projects::for_project(&mut conn, &project).await?;
+    projects.hidden = hidden;
+    let mut value = projects.project(&project).await?;
     let dropped = |key: &str| query.get(key).is_some_and(|v| v == "0");
     projects::trim_board(&mut value, !dropped("notes"), !dropped("closed"));
     Ok(Json(value).into_response())
@@ -125,7 +128,9 @@ async fn create_project(State(app): Shared, headers: HeaderMap, body: Bytes) -> 
 
 async fn patch_project(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
+    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
     let mut projects = Projects::for_project(&mut conn, &project).await?;
+    projects.hidden = hidden;
     projects.outbox = Some(Outbox::new(actor_of(&headers)));
     projects.update(&project, &body_of(&body), &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut projects.effects);

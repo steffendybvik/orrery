@@ -24,7 +24,8 @@ const tools = (projects: string[], options: object = {}) => toolsFor(projects, o
 
 describe('the tool list a session carries on every turn', () => {
     it('gives each kind of session these tools, so adding one is a choice', () => {
-        // The chat's planning reads (milestones, presets, preset, schedules) are the chat's alone (ORR-544).
+        // The chat's planning reads (presets, preset, schedules) are the chat's alone (ORR-544); a work session lists
+        // milestones once it loads their group (ORR-1397).
         // A work session's rarer tools (asking for a schedule, secrets and egress, the event log, rating a PR) wait behind more_tools
         // (ORR-625), and come in its list once it asks for their group.
         const work = ['issues', 'issue', 'create_issue', 'update_issue', 'start_issue', 'next', 'finish_issue', 'comment', 'releases', 'docs', 'doc',
@@ -48,16 +49,17 @@ describe('the tool list a session carries on every turn', () => {
         // the guide's section (ORR-848) about 65, which saves a session most of the 39,000 the guide sent whole. An issue's
         // epic (ORR-895) about 155, its tools waiting behind more_tools, and about 80 on an untrusted run, which has none of them.
         // Asking for its next issue (`next`, ORR-521) about 140, on a work session only. Linking its folder (ORR-1071) about
-        // 60, its tool waiting behind more_tools. Making and changing releases (ORR-2) about 40, the same way.
-        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(6_875)
-        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(7_760)
-        expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(9_505)
+        // 60, its tool waiting behind more_tools. Making and changing releases (ORR-2) about 40, the same way, and listing, making
+        // and changing milestones (ORR-1397) about 50.
+        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(6_930)
+        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(7_815)
+        expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(9_560)
         expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(4_860)
         // The chat's fell from about 20,100 when its requests went behind request (ORR-624), reading GitHub (ORR-748) added about 1,500, and its own docs, egress and event log (ORR-750) about 1,900,
         // reading the epics (ORR-895) about 290, writing epics and milestones itself instead of asking (ORR-988) about 1,700,
-        // and moving issues on another project (ORR-1063) about 55.
-        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(14_740)
-        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(16_510)
+        // moving issues on another project (ORR-1063) about 55, and the milestones' summary in its list (ORR-1397) about 30.
+        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(14_770)
+        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(16_545)
     })
 
     it('has no description, of a tool or of its arguments, longer than a short paragraph', () => {
