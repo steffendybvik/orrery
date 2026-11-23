@@ -26,6 +26,7 @@ import {untrustedProject} from './sessions'
 import {carriedInto} from './carried-over'
 import {forgetRoster} from './roster'
 import {keepOutOfLog} from './event-log'
+import {askerWorkspace} from './member-sees'
 import type {Input} from './input'
 import {projectEvents, revLabel} from './events'
 import {scheduleRunning} from './schedules'
@@ -745,7 +746,7 @@ async function forwardMcp(event: H3Event, api: {url: string, token: string}): Pr
     answered()
     setResponseHeader(event, SERVED_BY, 'rust')
     const text = await response.text()
-    if (response.ok) await relayed(response, actor, event.method)
+    if (response.ok) await relayed(response, actor, event.method, {event})
     setResponseStatus(event, response.status)
     for (const name of MCP_ANSWERED) {
         const value = response.headers.get(name)
@@ -804,7 +805,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     if (response.status >= 400) throw refusal(response.status, json)
     // A login's cookie, set or cleared (ORR-1137): only the API's auth routes set one.
     for (const cookie of response.headers.getSetCookie()) appendResponseHeader(event, 'Set-Cookie', cookie)
-    await relayed(response, actor, event.method)
+    await relayed(response, actor, event.method, {event})
     const counted = countedOf(event.method, pathOf(event))
     if (counted) countOwnUse(event, counted)
     setResponseStatus(event, response.status)
@@ -823,7 +824,7 @@ function refusal(status: number, json: Record<string, unknown> | null) {
 
 /** Tells what a reply from the API says it set off, as the store would have: open pages read the project again, and the
  * event log, schedules and sessions hear it. `noteKeys` off: the caller notes a change of the settings itself. */
-async function relayed(response: Response, actor: Actor, method: string, {noteKeys = true, urgent = true} = {}) {
+async function relayed(response: Response, actor: Actor, method: string, {noteKeys = true, urgent = true, event}: {noteKeys?: boolean, urgent?: boolean, event?: H3Event} = {}) {
     // The owner, the people and the boards' members the checks here keep a moment may have changed (ORR-1138).
     if (WRITES.has(method)) forgetRoster()
     const store = useStore()
@@ -839,7 +840,10 @@ async function relayed(response: Response, actor: Actor, method: string, {noteKe
         // The scheduler reads the event listeners again, and open pages the schedules (ORR-950).
         if (relayHeaders) for (const project of changedOf(response.headers.get('orrery-schedules'))) useScheduler().changedElsewhere(project)
         const keys = changedOf(response.headers.get('orrery-settings-keys'))
-        if (noteKeys && keys.length) useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings: ${keys.join(', ')}`, details: {by: actor.name, keys}})
+        // In the workspace whose settings they are, the asker's (ORR-1377), not `default`'s.
+        const workspace = noteKeys && keys.length && event ? await askerWorkspace(event).catch(() => null) : undefined
+        if (noteKeys && keys.length && workspace !== null) useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings: ${keys.join(', ')}`,
+            details: {by: actor.name, keys}, ...workspace ? {workspace} : {}})
         // A session's ask for a schedule (ORR-1100), noted as the route here noted it.
         const asked = askedOf(response.headers.get('orrery-asked'))
         if (asked) useEventLog().note({level: 'info', kind: 'schedule.asked', project: asked.project, message: `${actor.session ?? actor.name} asked on ${asked.issue} to ${asked.line}`,

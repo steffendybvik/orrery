@@ -92,6 +92,20 @@ export async function workspaceAsked(event: H3Event): Promise<string | undefined
     return named
 }
 
+/** The workspace a request acts in, as the API picks it for the asker (ORR-1377): the one `Orrery-Workspace` names once
+ * they're in it, else `default` when they're in it, else their first. Undefined with login off, where every line is the
+ * one person's; null for someone signed in who's in no workspace, or when the API gives no answer. What a line in the
+ * event log about their request is kept in, so it's theirs to read and nobody else's. */
+export async function askerWorkspace(event: H3Event): Promise<string | null | undefined> {
+    const who = event.context?.who as Who | undefined
+    if (!who) return undefined
+    const named = getHeader(event, 'orrery-workspace')?.trim() || undefined
+    const theirs = await readAsAsker<{id: string}[]>(event, '/api/workspaces')
+    if (!theirs?.length) return null
+    if (named) return theirs.some(w => w.id === named) ? named : null
+    return (theirs.find(w => w.id === 'default') ?? theirs[0])?.id ?? null
+}
+
 /** The project a request names in its body (ORR-1359), only when the asker sees it and, for a session, it's in the
  * workspace the session works in: any other is answered as one that isn't here, the same 404, so a body can neither
  * reach another workspace's project nor find out that it exists. `heldToWorkspace` only reads a project in the path. */

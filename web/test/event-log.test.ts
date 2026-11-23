@@ -163,6 +163,28 @@ describe('the event log', () => {
         expect(refusal(403, 'POST', '/api/notices/clear', 'Clear the bell', 'claude', 'notices.clear')?.details).toMatchObject({permission: 'notices.clear'})
     })
 
+    // With login on, the checked person and their workspace, never the name sent (ORR-1377).
+    it("names the checked person, goes in the asker's workspace, and names only a project they see", () => {
+        const bo = {name: 'claude', person: 'bo', workspace: 'acme', sees: new Set(['rockets'])}
+        expect(refusal(403, 'POST', '/api/secrets', 'Only the owner', bo)).toEqual({
+            level: 'warn', kind: 'request.refused', workspace: 'acme',
+            message: "Refused claude (bo's agent) POST /api/secrets: Only the owner",
+            details: {route: 'POST /api/secrets', status: 403, by: 'claude', person: 'bo'},
+        })
+        expect(refusal(403, 'PATCH', '/api/projects/rockets/issues/ROC-1', 'No', bo)).toMatchObject({project: 'rockets', workspace: 'acme'})
+        // Another's project: in bo's log, without its name.
+        const theirs = refusal(403, 'PATCH', '/api/projects/primes/issues/PRI-1', 'No', bo)
+        expect(theirs).toMatchObject({workspace: 'acme'})
+        expect(theirs?.project).toBeUndefined()
+        expect(refusal(403, 'POST', '/api/chats', 'No', {name: 'bo', person: 'bo', workspace: 'acme'})?.message).toBe('Refused bo POST /api/chats: No')
+    })
+
+    it('sends the workspace a line names along with it', async () => {
+        api.advanced = true
+        await log.record({level: 'warn', kind: 'request.refused', message: 'Refused bo', workspace: 'acme'})
+        expect(api.sent.find(sent => sent.path === '/api/events/log/lines')?.body).toMatchObject({kind: 'request.refused', workspace: 'acme'})
+    })
+
     it("tells the schedules an untrusted session's refusal is its, so none runs on it", async () => {
         const told: {untrusted?: boolean}[] = []
         log.happened = event => told.push(event)

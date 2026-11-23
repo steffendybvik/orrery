@@ -157,6 +157,26 @@ async fn a_line_that_isnt_one_is_refused_and_a_long_message_is_cut() {
 }
 
 #[tokio::test]
+async fn a_line_naming_a_workspace_is_that_workspaces_whatever_project_it_names() {
+    let api = TestApi::new().await;
+    api.team().await;
+    api.acme(&["bo"]).await;
+    // A member's refusal (ORR-1377): kept in their workspace, not the owner's `default`, even about the owner's project.
+    let line = json!({"level": "warn", "kind": "request.refused", "project": "primes", "message": "Refused bo", "workspace": "acme"});
+    let written = api.put("/api/events/log/lines", line).send().await;
+    assert_eq!(written.status, 201, "{}", written.body);
+    let refused = |reply: &Value| kinds(reply).contains(&"request.refused");
+    assert!(!refused(&api.get("/api/events/log").send().await.body), "not in default's log");
+    assert!(refused(&api.get("/api/events/log").header("orrery-workspace", "acme").send().await.body), "in acme's");
+    let none = json!({"level": "warn", "kind": "request.refused", "message": "Refused bo", "workspace": "acme"});
+    api.put("/api/events/log/lines", none).send().await;
+    assert_eq!(kinds(&api.get("/api/events/log").header("orrery-workspace", "acme").send().await.body), ["request.refused", "request.refused"]);
+    assert!(!refused(&api.get("/api/events/log").send().await.body));
+    let nowhere = api.put("/api/events/log/lines", json!({"level": "warn", "kind": "request.refused", "message": "x", "workspace": "gone"})).send().await;
+    assert_eq!((nowhere.status.as_u16(), nowhere.body["message"].as_str()), (404, Some("No workspace gone")));
+}
+
+#[tokio::test]
 async fn only_the_local_app_writes_a_line_or_prunes() {
     let api = TestApi::new().await;
     let line = json!({"level": "error", "kind": "page.error", "message": "Sent by a page"});

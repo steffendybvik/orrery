@@ -61,10 +61,17 @@ async fn write_line(State(app): Shared, headers: HeaderMap, body: Bytes) -> Resu
     local_app_only(&headers)?;
     let actor = actor_of(&headers);
     let mut conn = app.pool.acquire().await?;
-    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    let line = body_of(&body);
+    // A line about a request names the asker's workspace (ORR-1377), which the local app checked: it goes in that
+    // workspace's log, whatever project it names, so a member's refusal on another's project isn't the owner's to read.
+    let named = line.get("workspace").and_then(serde_json::Value::as_str).map(str::trim).filter(|w| !w.is_empty());
+    let workspace = match named {
+        Some(named) => Seen::of(&mut conn, &headers).await?.pick(Some(named))?,
+        None => Seen::workspace(&mut conn, &headers).await?,
+    };
     let mut log = EventLog::of(&mut conn, workspace);
     log.outbox = Some(Outbox::new(actor));
-    let written = log.write(&body_of(&body)).await?;
+    let written = log.write(&line).await?;
     Ok(reply(StatusCode::CREATED, Some(written), log.effects()))
 }
 

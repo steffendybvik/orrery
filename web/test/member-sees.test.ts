@@ -1,6 +1,6 @@
 import type {H3Event} from 'h3'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
-import {listedSees, memberSees, needsSeen, projectsListedTo, reposSeen, workspaceAsked} from '../server/utils/member-sees'
+import {askerWorkspace, listedSees, memberSees, needsSeen, projectsListedTo, reposSeen, workspaceAsked} from '../server/utils/member-sees'
 
 // What anyone signed in can read on the routes this server answers itself (ORR-1195, ORR-1347): the projects the API
 // lists for them, asked as them, the server's owner too; with login off, every one.
@@ -141,5 +141,32 @@ describe('workspaceAsked', () => {
     it('refuses when the API gives no answer', async () => {
         asked.mockResolvedValue(undefined as never)
         await expect(workspaceAsked(eventOf({person: 'sam-ws', owner: true, via: 'browser'}, 'mine'))).rejects.toMatchObject({statusCode: 404})
+    })
+})
+
+// A line in the event log about someone's request is kept in their workspace (ORR-1377).
+describe('askerWorkspace', () => {
+    const bo = (workspace?: string) => eventOf({person: 'bo-log', owner: false, via: 'agent'}, workspace)
+
+    it("is the one named once they're in it, else default when they're in it, else their first", async () => {
+        asked.mockResolvedValue([{id: 'acme'}, {id: 'default'}] as never)
+        expect(await askerWorkspace(bo('acme'))).toBe('acme')
+        expect(await askerWorkspace(bo())).toBe('default')
+        asked.mockResolvedValue([{id: 'acme'}, {id: 'zeta'}] as never)
+        expect(await askerWorkspace(bo())).toBe('acme')
+    })
+
+    it("is none for another's workspace, no workspace or no answer, so nothing goes in another's log", async () => {
+        asked.mockResolvedValue([{id: 'acme'}] as never)
+        expect(await askerWorkspace(bo('default'))).toBeNull()
+        asked.mockResolvedValue([] as never)
+        expect(await askerWorkspace(bo())).toBeNull()
+        asked.mockResolvedValue(undefined as never)
+        expect(await askerWorkspace(bo())).toBeNull()
+    })
+
+    it('is undefined with login off, and asks nothing', async () => {
+        expect(await askerWorkspace(eventOf(undefined, 'any'))).toBeUndefined()
+        expect(asked).not.toHaveBeenCalled()
     })
 })
