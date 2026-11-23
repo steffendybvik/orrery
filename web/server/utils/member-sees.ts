@@ -91,3 +91,20 @@ export async function workspaceAsked(event: H3Event): Promise<string | undefined
     if (!theirs?.some(w => w.id === named)) throw createError({statusCode: 404, statusMessage: 'Not Found', message: `No workspace ${named}`})
     return named
 }
+
+/** The project a request names in its body (ORR-1359), only when the asker sees it and, for a session, it's in the
+ * workspace the session works in: any other is answered as one that isn't here, the same 404, so a body can neither
+ * reach another workspace's project nor find out that it exists. `heldToWorkspace` only reads a project in the path. */
+export async function seenProjectOf(event: H3Event, named: string): Promise<string> {
+    const hidden = () => notFound(`No project "${named}"`)
+    try {
+        const project = await useStore().projectId(named)
+        await needsSeen(event, project)
+        const held = sessionWorkspace(event)
+        if (held && await useStore().projectWorkspace(project) !== held) throw hidden()
+        return project
+    } catch (error) {
+        if ((error as {statusCode?: number}).statusCode === 404) throw hidden()
+        throw error
+    }
+}

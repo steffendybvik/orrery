@@ -14,7 +14,7 @@ function projectIn(path: string): string | undefined {
 /** The workspace a session's calls say it works in (`Orrery-Workspace`, ORR-1109), only when they come from a session
  * (`Orrery-Session`). A page names one too, from its address, but isn't held to it, nor is the launcher, which serves
  * every workspace and names none. */
-function sessionWorkspace(event: H3Event): string | undefined {
+export function sessionWorkspace(event: H3Event): string | undefined {
     if (!sessionHeader(event)) return undefined
     return getHeader(event, 'orrery-workspace')?.trim() || undefined
 }

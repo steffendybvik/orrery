@@ -534,8 +534,10 @@ and keeps in `orrery.key` beside the database; only when it can't keep one there
 
 - **Only to its hosts.** Every secret in a request must allow the url's host (else a 403), and the url must be
   https (else a 400); either way nothing is sent. Every request names the `project` it's for (else a 400, ORR-1069), and a secret kept to some `projects` is only sent for one of them.
-  That keeps a key from being used in the wrong project by mistake; it isn't a boundary, as any caller
-  can name any project. The hosts are the boundary.
+  That keeps a key from being used in the wrong project by mistake. The hosts are the boundary.
+- **Only your own workspace's.** The `project` must be one you can see, and for a session, one in the workspace it
+  works in (ORR-1359). Any other is a 404, the same as a project that isn't here, before any secret is read, so
+  egress never fills in another workspace's secrets, nor says which of its projects or secrets exist.
 - **Escaped where it goes.** In the url the value is percent-encoded; in a body sent as JSON it's
   JSON-escaped, and in a form body (`application/x-www-form-urlencoded`) form-encoded. In a header, or a
   text body of any other type, it goes as it is.
