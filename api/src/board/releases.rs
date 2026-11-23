@@ -1,6 +1,7 @@
 // A project's releases, written (ORR-974): what `createRelease`, `updateRelease` and `deleteRelease` do
 // (web/server/store/releases.ts), answering as their routes do. Reading them is `plans.rs`. Each write puts what it set
 // off in the outbox inside its transaction (ORR-929), and the router tells the Nuxt server's hooks from the reply.
+use crate::access::scope::ScopedProject;
 use crate::board::issues::Issues;
 use crate::changes::{self, Outbox};
 use crate::db::sql;
@@ -210,7 +211,8 @@ impl<'c> Releases<'c> {
     }
 
     /// Makes a release at the top of the project's: its version.
-    pub async fn create(&mut self, project: &str, body: &Value, actor: &Actor) -> Result<String> {
+    pub async fn create(&mut self, scoped: &ScopedProject, body: &Value, actor: &Actor) -> Result<String> {
+        let project = scoped.id();
         self.own_releases(project, "make them").await?;
         let input = check_input(body, false)?;
         let version = input["version"].as_str().unwrap_or_default().to_string();
@@ -263,7 +265,8 @@ impl<'c> Releases<'c> {
 
     /// Changes its branch, notes, days or place. Setting a day freezes or ships it, clearing one thaws or unships it,
     /// each told; a new day on one already set is no event.
-    pub async fn update(&mut self, project: &str, version: &str, body: &Value) -> Result<()> {
+    pub async fn update(&mut self, scoped: &ScopedProject, version: &str, body: &Value) -> Result<()> {
+        let project = scoped.id();
         self.own_releases(project, "change them").await?;
         let before = self.before(project, version).await?;
         let input = check_input(body, true)?;
@@ -319,7 +322,8 @@ impl<'c> Releases<'c> {
 
     /// Deletes it; its issues stay, set for no release, in every project drawing on it too. One the owner made is
     /// theirs to delete.
-    pub async fn delete(&mut self, project: &str, version: &str, actor: &Actor) -> Result<()> {
+    pub async fn delete(&mut self, scoped: &ScopedProject, version: &str, actor: &Actor) -> Result<()> {
+        let project = scoped.id();
         self.own_releases(project, "delete them").await?;
         let before = self.before(project, version).await?;
         if before.owned && !actor.owner {

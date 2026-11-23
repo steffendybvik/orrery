@@ -225,3 +225,29 @@ fn a_board_named_in_a_body_is_reached_only_through_reach() {
         files.iter().filter(|(f, text)| f != "board/projects.rs" && f != "access/scope.rs" && text.contains("not_moved(")).map(|(f, _)| f).collect();
     assert!(strays.is_empty(), "A project named in a body goes through `scope::reach`, which holds it to the workspace too: {strays:?}");
 }
+
+/// A handler under `/api/projects/{project}` takes its project as the rails checked it (`ScopedProject`, ORR-1395), never
+/// as the bare id in its path, which a route the rails didn't hold could hand a store.
+#[test]
+fn a_projects_routes_take_it_as_the_rails_checked_it() {
+    let mut files = Vec::new();
+    sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src/routes"), &mut files);
+    let bare: Vec<String> = files
+        .iter()
+        .filter(|(name, text)| !name.ends_with("_tests.rs") && (text.contains("Path(project)") || text.contains("Path((project")))
+        .map(|(name, _)| name.clone())
+        .collect();
+    assert!(!files.is_empty());
+    assert!(bare.is_empty(), "take the project as `scoped: ScopedProject`, not from the path: {bare:?}");
+}
+
+/// A request's project is the one its path names, as the rails found it, and the Nuxt server's own work gets it too.
+#[tokio::test]
+async fn a_handler_is_handed_the_project_the_rails_checked() {
+    let api = TestApi::new().await;
+    let project = api.project("Primes").await;
+    let reply = api.get(&format!("/api/projects/{project}/issues")).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    let none = api.get("/api/projects/nowhere/issues").send().await;
+    assert_eq!((none.status.as_u16(), none.body["message"].as_str()), (404, Some("No project \"nowhere\"")));
+}

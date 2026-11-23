@@ -4,6 +4,7 @@
 // comment do. A new or edited comment reaches the session on its issue and the owner's bell from the Nuxt server, which
 // knows the sessions: the reply says which (`Handoff`), and the router passes it on. They're writes on an issue, so
 // they're methods of `IssueWrites` (issue_writes.rs), with the rails they share.
+use crate::access::scope::ScopedProject;
 use crate::board::issue_writes::IssueWrites;
 use crate::changes;
 use crate::db::sql;
@@ -188,7 +189,8 @@ impl IssueWrites<'_> {
     }
 
     /// The issue's comments, oldest first.
-    pub async fn list(&mut self, project: &str, sent: &str) -> Result<Value> {
+    pub async fn list(&mut self, scoped: &ScopedProject, sent: &str) -> Result<Value> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let query = format!("SELECT {} FROM comments c WHERE c.project = ? AND c.issue = ? ORDER BY c.created_at, c.id", columns());
@@ -197,7 +199,8 @@ impl IssueWrites<'_> {
     }
 
     /// Who changed what on the issue, and when, oldest first.
-    pub async fn activity(&mut self, project: &str, sent: &str) -> Result<Value> {
+    pub async fn activity(&mut self, scoped: &ScopedProject, sent: &str) -> Result<Value> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let query =
@@ -208,7 +211,8 @@ impl IssueWrites<'_> {
     }
 
     /// One comment on the issue.
-    pub async fn comment(&mut self, project: &str, sent: &str, id: i64) -> Result<Value> {
+    pub async fn comment(&mut self, scoped: &ScopedProject, sent: &str, id: i64) -> Result<Value> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let query = format!("SELECT {} FROM comments c WHERE c.project = ? AND c.issue = ? AND c.id = ?", columns());
@@ -221,7 +225,8 @@ impl IssueWrites<'_> {
 
     /// A new comment on the issue: an agent's ask assigns the issue to the owner, and the owner's answer gives it back
     /// to the agent who asked. With people, an agent's ask waits on its own person, and only on an issue that's theirs.
-    pub async fn create(&mut self, project: &str, sent: &str, body: &Value, actor: &Actor) -> Result<(Value, Handoff)> {
+    pub async fn create(&mut self, scoped: &ScopedProject, sent: &str, body: &Value, actor: &Actor) -> Result<(Value, Handoff)> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let held: Option<String> = sqlx::query(sql("SELECT assignee FROM issues WHERE project = ? AND id = ?"))
@@ -291,14 +296,15 @@ impl IssueWrites<'_> {
             edited: false,
             quiet: false,
         };
-        Ok((self.comment(project, &issue, id).await?, handoff))
+        Ok((self.comment(scoped, &issue, id).await?, handoff))
     }
 
     /// orrery's own word on an issue (ORR-1094), as `systemComment` and `systemNote` in web/server/store/comments.ts
     /// write it: a comment by `orrery`, nobody's words but its own, so nobody's bell hears it. `wakes` passes it on to
     /// the session on the issue, as a pull request's news does, unless the issue is closed, where there's no work left
     /// to wake anyone for; a note (why a schedule moved it) wakes nobody. Only the Nuxt server's own work sends it.
-    pub async fn said(&mut self, project: &str, sent: &str, body: &Value) -> Result<(Value, Handoff)> {
+    pub async fn said(&mut self, scoped: &ScopedProject, sent: &str, body: &Value) -> Result<(Value, Handoff)> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let text = match body.get("body") {
@@ -340,13 +346,14 @@ impl IssueWrites<'_> {
         self.effects.tell("comment.added", project, &issue);
         let id = changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
         let handoff = Handoff { project: project.into(), issue: issue.clone(), comment: id, carry: wakes && !closed, ..Handoff::default() };
-        Ok((self.comment(project, &issue, id).await?, handoff))
+        Ok((self.comment(scoped, &issue, id).await?, handoff))
     }
 
     /// Edits the comment's words or what it asks: the owner's only by them, and a member's (or their agents') only by
     /// them or the owner (`updateComment`). New words by the comment's own person go to the session on the issue too, as
     /// it may have read the first ones (`Handoff`, `edited`).
-    pub async fn update(&mut self, project: &str, sent: &str, id: i64, body: &Value, actor: &Actor) -> Result<(Value, Option<Handoff>)> {
+    pub async fn update(&mut self, scoped: &ScopedProject, sent: &str, id: i64, body: &Value, actor: &Actor) -> Result<(Value, Option<Handoff>)> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let whose = self.whose(project, &issue, id).await?;
@@ -385,11 +392,12 @@ impl IssueWrites<'_> {
         let carry = theirs && text.as_ref().is_some_and(|t| *t != whose.body);
         let handoff =
             carry.then(|| Handoff { project: project.into(), issue: issue.clone(), comment: id, carry: true, notice: false, edited: true, quiet: false });
-        Ok((self.comment(project, &issue, id).await?, handoff))
+        Ok((self.comment(scoped, &issue, id).await?, handoff))
     }
 
     /// Deletes the comment: the owner's only by them, and a member's (or their agents') only by them or the owner.
-    pub async fn delete(&mut self, project: &str, sent: &str, id: i64, actor: &Actor) -> Result<()> {
+    pub async fn delete(&mut self, scoped: &ScopedProject, sent: &str, id: i64, actor: &Actor) -> Result<()> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let whose = self.whose(project, &issue, id).await?;

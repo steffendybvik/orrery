@@ -1,5 +1,6 @@
 // Comments on a milestone or an epic: the handlers and the routes they answer (ORR-1048).
 use super::P;
+use crate::access::scope::ScopedProject;
 use crate::access::seen::Seen;
 use crate::board::comments::comment_id;
 use crate::board::epics::Epics;
@@ -37,7 +38,8 @@ async fn epic_thread(threads: &mut Threads<'_>, epic: &str, headers: &HeaderMap)
     Ok(Thread::Epic(Epics::of(&mut *threads.conn, workspace).epic_id(epic).await?))
 }
 
-async fn list_milestone_comments(State(app): Shared, Path((project, milestone)): Path<(String, String)>) -> Result<Response> {
+async fn list_milestone_comments(State(app): Shared, scoped: ScopedProject, Path((_, milestone)): Path<(String, String)>) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let mut threads = Threads::new(&mut conn);
     let thread = milestone_thread(&mut threads, &project, &milestone).await?;
@@ -73,7 +75,14 @@ async fn remove_from_thread(mut threads: Threads<'_>, thread: Thread, id: i64, h
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut threads.effects)))
 }
 
-async fn create_milestone_comment(State(app): Shared, Path((project, milestone)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn create_milestone_comment(
+    State(app): Shared,
+    scoped: ScopedProject,
+    Path((_, milestone)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let mut threads = Threads::new(&mut conn);
     let thread = milestone_thread(&mut threads, &project, &milestone).await?;
@@ -89,10 +98,12 @@ async fn create_epic_comment(State(app): Shared, Path(epic): Path<String>, heade
 
 async fn patch_milestone_comment(
     State(app): Shared,
-    Path((project, milestone, comment)): Path<(String, String, String)>,
+    scoped: ScopedProject,
+    Path((_, milestone, comment)): Path<(String, String, String)>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response> {
+    let project = scoped.id().to_string();
     let id = comment_id(&comment)?;
     let mut conn = app.pool.acquire().await?;
     let mut threads = Threads::new(&mut conn);
@@ -110,9 +121,11 @@ async fn patch_epic_comment(State(app): Shared, Path((epic, comment)): Path<(Str
 
 async fn delete_milestone_comment(
     State(app): Shared,
-    Path((project, milestone, comment)): Path<(String, String, String)>,
+    scoped: ScopedProject,
+    Path((_, milestone, comment)): Path<(String, String, String)>,
     headers: HeaderMap,
 ) -> Result<Response> {
+    let project = scoped.id().to_string();
     let id = comment_id(&comment)?;
     let mut conn = app.pool.acquire().await?;
     let mut threads = Threads::new(&mut conn);

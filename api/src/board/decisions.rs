@@ -2,6 +2,7 @@
 // while it's in the backlog; asking for changes can name an option to go further down; a rejection is said to the
 // session on it but starts no work (`Handoff::quiet`). Either way it goes back to whoever proposed it, and the decision
 // is left on it as the owner's comment.
+use crate::access::scope::ScopedProject;
 use crate::board::choices::{describe_picks, resolve_picks, stored, Picks};
 use crate::board::comments::Handoff;
 use crate::board::issue_writes::IssueWrites;
@@ -132,7 +133,8 @@ pub fn owner_only(actor: &Actor) -> Result<()> {
 impl IssueWrites<'_> {
     /// One proposal's part of a decision on many (`decideIssues`): an approval needs a recommendation for each choice
     /// that isn't down another's option, so nothing is approved on a guess.
-    pub async fn decide_one_of_many(&mut self, project: &str, sent: &str, decision: &Value, actor: &Actor) -> Result<(String, Handoff, bool)> {
+    pub async fn decide_one_of_many(&mut self, scoped: &ScopedProject, sent: &str, decision: &Value, actor: &Actor) -> Result<(String, Handoff, bool)> {
+        let project = scoped.id();
         let id = self.issue_id(project, sent).await?;
         self.issue_there(project, &id).await?;
         let row = sqlx::query(sql("SELECT choices FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&id).fetch_one(&mut *self.conn).await?;
@@ -144,12 +146,13 @@ impl IssueWrites<'_> {
         if decision.get("decision").and_then(Value::as_str) == Some("approved") && !unsure.is_empty() {
             return Err(ApiError::bad_request(format!("Needs your picks: nothing is recommended for {}", unsure.join(", "))));
         }
-        self.decide(project, sent, decision, actor).await
+        self.decide(scoped, sent, decision, actor).await
     }
 
     /// The owner's decision on the proposal (`decide`). Gives back its id, the comment's `Handoff`, and whether approving
     /// made it urgent open work, for the Nuxt server to pass on, as only it reaches the sessions.
-    pub async fn decide(&mut self, project: &str, sent: &str, body: &Value, actor: &Actor) -> Result<(String, Handoff, bool)> {
+    pub async fn decide(&mut self, scoped: &ScopedProject, sent: &str, body: &Value, actor: &Actor) -> Result<(String, Handoff, bool)> {
+        let project = scoped.id();
         let id = self.issue_id(project, sent).await?;
         self.issue_there(project, &id).await?;
         let row = sqlx::query(sql(
@@ -245,7 +248,7 @@ impl IssueWrites<'_> {
             Some(note) => format!("{said}\n\n{note}"),
             None => said,
         };
-        let (_, mut handoff) = self.create(project, &id, &json!({"body": text}), actor).await?;
+        let (_, mut handoff) = self.create(scoped, &id, &json!({"body": text}), actor).await?;
         // Approving, or asking for changes, is work; a rejection is said to the session but starts none (ORR-606).
         handoff.quiet = decision == "rejected";
         let mut urgent = false;
@@ -263,7 +266,7 @@ impl IssueWrites<'_> {
             if self.outbox.is_some() {
                 self.outbox = Some(changes::Outbox::new(actor.clone()));
             }
-            let edited = self.edit_words(project, &id, &Value::Object(edit), actor).await;
+            let edited = self.edit_words(scoped, &id, &Value::Object(edit), actor).await;
             let more = std::mem::replace(&mut self.effects, said);
             urgent = edited?.is_some();
             self.effects.told.extend(more.told);

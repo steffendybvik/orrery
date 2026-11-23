@@ -7,6 +7,7 @@
 // ORR-1130), once the Nuxt server has checked its claim, as only that knows which sessions are there to hear. The rails are the
 // store's: an agent changes only its person's issue, or its own proposal, moves one only under an issue that's its
 // person's too, and hands one on only back to the owner.
+use crate::access::scope::ScopedProject;
 use crate::access::scope::Workspace;
 use crate::board::issue_writes::IssueWrites;
 use crate::board::issues::{github_issue_of, github_repo, link_ref, Issues, GITHUB_OWN};
@@ -329,13 +330,14 @@ impl IssueWrites<'_> {
     /// `remove` taken off, each once, as one edit. Gives back its id when that made it urgent open work, as `edit_words`.
     pub async fn edit_one_of_many(
         &mut self,
-        project: &str,
+        scoped: &ScopedProject,
         sent: &str,
         set: &serde_json::Map<String, Value>,
         add: &[String],
         remove: &[String],
         actor: &Actor,
     ) -> Result<Option<String>> {
+        let project = scoped.id();
         let mut edit = set.clone();
         if !add.is_empty() || !remove.is_empty() {
             let issue = self.issue_id(project, sent).await?;
@@ -350,14 +352,15 @@ impl IssueWrites<'_> {
             }
             edit.insert("labels".into(), Value::from(labels));
         }
-        self.edit_words(project, sent, &Value::Object(edit), actor).await
+        self.edit_words(scoped, sent, &Value::Object(edit), actor).await
     }
 
     /// Makes an issue (`createIssue`) from an edit's words, with the project's next id, and notes it as `created`.
     /// An agent on the rails files a sub-issue only under its person's issue, and it's then theirs (taken up, when it's
     /// started), unless it's a proposal; one at the top stays nobody's, so it's refused started, closed or given to
     /// anyone but the owner. Gives back its id, and whether it's urgent open work (P0) to push, as `edit_words` does.
-    pub async fn create_issue(&mut self, project: &str, body: &Value, actor: &Actor) -> Result<(String, bool)> {
+    pub async fn create_issue(&mut self, scoped: &ScopedProject, body: &Value, actor: &Actor) -> Result<(String, bool)> {
+        let project = scoped.id();
         let row = Issues::new(&mut *self.conn).project(project).await?;
         let words = check_new(&in_its_project(body, project)?)?;
         let parent = match words.parent.as_ref().and_then(|p| p.as_deref()).filter(|p| !p.is_empty()) {
@@ -395,7 +398,7 @@ impl IssueWrites<'_> {
             None => vec![],
         };
         let depends = match &words.depends_on {
-            Some(refs) => Some(self.links_from(project, "", refs).await?),
+            Some(refs) => Some(self.links_from(scoped, "", refs).await?),
             None => None,
         };
         if let (Some(parent), Some(depends)) = (&parent, &depends) {
@@ -548,7 +551,8 @@ impl IssueWrites<'_> {
     /// telling it, without a title's or a link's words, as an outsider may have written them. 409 for an agent on one
     /// that isn't its person's, unless it's its own proposal. Gives back the issue's id when the edit made it urgent open
     /// work it wasn't (P0, `urgent`), for the Nuxt server to push to the sessions, as only it reaches them.
-    pub async fn edit_words(&mut self, project: &str, sent: &str, body: &Value, actor: &Actor) -> Result<Option<String>> {
+    pub async fn edit_words(&mut self, scoped: &ScopedProject, sent: &str, body: &Value, actor: &Actor) -> Result<Option<String>> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let words = check_words(body)?;
@@ -666,7 +670,7 @@ impl IssueWrites<'_> {
         let listed = |list: &Option<Vec<String>>| list.as_ref().map(|l| serde_json::to_string(l).unwrap_or_default());
         let (labels, external, github) = (listed(&words.labels), listed(&words.external), listed(&github));
         let depends = match &words.depends_on {
-            Some(refs) => Some(self.links_from(project, &issue, refs).await?),
+            Some(refs) => Some(self.links_from(scoped, &issue, refs).await?),
             None => None,
         };
         // The projects whose boards show this issue's links, those it's to depend on too: theirs change with it.
@@ -802,18 +806,19 @@ impl IssueWrites<'_> {
     /// lands under `parent` or in `milestone` there, or at the top in neither. It keeps its release only when both
     /// projects take their releases from the same place. An agent moves one only when every issue in it is its
     /// person's, and hands it on (`assignee`, the edit's) only as an edit may, both refused before anything moves.
-    /// Gives back its id in `to`.
+    /// Gives back its id in `to`, and `to` as the request may act on it (`scope::reach`).
     #[allow(clippy::too_many_arguments)]
     pub async fn move_issue(
         &mut self,
-        from: &str,
+        scoped: &ScopedProject,
         sent: &str,
         to: &str,
         parent: Option<&str>,
         milestone: Option<&str>,
         assignee: Option<Option<String>>,
         actor: &Actor,
-    ) -> Result<String> {
+    ) -> Result<(String, ScopedProject)> {
+        let from = scoped.id();
         let issue = self.issue_id(from, sent).await?;
         self.issue_there(from, &issue).await?;
         let rails = self.rails_for(actor).await?;
@@ -821,7 +826,7 @@ impl IssueWrites<'_> {
             self.railed_assignee(rails.as_deref(), &issue, assignee).await?;
         }
         // Only into a project of its own workspace, and not a board marked as moved, which only reads (ORR-1229).
-        crate::access::scope::reach(self.conn, from, to).await?;
+        let there_scoped = crate::access::scope::reach(self.conn, scoped, to).await?;
         self.reaches(from, to).await?;
         let there = Issues::new(&mut *self.conn).project(to).await?;
         let parent = match parent.filter(|p| !p.is_empty()) {
@@ -964,7 +969,8 @@ impl IssueWrites<'_> {
         }
         .await;
         self.effects.changed = vec![from.to_string(), to.to_string()];
-        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+        let moved = changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        Ok((moved, there_scoped))
     }
 
     /// An agent's assignee (`railedAssignee`): what it may hand on, back to the owner or letting go, with `claude` and
@@ -1147,7 +1153,8 @@ impl IssueWrites<'_> {
     /// The issues `depends_on` names, checked (`linksFrom`, ORR-601): each there (an id it had before finds it), in this
     /// project or another, not the issue itself, not its parent or a sub-issue, and not one that already depends on it,
     /// however far down, which would make a loop nothing could start.
-    async fn links_from(&mut self, project: &str, issue: &str, refs: &[String]) -> Result<Vec<(String, String)>> {
+    async fn links_from(&mut self, scoped: &ScopedProject, issue: &str, refs: &[String]) -> Result<Vec<(String, String)>> {
+        let project = scoped.id();
         let mut links: Vec<(String, String)> = vec![];
         for sent in refs {
             let (on_project, on_id) = match sent.split_once('/') {
@@ -1159,7 +1166,7 @@ impl IssueWrites<'_> {
             }
             // Another project's only in this one's workspace, and not on a board marked as moved, which can't change any
             // more, so nothing new waits on it (ORR-1229); and only on a board the asker is on (ORR-1383).
-            crate::access::scope::reach(self.conn, project, &on_project).await?;
+            crate::access::scope::reach(self.conn, scoped, &on_project).await?;
             if on_project != project {
                 self.reaches(project, &on_project).await?;
             }
