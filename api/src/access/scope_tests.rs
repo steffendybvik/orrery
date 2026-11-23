@@ -159,3 +159,69 @@ async fn a_project_read_through_another_workspaces_store_is_not_there() {
     let read = crate::board::projects::Projects::of(&mut conn, default).project(&rockets).await;
     assert_eq!(read.err().map(|e| e.status), Some(axum::http::StatusCode::NOT_FOUND));
 }
+
+/// Rockets in Acme with its issue Liftoff, and Primes in default with Sieve: (rockets, liftoff, primes, sieve).
+async fn two_boards(api: &TestApi) -> (String, String, String, String) {
+    api.team().await;
+    let rockets = api.acme(&["bo"]).await;
+    let liftoff = api.issue(&rockets, json!({"title": "Liftoff"})).await;
+    let (primes, sieve) = api.board().await;
+    (rockets, liftoff, primes, sieve)
+}
+
+/// `message` with `id` and `gone` both written as `X`, to compare a refusal about another workspace's project with
+/// one about a project that isn't there.
+fn as_if(message: &serde_json::Value, id: &str, gone: &str) -> String {
+    message["message"].as_str().unwrap_or_default().replace(id, "X").replace(gone, "X")
+}
+
+#[tokio::test]
+async fn an_issue_cant_move_into_another_workspaces_project() {
+    let api = TestApi::new().await;
+    let (rockets, liftoff, primes, sieve) = two_boards(&api).await;
+    let theirs = api.patch(&format!("/api/projects/{primes}/issues/{sieve}"), json!({"project": rockets})).send().await;
+    let none = api.patch(&format!("/api/projects/{primes}/issues/{sieve}"), json!({"project": "nothing-here"})).send().await;
+    assert_eq!(theirs.status, 404, "{}", theirs.body);
+    assert_eq!((theirs.status, as_if(&theirs.body, &rockets, "nothing-here")), (none.status, as_if(&none.body, &rockets, "nothing-here")));
+    let back = api.patch(&format!("/api/projects/{rockets}/issues/{liftoff}"), json!({"project": primes})).send().await;
+    assert_eq!(back.status, 404, "nor out of one into another: {}", back.body);
+    let still: String = sqlx::query("SELECT project FROM issues WHERE id = $1").bind(&sieve).fetch_one(&api.app.pool).await.unwrap().get("project");
+    assert_eq!(still, primes);
+}
+
+#[tokio::test]
+async fn an_issue_cant_depend_on_another_workspaces() {
+    let api = TestApi::new().await;
+    let (rockets, liftoff, primes, sieve) = two_boards(&api).await;
+    let theirs = api.patch(&format!("/api/projects/{primes}/issues/{sieve}"), json!({"depends_on": [format!("{rockets}/{liftoff}")]})).send().await;
+    let none = api.patch(&format!("/api/projects/{primes}/issues/{sieve}"), json!({"depends_on": ["nothing-here/NTH-1"]})).send().await;
+    assert_eq!(theirs.status, 404, "{}", theirs.body);
+    assert_eq!((theirs.status, as_if(&theirs.body, &rockets, "nothing-here")), (none.status, as_if(&none.body, &rockets, "nothing-here")));
+    let made = api.post(&format!("/api/projects/{primes}/issues"), json!({"title": "Fuel", "depends_on": [format!("{rockets}/{liftoff}")]})).send().await;
+    assert_eq!(made.status, 404, "nor a new one: {}", made.body);
+    let other = api.project("Squares").await;
+    let square = api.issue(&other, json!({"title": "Grid"})).await;
+    let ours = api.patch(&format!("/api/projects/{primes}/issues/{sieve}"), json!({"depends_on": [format!("{other}/{square}")]})).send().await;
+    assert_eq!(ours.status, 200, "another project of its own workspace: {}", ours.body);
+}
+
+#[tokio::test]
+async fn a_chat_asks_only_on_its_own_workspaces_projects() {
+    let api = TestApi::new().await;
+    let (rockets, _, primes, _) = two_boards(&api).await;
+    let chat = json!({"id": "c1", "project": primes, "started_at": "2026-11-01T10:00:00.000Z", "messages": [], "model": "sonnet"});
+    assert!(api.put("/api/chats/c1", chat).send().await.status.is_success());
+    let theirs = api.post("/api/chats/c1/doc-requests", json!({"project": rockets, "doc": {"title": "Plan", "body": "x"}})).send().await;
+    let none = api.post("/api/chats/c1/doc-requests", json!({"project": "nothing-here", "doc": {"title": "Plan", "body": "x"}})).send().await;
+    assert_eq!(theirs.status, 404, "{}", theirs.body);
+    assert_eq!((theirs.status, as_if(&theirs.body, &rockets, "nothing-here")), (none.status, as_if(&none.body, &rockets, "nothing-here")));
+}
+
+#[test]
+fn a_board_named_in_a_body_is_reached_only_through_reach() {
+    let mut files = Vec::new();
+    sources(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/src")), &mut files);
+    let strays: Vec<&String> =
+        files.iter().filter(|(f, text)| f != "board/projects.rs" && f != "access/scope.rs" && text.contains("not_moved(")).map(|(f, _)| f).collect();
+    assert!(strays.is_empty(), "A project named in a body goes through `scope::reach`, which holds it to the workspace too: {strays:?}");
+}

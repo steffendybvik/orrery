@@ -92,6 +92,20 @@ impl Workspace {
     }
 }
 
+/// Whether a request on project `from` may reach project `to`, one it named in its body rather than its path, which the
+/// rails held (ORR-1395): moving an issue there, an issue there in `depends_on`. Only a project of `from`'s own
+/// workspace: another's is a 404, as one that isn't there, whatever the asker sees, so nothing joins two workspaces'
+/// rows. Then a board marked as moved takes nothing from another (ORR-1229). Every such reference goes through here.
+pub(crate) async fn reach(conn: &mut AnyConnection, from: &str, to: &str) -> Result<()> {
+    if from != to {
+        let (here, there) = (Workspace::of_project_or_none(&mut *conn, from).await?, Workspace::of_project_or_none(&mut *conn, to).await?);
+        if here.is_none() || here != there {
+            return Err(ApiError::not_found(format!("No project \"{to}\"")));
+        }
+    }
+    crate::board::projects::not_moved(conn, to).await
+}
+
 impl fmt::Display for Workspace {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
