@@ -229,8 +229,9 @@ export interface PolledRow {
 export class PullPoll {
     /** When each repo was last polled (or tried), and with a token or not, in this process. */
     private readonly last = new Map<string, {at: number, token: boolean}>()
-    /** GitHub's GraphQL points left after each repo's last poll with a token, and when they reset (ORR-1394). */
-    private readonly points = new Map<string, {remaining: number, resets: number}>()
+    /** GitHub's GraphQL points left after each repo's last poll with a token, and when they reset (ORR-1394), with the
+     * workspace whose token it was: the points are the token's, so every repo on it slows down together (ORR-1409). */
+    private readonly points = new Map<string, {remaining: number, resets: number, workspace: string}>()
     /** When the owner's Poll now last polled each repo without a token. */
     private readonly pressed = new Map<string, number>()
     /** Repos whose token GitHub turned down, until when; and those said so in the log. */
@@ -260,14 +261,16 @@ export class PullPoll {
 
     /** The owner's Poll now (ORR-534): every repo (or `only`), whenever it was last polled, once the pass under way
      * has finished; a second ask for the same while one runs gets its result. A repo GitHub is holding (a rate limit, a
-     * refused token), or without a token one polled now in the last five minutes or read in the last minute, isn't asked: why, by repo. */
-    async pollNow(only?: string): Promise<Map<string, string>> {
-        const key = only ?? ''
+     * refused token), or without a token one polled now in the last five minutes or read in the last minute, isn't asked: why, by repo.
+     * `among`: the projects the asker sees, so a repo is polled as one of theirs, with its token, never another
+     * workspace's on the same repo (ORR-1409); a repo none of them is on isn't polled. */
+    async pollNow(only?: string, among?: Set<string>): Promise<Map<string, string>> {
+        const key = `${only ?? ''}\n${among ? [...among].sort().join(',') : '*'}`
         let asked = this.asked.get(key)
         if (!asked) {
             asked = (async () => {
                 while (this.running) await this.running.catch(() => undefined)
-                return await this.pass(true, only)
+                return await this.pass(true, only, among)
             })().finally(() => this.asked.delete(key))
             this.asked.set(key, asked)
         }
@@ -282,14 +285,17 @@ export class PullPoll {
         if (!this.running) await this.pass(false).catch(() => undefined)
     }
 
-    private async pass(force: boolean, only?: string): Promise<Map<string, string>> {
+    private async pass(force: boolean, only?: string, among?: Set<string>): Promise<Map<string, string>> {
         const run = (async () => {
             const held = new Map<string, string>()
             const repos = await this.pulls.repos()
             for (const [repo, projects] of repos) {
                 if (only && repo !== only) continue
+                // Asked as one of the asker's own projects (ORR-1409); what it reads is still kept for every project on the repo.
+                const asker = among ? projects.find(p => among.has(p)) : projects[0]
+                if (asker === undefined) continue
                 try {
-                    const why = await this.pollIfDue(repo, projects, force)
+                    const why = await this.pollIfDue(repo, projects, force, asker)
                     if (why) held.set(repo, why)
                 } catch (error) {
                     console.error(`[orrery] polling ${repo}'s pull requests:`, error)
@@ -307,14 +313,13 @@ export class PullPoll {
     }
 
     /** Polls the repo when it's due (`force`: whenever it was last polled); why it wasn't, when it was held. */
-    private async pollIfDue(repo: string, projects: string[], force = false): Promise<string | undefined> {
+    private async pollIfDue(repo: string, projects: string[], force = false, asker = projects[0] ?? ''): Promise<string | undefined> {
         const now = this.now()
         const refused = this.refused.get(repo) ?? 0
         if (refused > now) return `GitHub turned down the ${GITHUB_SECRET} secret: tried again at ${clock(refused)} UTC, or once it's set again`
         const limited = this.pulls.limitedUntil(repo)
         if (force && limited) return `GitHub's rate limit is used up until ${clock(limited)} UTC`
-        // Asked as the first project's: the token's projects are checked against it.
-        const [asker = ''] = projects
+        // Asked as the first project's, or on Poll now the asker's own: the token's projects are checked against it.
         const token = await this.hasToken(asker)
         const last = this.last.get(repo)
         if (!force && last && last.token === token && now - last.at < (token ? this.every(repo, now) : POLL_WITHOUT_TOKEN)) return
@@ -330,8 +335,11 @@ export class PullPoll {
     /** How long after its last poll a repo with a token is polled again: slower as GitHub's points run low, and not
      * till they reset once few are left (ORR-1394). */
     private every(repo: string, now: number): number {
-        const points = this.points.get(repo)
-        if (!points || points.resets <= now) return POLL_EVERY
+        const own = this.points.get(repo)
+        if (!own || own.resets <= now) return POLL_EVERY
+        // The fewest left that any repo on the same token was last told, as each poll spends the same points.
+        const points = [...this.points.values()].filter(p => p.workspace === own.workspace && p.resets > now)
+            .reduce((least, p) => p.remaining < least.remaining ? p : least, own)
         if (points.remaining < LAST) return points.resets - (this.last.get(repo)?.at ?? now)
         return points.remaining < LOW ? POLL_WHEN_LOW : POLL_EVERY
     }
@@ -450,7 +458,7 @@ export class PullPoll {
                 repo, asker, '/graphql', {query: text, variables: {owner, name, ...after ? {after} : {}}})
             if (value.errors?.length) throw new Error(`GitHub answered for ${repo}: ${value.errors.map(e => e.message).join('; ')}`)
             const rate = (value.data as {rateLimit?: RateLimit} | undefined)?.rateLimit
-            if (rate) this.spent(repo, rate)
+            if (rate) await this.spent(repo, asker, rate)
             const found = value.data?.repository
             if (!found) throw new Error(`GitHub has no ${repo} that the ${GITHUB_SECRET} secret can read`)
             return found
@@ -467,9 +475,10 @@ export class PullPoll {
     }
 
     /** Keeps what a query left of GitHub's points, and logs it, so how fast the poll spends them can be seen (ORR-1394). */
-    private spent(repo: string, rate: RateLimit) {
+    private async spent(repo: string, asker: string, rate: RateLimit) {
         const resets = Date.parse(rate.resetAt)
-        this.points.set(repo, {remaining: rate.remaining, resets: Number.isNaN(resets) ? this.now() : resets})
+        const workspace = await this.store.projectWorkspace(asker).catch(() => 'default')
+        this.points.set(repo, {remaining: rate.remaining, resets: Number.isNaN(resets) ? this.now() : resets, workspace})
         console.log(`[orrery] polled ${repo}'s pull requests: cost ${rate.cost}, ${rate.remaining} of GitHub's points left until ${Number.isNaN(resets) ? '?' : clock(resets)} UTC`)
     }
 

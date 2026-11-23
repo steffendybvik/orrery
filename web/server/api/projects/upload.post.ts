@@ -30,6 +30,11 @@ export default defineEventHandler(async event => {
     const sent = await writeToApi('POST', '/api/boards', {...boardForApi(checked, holder), ...own ? {own: true} : {}, ...into ? {into: true} : {}}, actor, {always: true, workspace: getHeader(event, 'orrery-workspace')})
     if (!sent) throw createError({statusCode: 503, statusMessage: 'Uploading a board needs the Rust API, which isn\'t running'})
     if (into) return sent.reply
-    useEventLog().note({level: 'info', kind: 'board.uploaded', project: checked.id, message: `${actor.name} uploaded a board's file as ${checked.id}`, details: {by: actor.name}})
+    // The board the API made: an id only another workspace has comes back as `<id>-2` (ORR-1350), and the line goes in the
+    // workspace it was made in, never the one that has the id asked for (ORR-1409).
+    const made = sent.reply as {id?: string, workspace?: string} | undefined
+    const id = made?.id ?? checked.id
+    const workspace = made?.workspace ?? getHeader(event, 'orrery-workspace')
+    useEventLog().note({level: 'info', kind: 'board.uploaded', project: id, ...workspace ? {workspace} : {}, message: `${actor.name} uploaded a board's file as ${id}`, details: {by: actor.name}})
     return created(event, sent.reply)
 })

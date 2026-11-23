@@ -272,6 +272,22 @@ describe('the pull request poll', () => {
         log.mockRestore()
     })
 
+    it("slows every repo on the token when one hears its points are low, as they're the token's (ORR-1409)", async () => {
+        await withToken()
+        await store.createProject({name: 'till', key: 'TIL', repo: 'https://github.com/you/till'})
+        const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+        rate = {cost: 4, remaining: 4000, resetAt: '2026-10-29T11:00:00Z'}
+        await poll.tick()
+        expect(asked).toHaveLength(2)
+        // you/shop's Poll now hears 200 left: you/till, which last heard 4000, waits for the reset with it.
+        rate = {cost: 4, remaining: 200, resetAt: '2026-10-29T11:00:00Z'}
+        await poll.pollNow('you/shop')
+        expect(asked).toHaveLength(3)
+        await pollOn()
+        expect(asked).toHaveLength(3)
+        log.mockRestore()
+    })
+
     it('holds a repo till the reset when GraphQL answers RATE_LIMITED, the pages too (ORR-1394)', async () => {
         await withToken()
         open = [pr(1)]
@@ -570,6 +586,22 @@ describe('the pull request poll', () => {
         await Promise.all([poll.pollNow(), poll.pollNow('you/till')])
         // Every repo, then you/till on its own.
         expect(asked).toHaveLength(5)
+    })
+
+    it("polls a shared repo now as the asker's own project, with its token, and skips one they're not on (ORR-1409)", async () => {
+        await withToken()
+        await store.createProject({name: 'back', key: 'BAK', repo: 'https://github.com/you/shop'})
+        const checked: string[] = []
+        const theirs = new PullPoll(store, pulls, async project => {
+            checked.push(project)
+            return true
+        }, () => {}, () => {}, () => now)
+        await theirs.pollNow(undefined, new Set(['back']))
+        expect(checked).toEqual(['back'])
+        expect(asked).toHaveLength(1)
+        await theirs.pollNow(undefined, new Set(['elsewhere']))
+        expect(checked).toEqual(['back'])
+        expect(asked).toHaveLength(1)
     })
 
     it('tries a refused token again once the secrets change, not an hour on (ORR-534)', async () => {

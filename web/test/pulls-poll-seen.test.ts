@@ -8,21 +8,25 @@ const pr = (repo: string, number: number) => ({number, repo, title: `PR ${number
 const all: AllPulls = {pulls: [pr('me/shop', 1), pr('bob/secret', 2)], open: 2, needs: 0,
     repos: [{repo: 'me/shop', open: 1, needs: 0}, {repo: 'bob/secret', open: 1, needs: 0}] as AllPulls['repos']}
 let polled: (string | undefined)[]
+let among: (Set<string> | undefined)[]
 let seen: Set<string> | undefined
 let route: (event: {query?: Record<string, string>}) => Promise<AllPulls>
 const httpError = (statusCode: number) => (message: string) => Object.assign(new Error(message), {statusCode})
 
 beforeEach(async () => {
     polled = []
+    among = []
     seen = new Set(['me/shop'])
     vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
     vi.stubGlobal('getQuery', (event: {query?: Record<string, string>}) => event.query ?? {})
     vi.stubGlobal('authorize', async () => ({name: 'skoll', owner: true}))
     vi.stubGlobal('notFound', httpError(404))
     vi.stubGlobal('reposSeen', async () => seen)
+    vi.stubGlobal('memberSees', async () => seen && new Set(['shop']))
     vi.stubGlobal('usePulls', () => ({repos: async () => new Map([['me/shop', ['shop']], ['bob/secret', ['bobs']]]), all: async () => all}))
-    vi.stubGlobal('usePullPoll', () => ({pollNow: async (only?: string) => {
+    vi.stubGlobal('usePullPoll', () => ({pollNow: async (only?: string, projects?: Set<string>) => {
         polled.push(only)
+        among.push(projects)
         return new Map<string, string>()
     }}))
     vi.stubGlobal('pullsPage', (await import('../server/utils/pulls')).pullsPage)
@@ -36,6 +40,8 @@ describe('Poll now', () => {
     it("polls and lists the asker's repos alone", async () => {
         const answer = await route({})
         expect(polled).toEqual(['me/shop'])
+        // As the asker's own projects, so a repo shared with another workspace takes their token, not its (ORR-1409).
+        expect(among).toEqual([new Set(['shop'])])
         expect(answer.pulls.map(p => p.repo)).toEqual(['me/shop'])
         expect(JSON.stringify(answer)).not.toContain('bob/secret')
     })
@@ -50,6 +56,7 @@ describe('Poll now', () => {
         seen = undefined
         const answer = await route({})
         expect(polled).toEqual([undefined])
+        expect(among).toEqual([undefined])
         expect(answer.pulls).toHaveLength(2)
     })
 })

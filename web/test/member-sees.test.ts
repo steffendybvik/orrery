@@ -48,6 +48,14 @@ describe('memberSees', () => {
         await expect(needsSeen(bo, 'fresh')).resolves.toBeUndefined()
     })
 
+    // A loop over projects someone can't see costs one fresh ask every two seconds, not one a request (ORR-1409).
+    it('asks again on the first miss, then not again for the same asker for a moment', async () => {
+        const bo = eventOf({person: 'bo-loop', owner: false, via: 'agent'}, undefined, 'key-loop')
+        await memberSees(bo)
+        for (const project of ['a', 'b', 'c']) await expect(needsSeen(bo, project)).rejects.toMatchObject({statusCode: 404})
+        expect(asked).toHaveBeenCalledTimes(2)
+    })
+
     it("keeps an agent key's answer apart from its person's page", async () => {
         await memberSees(eventOf({person: 'kit', owner: false, via: 'browser'}))
         asked.mockResolvedValueOnce([{id: 'one'}])
@@ -156,9 +164,14 @@ describe('askerWorkspace', () => {
         expect(await askerWorkspace(bo())).toBe('acme')
     })
 
-    it("is none for another's workspace, no workspace or no answer, so nothing goes in another's log", async () => {
+    it("is their own for a request naming another's workspace, so a probe is logged where only they read it (ORR-1409)", async () => {
         asked.mockResolvedValue([{id: 'acme'}] as never)
-        expect(await askerWorkspace(bo('default'))).toBeNull()
+        expect(await askerWorkspace(bo('default'))).toBe('acme')
+        asked.mockResolvedValue([{id: 'acme'}, {id: 'default'}] as never)
+        expect(await askerWorkspace(bo('zeta'))).toBe('default')
+    })
+
+    it("is none for no workspace or no answer, so nothing goes in another's log", async () => {
         asked.mockResolvedValue([] as never)
         expect(await askerWorkspace(bo())).toBeNull()
         asked.mockResolvedValue(undefined as never)

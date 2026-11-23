@@ -57,6 +57,12 @@ learns of another workspace's projects, issues, sessions, secrets or settings.
 - **Settings and session records answer only in their workspace,** and the owner's own settings stay theirs.
 - **Refusals in the event log name the checked person and workspace,** not who a request claimed to be.
 - **Branches are deleted only on the asker's repos.**
+- **Poll now polls with the asker's own token** on a repo another workspace's project shares, and a token's points
+  running low slows every repo on it, not only the one that heard.
+- **A dependency on another workspace's issue, made before rc.23, is taken away** on upgrade, so the board no longer
+  names it and its issue's dependencies can be saved again.
+- **An uploaded board's line in the event log names the board made and goes in its workspace,** and a refusal naming
+  another workspace is logged in the asker's own.
 - **A member can connect a machine and watch their own session's screen** from their page, no longer refused as "a
   session".
 - **Secrets stay out of files and logs:** the outbox cursor keeps a mark of the database, not its URL, the log hides

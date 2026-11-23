@@ -5,7 +5,31 @@ import {bearer} from './auth'
 /** How long the projects someone sees are kept between asks: a project made or shared shows within this, and at once
  * where a miss asks again (`needsSeen`). */
 const KEEP_MS = 30_000
-const kept = new Map<string, {at: number, projects: Set<string>}>()
+/** How soon after a fresh ask another may go for the same asker (ORR-1409): the first miss still asks again, so a
+ * project made a moment ago is reached at once, but a loop over projects someone can't see costs one ask every so
+ * often, not one a request. */
+const FRESH_MS = 2_000
+/** The most askers kept at once (ORR-1409): past it, those gone stale go first, then the longest kept. */
+const KEEP_MOST = 1_000
+type Kept = Map<string, {at: number, projects: Set<string>, fresh?: number}>
+const kept: Kept = new Map()
+
+/** Keeps `projects` for `key`, at the end, so the longest kept are first; lets go of stale ones once there are many. */
+function keep(map: Kept, key: string, projects: Set<string>, now: number, fresh?: number) {
+    map.delete(key)
+    if (map.size >= KEEP_MOST) {
+        for (const [k, v] of map) if (now - v.at >= KEEP_MS) map.delete(k)
+        for (const k of map.keys()) {
+            if (map.size < KEEP_MOST) break
+            map.delete(k)
+        }
+    }
+    map.set(key, {at: now, projects, ...fresh ? {fresh} : {}})
+}
+
+/** Whether what's kept answers: within `KEEP_MS`, and when asked `fresh`, unless a fresh ask went in the last `FRESH_MS`. */
+const answers = (held: {at: number, fresh?: number} | undefined, now: number, fresh: boolean): held is {at: number, fresh?: number} =>
+    !!held && now - held.at < KEEP_MS && (!fresh || (held.fresh !== undefined && now - held.fresh < FRESH_MS))
 
 /** Whose answer a kept one is: the person, and the key they came with, as an agent key reaches only its own workspace. */
 const askerKey = (event: H3Event, who: Who) => `${who.person}\u0000${who.via}\u0000${bearer(event) ?? ''}`
@@ -14,22 +38,22 @@ const askerKey = (event: H3Event, who: Who) => `${who.person}\u0000${who.via}\u0
  * in (ORR-1251), asked of the API as them and kept a little while. The server's owner too: owning the server gives no
  * way into another person's workspace (decision 6 of decision-workspaces, ORR-1347). Undefined with login off, who is
  * the only person here. With no answer from the API, none, the owner's too, and nothing kept (ORR-1368): a read that
- * failed never widens what anyone sees. `fresh` asks again whatever is kept. */
+ * failed never widens what anyone sees. `fresh` asks again, unless a fresh ask went in the last `FRESH_MS`. */
 export async function memberSees(event: H3Event, {fresh = false} = {}): Promise<Set<string> | undefined> {
     const who = event.context?.who as Who | undefined
     if (!who) return undefined
     const key = askerKey(event, who)
     const now = Date.now()
     const held = kept.get(key)
-    if (held && !fresh && now - held.at < KEEP_MS) return held.projects
+    if (held && answers(held, now, fresh)) return held.projects
     const listed = await readAsAsker<{id: string}[]>(event, '/api/projects?every=1')
     if (!listed) return new Set()
     const projects = new Set(listed.map(p => p.id))
-    kept.set(key, {at: now, projects})
+    keep(kept, key, projects, now, fresh ? now : undefined)
     return projects
 }
 
-const listedKept = new Map<string, {at: number, projects: Set<string>}>()
+const listedKept: Kept = new Map()
 
 /** The projects a list across projects shows the asker (ORR-1251): those `GET /api/projects` lists for them, in the
  * one workspace the request is in (`workspace`, else its `Orrery-Workspace`, else `default`), the owner included, so a
@@ -43,11 +67,11 @@ export async function listedSees(event: H3Event, {workspace, fresh = false}: {wo
     const key = `${askerKey(event, who)}\u0000${named}`
     const now = Date.now()
     const held = listedKept.get(key)
-    if (held && !fresh && now - held.at < KEEP_MS) return held.projects
+    if (held && answers(held, now, fresh)) return held.projects
     const listed = await readAsAsker<{id: string}[]>(event, '/api/projects', workspace ? {workspace} : {})
     if (!listed) return new Set()
     const projects = new Set(listed.map(p => p.id))
-    listedKept.set(key, {at: now, projects})
+    keep(listedKept, key, projects, now, fresh ? now : undefined)
     return projects
 }
 
@@ -93,16 +117,18 @@ export async function workspaceAsked(event: H3Event): Promise<string | undefined
 }
 
 /** The workspace a request acts in, as the API picks it for the asker (ORR-1377): the one `Orrery-Workspace` names once
- * they're in it, else `default` when they're in it, else their first. Undefined with login off, where every line is the
- * one person's; null for someone signed in who's in no workspace, or when the API gives no answer. What a line in the
- * event log about their request is kept in, so it's theirs to read and nobody else's. */
+ * they're in it, else `default` when they're in it, else their first. One naming a workspace they aren't in is kept in
+ * theirs the same way (ORR-1409), so a probe of another workspace is still logged, and only where they can read it.
+ * Undefined with login off, where every line is the one person's; null for someone signed in who's in no workspace, or
+ * when the API gives no answer. What a line in the event log about their request is kept in, so it's theirs to read and
+ * nobody else's. */
 export async function askerWorkspace(event: H3Event): Promise<string | null | undefined> {
     const who = event.context?.who as Who | undefined
     if (!who) return undefined
     const named = getHeader(event, 'orrery-workspace')?.trim() || undefined
     const theirs = await readAsAsker<{id: string}[]>(event, '/api/workspaces')
     if (!theirs?.length) return null
-    if (named) return theirs.some(w => w.id === named) ? named : null
+    if (named && theirs.some(w => w.id === named)) return named
     return (theirs.find(w => w.id === 'default') ?? theirs[0])?.id ?? null
 }
 
