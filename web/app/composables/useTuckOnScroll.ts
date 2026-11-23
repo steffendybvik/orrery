@@ -1,7 +1,7 @@
 /** How far a page has to scroll down at once before the button tucks away, so a nudge or a bounce doesn't. */
-export const TUCK_PX = 8
+const TUCK_PX = 8
 /** Within this of a box's end, the button is back: the end of every page has room for it (`clear-agent`). */
-export const END_PX = 4
+const END_PX = 4
 
 /**
  * Whether a phone's Agent button is tucked away (ORR-1282). On a phone it sits over the right of each row, where its
