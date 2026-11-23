@@ -71,7 +71,7 @@ async function startOn(project: string): Promise<number> {
     if (!starts || starts.on_signal === false) return 0
     const owner = (await store.ownerOf()).name
     const todo = []
-    for (const issue of await pickable([project], owner)) {
+    for (const issue of (await pickable([project], owner)).issues) {
         if (startedFor.has(`${project} ${issue.id}`) || await store.focusOnItsWay(project, issue.id) || await handedOut(project, issue.id)) continue
         todo.push(issue)
     }
