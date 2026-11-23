@@ -105,7 +105,11 @@ export abstract class IssueStore extends ClaimStore {
             // issue with no parent is anyone's on the board to make, but stays nobody's, so it can't be made already taken up.
             if (parent) {
                 await this.mustHold(rails, parent, (await this.issueRow(project, parent)).assignee, 'file a sub-issue under it')
-                if (!proposed) assigned = person ?? null
+                // The owner's own is work for their sessions only while it's nobody's (`forSessions`), so the owner's
+                // agent leaves one it doesn't start unassigned unless it names someone (ORR-1400). A member's sessions
+                // pick only what's the member's, so theirs goes to them.
+                const owners = person === await this.ownerId()
+                if (!proposed) assigned = owners && kind !== 'started' ? await this.railedAssignee(rails, parent, assigned) ?? null : person ?? null
             } else {
                 if (!person) await this.mustHold(rails, 'a new issue', null, 'make one')
                 if (!proposed) {
