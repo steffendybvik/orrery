@@ -62,7 +62,7 @@ export function pullComment({repo, kind, pull, review}: PullChange, handle?: str
 
 /** The focus a PR that needs work becomes when no session is on its issue (ORR-1184): orrery's news, and a word that
  * the PR may have moved on since, so the session reads it as it stands first. */
-export function pullFocusNote({repo, pull}: PullChange, body: string): string {
+function pullFocusNote({repo, pull}: PullChange, body: string): string {
     return `${body}\n\nThe session that had this issue has gone, so it's yours now. Read the PR as it stands first (\`gh pr view ${pull.number} -R ${repo}\`): it may have moved on since this was said.`
 }
 

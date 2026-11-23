@@ -172,6 +172,8 @@ impl<'c> Epics<'c> {
     /// The projects of this workspace the asker sees with an issue set for `epic` (every epic, without), by id
     /// (`projectsIn`).
     async fn projects_in(&mut self, epic: Option<i64>) -> Result<Vec<String>> {
+        // Only this workspace's projects: another's issues may carry the same epic number, and counting them would
+        // show its projects, names and tallies here (ORR-1347).
         let rows = match epic {
             Some(epic) => {
                 sqlx::query(&sql(

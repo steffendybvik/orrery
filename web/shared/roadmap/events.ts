@@ -4,10 +4,6 @@
 export const EVENT_LEVELS = ['error', 'warn', 'info'] as const
 export type EventLevel = (typeof EVENT_LEVELS)[number]
 
-/** The kinds that are changes to the roadmap (ORR-378), as the store says them: `issue.<field>`, `comment.added`,
- * `release.frozen`…, kept apart in the event log's cap. */
-export const ACTIVITY_FAMILIES = ['issue', 'comment', 'milestone', 'doc', 'release'] as const
-
 /** A line in the event log (`GET /api/events/log`): what orrery did, what went wrong or a change to the roadmap, its
  * `kind` a dotted name (`server.error`, `session.started`, `migration.ran`, `issue.status`…). Each is a line of its own
  * (ORR-378): `count` is 1, and `last_seen` is `first_seen`, on those recorded since. */

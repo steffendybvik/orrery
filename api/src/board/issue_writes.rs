@@ -29,7 +29,7 @@ pub struct IssueWrites<'c> {
     /// (`lockFor`, ORR-1130). None for the owner, their chat and what orrery does itself.
     pub session: Option<String>,
     /// What the request asking may see (ORR-1379, ORR-1383), set by the routes: another project an edit reaches (a move,
-    /// a dependency) must be one of these. With none set, it must be in the asking project's workspace.
+    /// a dependency) must be one of these, past `scope::reach`'s hold to the asking project's workspace.
     pub seen: Option<Seen>,
 }
 
@@ -38,19 +38,16 @@ impl<'c> IssueWrites<'c> {
         IssueWrites { conn, effects: Effects::default(), outbox: None, session: None, seen: None }
     }
 
-    /// 404 for project `to`, reached from `from` by a move or a dependency, when the asker doesn't see it: answered as
-    /// for a project that isn't here, so the reply doesn't tell another workspace's from a missing one.
+    /// 404 for project `to`, reached from `from` by a move or a dependency, when the asker isn't on its board
+    /// (ORR-1379, ORR-1383): answered as for a project that isn't here. `scope::reach` holds it to `from`'s workspace
+    /// first; this holds a member to the boards they're on in it, where a route set what they see.
     pub(crate) async fn reaches(&mut self, from: &str, to: &str) -> Result<()> {
-        let missing = || ApiError::not_found(format!("No project \"{to}\""));
-        let Some(there) = Workspace::of_project_or_none(&mut *self.conn, to).await? else { return Err(missing()) };
-        let seen = match &self.seen {
-            Some(seen) => seen.sees_in(there.id(), to),
-            None => Workspace::of_project_or_none(&mut *self.conn, from).await?.as_ref() == Some(&there),
-        };
-        if seen {
+        let Some(seen) = &self.seen else { return Ok(()) };
+        let there = Workspace::of_project(&mut *self.conn, to).await?;
+        if from == to || seen.sees_in(there.id(), to) {
             Ok(())
         } else {
-            Err(missing())
+            Err(ApiError::not_found(format!("No project \"{to}\"")))
         }
     }
 

@@ -14,7 +14,7 @@ export const isClosed = (kind: Place) => CLOSED.includes(kind as never)
 export const pendingProposal = (issue: Issue): {choices: number} | undefined => issue.proposal === 'pending' && issue.waiting === 'decision' ? {choices: issue.choices.length} : undefined
 
 /** A session's state as the page says it. `waiting` is a permission prompt (a Notification hook), so it says so. */
-export const SESSION_STATE = {idle: 'idle', working: 'working', waiting: 'permission needed', starting: 'starting'}
+const SESSION_STATE = {idle: 'idle', working: 'working', waiting: 'permission needed', starting: 'starting'}
 
 /** A session's state in words: one waiting at a question to the owner has a question, not a permission (ORR-1155). */
 export const stateLabel = (session: Pick<Session, 'state' | 'asking'>) => asksQuestion(session) ? 'has a question' : SESSION_STATE[session.state]

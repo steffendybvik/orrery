@@ -547,6 +547,6 @@ async fn more_tools_says_the_tools_changed_on_the_answers_stream() {
         .header("accept", "text/event-stream")
         .send()
         .await;
-    let last = batch.body.as_str().unwrap().lines().filter_map(|l| l.strip_prefix("data: ")).last().unwrap();
+    let last = batch.body.as_str().unwrap().lines().filter_map(|l| l.strip_prefix("data: ")).next_back().unwrap();
     assert_eq!(serde_json::from_str::<Value>(last).unwrap()[0]["id"], "a", "a batch's answers come as their list");
 }

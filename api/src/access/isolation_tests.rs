@@ -676,3 +676,40 @@ async fn a_chat_isnt_written_over_from_another_workspace() {
     }
     unchanged(&before, &bos_view(&api, &theirs).await, "ana keeping bo's chat");
 }
+
+/// dan is in Acme and on Boosters, not on Rockets: moving his issue there, or tying it to Rockets' issue, answers as a
+/// project that isn't here (ORR-1379, ORR-1383), and Rockets is as it was.
+#[tokio::test]
+async fn a_member_off_a_board_moves_and_links_nothing_into_it() {
+    let api = TestApi::new().await;
+    let theirs = bos_world(&api).await;
+    let stamp = "2026-11-20T10:00:00.000Z";
+    api.run("INSERT INTO people (id, name, role, created_at) VALUES ('dan', 'dan', 'member', ?)", &[stamp]).await;
+    api.run("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('acme', 'dan', 'member', ?)", &[stamp]).await;
+    let rockets = &theirs.real["project"];
+    let boosters = api.project("Boosters").await;
+    api.run("UPDATE projects SET workspace = 'acme' WHERE id = ?", &[&boosters]).await;
+    api.on_board(&boosters, &["bo", "dan"]).await;
+    let mine = id_of(&as_bo(&api, api.post(&format!("/api/projects/{boosters}/issues"), json!({"title": "Nozzle"}))).await);
+    let before = bos_view(&api, &theirs).await;
+    let dans = |body: Value| async {
+        api.signed(api.patch(&format!("/api/projects/{boosters}/issues/{mine}"), body).header("orrery-workspace", "acme"), "dan").await.send().await
+    };
+    for (what, body, none) in [
+        ("move", json!({"project": rockets}), json!({"project": "nowhere"})),
+        (
+            "depends_on",
+            json!({"depends_on": [format!("{rockets}/{}", theirs.real["issue"])]}),
+            json!({"depends_on": [format!("nowhere/{}", theirs.real["issue"])]}),
+        ),
+    ] {
+        let (reply, ghost) = (dans(body).await, dans(none).await);
+        assert_eq!(reply.status, 404, "{what}: {}", reply.body);
+        assert_eq!(
+            reply.body["message"].as_str().map(|m| m.replace(rockets.as_str(), "nowhere")),
+            ghost.body["message"].as_str().map(str::to_string),
+            "{what}"
+        );
+    }
+    unchanged(&before, &bos_view(&api, &theirs).await, "dan moving into Rockets");
+}
