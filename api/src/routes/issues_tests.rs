@@ -1406,11 +1406,31 @@ async fn an_agents_sub_issue_under_its_persons_issue_is_theirs_and_started_is_ta
     let reply = api.post(&board.issues(), json!({"title": "Sieve", "parent": anas, "status": "in-progress"})).agent_of("ana").send().await;
     assert_eq!(reply.status, 201, "{}", reply.body);
     assert_eq!((&reply.body["assignee"], &reply.body["claimed_by"]), (&json!("ana"), &json!("ana")));
+    let reply = api.post(&board.issues(), json!({"title": "Later", "parent": anas, "status": "todo"})).agent_of("ana").send().await;
+    assert_eq!(reply.body["assignee"], json!("ana"), "a member's sessions pick only what's theirs: {}", reply.body);
     let reply = api.post(&board.issues(), json!({"title": "Idea", "parent": anas, "proposal": "pending"})).agent_of("ana").send().await;
     assert_eq!(reply.body["assignee"], json!("sam"), "a proposal waits on the owner");
     let reply = api.post(&board.issues(), json!({"title": "Sieve", "parent": bos})).agent_of("ana").send().await;
     assert_eq!(reply.status, 409);
     assert!(message(&reply).ends_with("so it can't file a sub-issue under it; comment on it instead, or pick another issue"), "{}", reply.body);
+}
+
+#[tokio::test]
+async fn the_owners_agents_sub_issue_in_todo_is_nobodys_so_their_sessions_pick_it() {
+    // ORR-1400: given to the owner, no session of theirs was handed it.
+    let api = TestApi::new().await;
+    api.team().await;
+    let board = Board::new(&api).await;
+    let audit = board.assigned("Audit", "claude").await;
+    let file = |body: Value| api.post(&board.issues(), body).agent_of("sam").send();
+    let reply = file(json!({"title": "Finding", "parent": audit, "status": "todo"})).await;
+    assert_eq!((reply.status.as_u16(), &reply.body["assignee"]), (201, &Value::Null), "{}", reply.body);
+    let reply = file(json!({"title": "Mine", "parent": audit, "status": "todo", "assignee": "claude"})).await;
+    assert_eq!(reply.body["assignee"], json!("claude"), "what it names it keeps: {}", reply.body);
+    let reply = file(json!({"title": "Theirs", "parent": audit, "status": "todo", "assignee": "owner"})).await;
+    assert_eq!(reply.body["assignee"], json!("sam"), "{}", reply.body);
+    let reply = file(json!({"title": "Now", "parent": audit, "status": "in-progress"})).await;
+    assert_eq!((&reply.body["assignee"], &reply.body["claimed_by"]), (&json!("sam"), &json!("sam")), "started, it's taken up");
 }
 
 // Comments.

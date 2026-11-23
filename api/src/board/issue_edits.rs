@@ -429,8 +429,16 @@ impl IssueWrites<'_> {
             if let Some(parent) = &parent {
                 let holder = self.assignee_of(project, parent).await?;
                 self.must_hold(rails.as_deref(), parent, holder.as_deref(), "file a sub-issue under it").await?;
+                // The owner's own is work for their sessions only while it's nobody's (`forSessions`), so the owner's
+                // agent leaves one it doesn't start unassigned unless it names someone (ORR-1400). A member's sessions
+                // pick only what's the member's, so theirs goes to them.
+                let owners = person == Some(self.owner_id().await?);
                 if !proposed {
-                    assigned = person.clone();
+                    assigned = if owners && kind.as_deref() != Some("started") {
+                        self.railed_assignee(rails.as_deref(), parent, Some(assigned.clone())).await?.flatten()
+                    } else {
+                        person.clone()
+                    };
                 }
             } else {
                 if rails.is_none() {
