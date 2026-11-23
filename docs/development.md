@@ -266,7 +266,11 @@ Linux the spec skips; `pnpm test:e2e:visual` (in `web/`) runs it in CI's Playwri
 the flows' stays one person's: the login page, signing in with a key, Settings' keys and logging out. Then it runs
 `e2e/signup/` on another, with a fresh `web/.data/e2e-signup.db` and a login provider of its own (`scripts/e2e-oidc.mjs`),
 as a provider takes the key box off the login page: the first account in becomes the owner, someone new signs up into a
-workspace of their own, and neither sees the other's projects, workspaces or events. CI runs it after the first Chrome shard.
+workspace of their own, and neither sees the other's projects, workspaces or events. Its `workspaces-apart.spec.ts` calls
+every route the Nuxt server answers itself (`server/api`) as other people with one person's ids, and fails on any answer
+that differs from one for ids that aren't there, or gives that person's away; a new route needs a line in its `ROUTES`
+(ORR-1352). The Rust API's routes and `/mcp`'s tools have the same sweep in `api/src/access/isolation_tests.rs`. CI runs
+it after the first Chrome shard.
 
 `pnpm --dir web test:e2e:restart` builds the app and runs `e2e/restart/` on it, with a fresh `web/.data/e2e-restart.db`:
 its specs stop and start the server themselves: what outlives a restart (the owner's chats, `chats.spec.ts`), and moving
