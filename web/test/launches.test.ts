@@ -591,6 +591,19 @@ describe('a session orrery started', () => {
         expect(launches.viewLaunch('greenhouse', 'abc', 2000)).toEqual({screen: null})
     })
 
+    it("shows a member their own session's screen, never one naming nobody (ORR-1349)", () => {
+        session = {name: 'greenhouse · Gna', person: 'hati', started: {launch: 'abc', tmux: 'orrery-greenhouse-abc'}}
+        launches.addLauncher('greenhouse')
+        expect(launches.viewLaunch('greenhouse', 'abc', 1000, 'hati', true)).toEqual({screen: null})
+        expect(() => launches.viewLaunch('greenhouse', 'abc', 1000, 'sam', true)).toThrow("greenhouse · Gna is hati's")
+        session = {name: 'greenhouse · Bil', started: {launch: 'abc', tmux: 'orrery-greenhouse-abc'}}
+        sent.length = 0
+        expect(() => launches.viewLaunch('greenhouse', 'abc', 5000, 'hati', true)).toThrow('greenhouse · Bil names nobody, so its screen is the owner\'s')
+        expect(sent).toEqual([])
+        // The owner still sees it.
+        expect(launches.viewLaunch('greenhouse', 'abc', 5000, 'steffen')).toEqual({screen: null})
+    })
+
     it('keeps no screen for a launch it has no session for', () => {
         expect(launches.keepScreen('greenhouse', 'abc', 'anything')).toEqual({watching: false})
     })
