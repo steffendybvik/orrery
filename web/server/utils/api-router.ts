@@ -398,7 +398,7 @@ export function databaseMark(setting: string): string {
  * came from a request (`asked`). */
 /** The schedule whose run makes this write (ORR-1183): the API keeps it on its outbox rows, so the follower hears them as
  * that run's and they set no schedule off. */
-export function causeHeaders(): Record<string, string> {
+function causeHeaders(): Record<string, string> {
     const cause = scheduleRunning.getStore()
     return cause === undefined ? {} : {'Orrery-Cause': String(cause)}
 }
