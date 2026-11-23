@@ -97,7 +97,7 @@ async fn a_schedule_across_projects_shows_only_the_askers_projects() {
     let both = format!("[\"{primes}\",\"{rockets}\"]");
     let theirs = format!("[\"{rockets}\"]");
     for (projects, on) in [(&both, vec![&primes, &rockets]), (&theirs, vec![&rockets])] {
-        let id: i64 = sqlx::query_scalar(&sql(
+        let id: i64 = sqlx::query_scalar(sql(
             "INSERT INTO schedules_across (projects, body, created_by, created_at, updated_at) VALUES (?, '{\"title\":\"Tidy\"}', 'owner', '2026-11-03', '2026-11-03') RETURNING id",
         ))
         .bind(projects)

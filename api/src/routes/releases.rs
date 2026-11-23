@@ -83,7 +83,7 @@ async fn release_row(State(app): Shared, Path((project, release)): Path<(String,
     issues.release_there(&project, &row, &release).await?;
     let source = if row.release_mode == "shared" { row.releases_from.clone().unwrap_or_default() } else { project.clone() };
     let row =
-        sqlx::query(&crate::db::sql("SELECT * FROM releases WHERE project = ? AND version = ?")).bind(&source).bind(&release).fetch_one(&mut *conn).await?;
+        sqlx::query(crate::db::sql("SELECT * FROM releases WHERE project = ? AND version = ?")).bind(&source).bind(&release).fetch_one(&mut *conn).await?;
     Ok(Json(crate::db::row_json(&row)).into_response())
 }
 

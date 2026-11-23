@@ -34,7 +34,7 @@ impl<'c> ScheduleRuns<'c> {
 
     /// The schedule's kind, or a 404 when the project has no such schedule.
     async fn kind(&mut self, project: &str, id: i64) -> Result<String> {
-        sqlx::query(&sql("SELECT kind FROM schedules WHERE project = ? AND id = ?"))
+        sqlx::query(sql("SELECT kind FROM schedules WHERE project = ? AND id = ?"))
             .bind(project)
             .bind(id)
             .fetch_optional(&mut *self.conn)
@@ -55,7 +55,7 @@ impl<'c> ScheduleRuns<'c> {
         let Some(enabled) = body.get("enabled").and_then(Value::as_bool) else {
             return Err(ApiError::bad_request("Send \"enabled\": false once a one-off has run, else true"));
         };
-        let done = sqlx::query(&sql("UPDATE schedules SET next_run = ?, enabled = ? WHERE project = ? AND id = ? AND next_run = ?"))
+        let done = sqlx::query(sql("UPDATE schedules SET next_run = ?, enabled = ? WHERE project = ? AND id = ? AND next_run = ?"))
             .bind(to)
             .bind(i32::from(enabled))
             .bind(project)
@@ -108,7 +108,7 @@ impl<'c> ScheduleRuns<'c> {
         subject: Option<&str>,
         marks: bool,
     ) -> Result<()> {
-        sqlx::query(&sql("INSERT INTO schedule_runs (schedule, at, outcome, issue, note, subject) VALUES (?, ?, ?, ?, ?, ?)"))
+        sqlx::query(sql("INSERT INTO schedule_runs (schedule, at, outcome, issue, note, subject) VALUES (?, ?, ?, ?, ?, ?)"))
             .bind(id)
             .bind(at)
             .bind(outcome)
@@ -118,12 +118,7 @@ impl<'c> ScheduleRuns<'c> {
             .execute(&mut *self.conn)
             .await?;
         if marks {
-            sqlx::query(&sql("UPDATE issues SET schedule = ? WHERE project = ? AND id = ?"))
-                .bind(id)
-                .bind(project)
-                .bind(issue)
-                .execute(&mut *self.conn)
-                .await?;
+            sqlx::query(sql("UPDATE issues SET schedule = ? WHERE project = ? AND id = ?")).bind(id).bind(project).bind(issue).execute(&mut *self.conn).await?;
         }
         Ok(())
     }
@@ -131,14 +126,14 @@ impl<'c> ScheduleRuns<'c> {
     /// Holds an event back for the schedule's next minute (`hearOne`): `{event, at}`, the event as JSON text. A newer
     /// event for the same subject takes the older one's place, keeping when it was first held.
     pub async fn hold(&mut self, id: i64, subject: &str, body: &Value) -> Result<()> {
-        let there = sqlx::query(&sql("SELECT 1 AS one FROM schedules WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
+        let there = sqlx::query(sql("SELECT 1 AS one FROM schedules WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
         if there.is_none() {
             return Err(ApiError::not_found(format!("No schedule {id}")));
         }
         let (Some(event), Some(at)) = (text(body, "event")?, text(body, "at")?) else {
             return Err(ApiError::bad_request("Send \"event\", the event as JSON text, and \"at\", when it was held"));
         };
-        sqlx::query(&sql(
+        sqlx::query(sql(
             "INSERT INTO schedule_held (schedule, subject, event, at) VALUES (?, ?, ?, ?) ON CONFLICT (schedule, subject) DO UPDATE SET event = excluded.event",
         ))
         .bind(id)
@@ -153,13 +148,13 @@ impl<'c> ScheduleRuns<'c> {
     /// Takes a held event out to run it (`catchUp`): false when another server got there first. One for a schedule
     /// since deleted is simply not there.
     pub async fn take(&mut self, id: i64, subject: &str) -> Result<bool> {
-        let done = sqlx::query(&sql("DELETE FROM schedule_held WHERE schedule = ? AND subject = ?")).bind(id).bind(subject).execute(&mut *self.conn).await?;
+        let done = sqlx::query(sql("DELETE FROM schedule_held WHERE schedule = ? AND subject = ?")).bind(id).bind(subject).execute(&mut *self.conn).await?;
         Ok(done.rows_affected() > 0)
     }
 
     /// Drops what a schedule held back, as it's switched off or gone.
     pub async fn drop_held(&mut self, id: i64) -> Result<()> {
-        sqlx::query(&sql("DELETE FROM schedule_held WHERE schedule = ?")).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM schedule_held WHERE schedule = ?")).bind(id).execute(&mut *self.conn).await?;
         Ok(())
     }
 }

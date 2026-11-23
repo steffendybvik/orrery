@@ -121,14 +121,14 @@ impl<'c, 'i> Plans<'c, 'i> {
     pub async fn milestone(&mut self, project: &str, sent: &str) -> Result<Value> {
         let id = self.issues.resolve(project, sent, true).await?;
         let row = self.issues.project(project).await?;
-        let found = sqlx::query(&sql(&format!("SELECT {MILESTONE_COLUMNS} FROM milestones WHERE project = ? AND id = ?")))
+        let found = sqlx::query(sql(&format!("SELECT {MILESTONE_COLUMNS} FROM milestones WHERE project = ? AND id = ?")))
             .bind(project)
             .bind(&id)
             .fetch_optional(&mut *self.issues.conn)
             .await?;
         let found = found.ok_or_else(|| ApiError::not_found(format!("No milestone \"{id}\" in {project}")))?;
         let statuses = self.issues.statuses(project).await?;
-        let top: Vec<String> = sqlx::query(&sql("SELECT id FROM issues WHERE project = ? AND parent IS NULL AND milestone = ? ORDER BY position, created_at"))
+        let top: Vec<String> = sqlx::query(sql("SELECT id FROM issues WHERE project = ? AND parent IS NULL AND milestone = ? ORDER BY position, created_at"))
             .bind(project)
             .bind(&id)
             .fetch_all(&mut *self.issues.conn)
@@ -154,12 +154,12 @@ impl<'c, 'i> Plans<'c, 'i> {
 
     /// The projects taking their releases from `project`, by id (`drawingOn`).
     async fn drawing_on(&mut self, project: &str) -> Result<Vec<String>> {
-        let rows = sqlx::query(&sql("SELECT id FROM projects WHERE releases_from = ? ORDER BY id")).bind(project).fetch_all(&mut *self.issues.conn).await?;
+        let rows = sqlx::query(sql("SELECT id FROM projects WHERE releases_from = ? ORDER BY id")).bind(project).fetch_all(&mut *self.issues.conn).await?;
         Ok(rows.iter().map(|r| r.get("id")).collect())
     }
 
     async fn release_rows(&mut self, source: &str) -> Result<Vec<AnyRow>> {
-        Ok(sqlx::query(&sql(&format!("SELECT {RELEASE_COLUMNS} FROM releases WHERE project = ? ORDER BY position, created_at DESC")))
+        Ok(sqlx::query(sql(&format!("SELECT {RELEASE_COLUMNS} FROM releases WHERE project = ? ORDER BY position, created_at DESC")))
             .bind(source)
             .fetch_all(&mut *self.issues.conn)
             .await?)

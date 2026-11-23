@@ -77,7 +77,7 @@ impl Workspace {
 
     /// As `of_project`, `None` when there's no such project.
     pub(crate) async fn of_project_or_none(conn: &mut AnyConnection, project: &str) -> Result<Option<Workspace>> {
-        let row = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *conn).await?;
+        let row = sqlx::query(sql("SELECT workspace FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *conn).await?;
         Ok(row.map(|r| Workspace(r.get::<String, _>("workspace"))))
     }
 

@@ -524,10 +524,10 @@ async fn issue_row(State(app): Shared, Path((project, issue)): Path<(String, Str
         return Err(ApiError::forbidden("Only the local app reads an issue's row"));
     }
     let mut conn = app.pool.acquire().await?;
-    if sqlx::query(&crate::db::sql("SELECT 1 FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?.is_none() {
+    if sqlx::query(crate::db::sql("SELECT 1 FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?.is_none() {
         return Err(ApiError::not_found(format!("No project \"{project}\"")));
     }
-    let row = sqlx::query(&crate::db::sql("SELECT * FROM issues WHERE project = ? AND id = ?"))
+    let row = sqlx::query(crate::db::sql("SELECT * FROM issues WHERE project = ? AND id = ?"))
         .bind(&project)
         .bind(&issue)
         .fetch_optional(&mut *conn)

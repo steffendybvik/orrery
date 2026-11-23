@@ -77,7 +77,7 @@ impl TestApi {
     pub(crate) async fn login(&self, person: &str) -> String {
         let hash = hash_of(&format!("login-{}", random_id()));
         let expires = (chrono::Utc::now() + chrono::Duration::days(30)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        sqlx::query(&db::sql("INSERT INTO logins (id, person, expires_at, known, created_at, last_used_at) VALUES (?, ?, ?, 1, ?, ?)"))
+        sqlx::query(db::sql("INSERT INTO logins (id, person, expires_at, known, created_at, last_used_at) VALUES (?, ?, ?, 1, ?, ?)"))
             .bind(&hash)
             .bind(person)
             .bind(expires)
@@ -93,7 +93,7 @@ impl TestApi {
     pub(crate) async fn key(&self, person: &str, kind: &str) -> String {
         let id = random_id();
         let hash = hash_of(&format!("key-{id}"));
-        sqlx::query(&db::sql("INSERT INTO keys (id, person, kind, name, hash, created_at) VALUES (?, ?, ?, 'test', ?, ?)"))
+        sqlx::query(db::sql("INSERT INTO keys (id, person, kind, name, hash, created_at) VALUES (?, ?, ?, 'test', ?, ?)"))
             .bind(id)
             .bind(person)
             .bind(kind)
@@ -222,7 +222,7 @@ impl TestApi {
     /// Runs a statement on the database, for what no route sets (a claim another session holds).
     pub(crate) async fn run(&self, statement: &str, binds: &[&str]) {
         let statement = sql(statement);
-        let mut query = sqlx::query(&statement);
+        let mut query = sqlx::query(statement.clone());
         for bind in binds {
             query = query.bind(*bind);
         }
@@ -236,7 +236,7 @@ impl TestApi {
 
     /// The number a query gives back, as `SELECT count(*) FROM people`.
     pub(crate) async fn count(&self, query: &str) -> i64 {
-        sqlx::query_scalar::<_, i64>(query).fetch_one(&self.app.pool).await.unwrap()
+        sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(query)).fetch_one(&self.app.pool).await.unwrap()
     }
 
     /// The outbox's rows, oldest first.

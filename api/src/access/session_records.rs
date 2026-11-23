@@ -37,7 +37,7 @@ impl<'a> SessionRecords<'a> {
     /// The record of the first of these ids that has one.
     pub(crate) async fn of(&mut self, ids: &[String]) -> Result<Option<SessionRecord>> {
         for id in ids {
-            let row = sqlx::query(&sql("SELECT session, kind, project, workspace, at FROM session_records WHERE session = ?"))
+            let row = sqlx::query(sql("SELECT session, kind, project, workspace, at FROM session_records WHERE session = ?"))
                 .bind(id)
                 .fetch_optional(&mut *self.conn)
                 .await?;
@@ -65,7 +65,7 @@ impl<'a> SessionRecords<'a> {
         let ids = [session.to_string()];
         let Some(kept) = self.of(&ids).await? else {
             let workspace = match project {
-                Some(project) => sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?"))
+                Some(project) => sqlx::query(sql("SELECT workspace FROM projects WHERE id = ?"))
                     .bind(project)
                     .fetch_optional(&mut *self.conn)
                     .await?
@@ -73,7 +73,7 @@ impl<'a> SessionRecords<'a> {
                 None => None,
             }
             .unwrap_or_else(|| "default".into());
-            sqlx::query(&sql("INSERT INTO session_records (session, kind, project, workspace, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (session) DO NOTHING"))
+            sqlx::query(sql("INSERT INTO session_records (session, kind, project, workspace, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (session) DO NOTHING"))
                 .bind(session)
                 .bind(kind)
                 .bind(project)
@@ -98,7 +98,7 @@ impl<'a> SessionRecords<'a> {
         if !tighter_kind && !tighter_project {
             return Ok(kept);
         }
-        sqlx::query(&sql("UPDATE session_records SET kind = ?, project = ? WHERE session = ?"))
+        sqlx::query(sql("UPDATE session_records SET kind = ?, project = ? WHERE session = ?"))
             .bind(kind)
             .bind(project.or(kept.project.as_deref()).filter(|_| kind == "untrusted"))
             .bind(session)
@@ -110,7 +110,7 @@ impl<'a> SessionRecords<'a> {
     /// The session's new id (after a `/clear`) is recorded as its old one was; the old id keeps its record too, as a
     /// request may still name it.
     pub(crate) async fn carry(&mut self, from: &str, to: &str) -> Result<()> {
-        sqlx::query(&sql(
+        sqlx::query(sql(
             "INSERT INTO session_records (session, kind, project, workspace, at) SELECT ?, kind, project, workspace, at FROM session_records WHERE session = ? ON CONFLICT (session) DO NOTHING",
         ))
         .bind(to)

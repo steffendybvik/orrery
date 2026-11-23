@@ -24,7 +24,7 @@ impl<'c> Workspaces<'c> {
     /// (`owner` or `member`), or null where they reach it without being a member (the Nuxt server's own work).
     pub(crate) async fn list(&mut self, seen: &Seen, person: Option<&str>) -> Result<Value> {
         let rows =
-            sqlx::query(&sql("SELECT w.id, w.name, w.color, m.role FROM workspaces w LEFT JOIN workspace_members m ON m.workspace = w.id AND m.person = ?
+            sqlx::query(sql("SELECT w.id, w.name, w.color, m.role FROM workspaces w LEFT JOIN workspace_members m ON m.workspace = w.id AND m.person = ?
              ORDER BY CASE WHEN w.id = 'default' THEN 0 ELSE 1 END, lower(w.name), w.id"))
             .bind(person.unwrap_or_default())
             .fetch_all(&mut *self.conn)
@@ -38,7 +38,7 @@ impl<'c> Workspaces<'c> {
 
     /// One workspace, as `list` gives it, for `person`.
     async fn one(&mut self, id: &str, person: &str) -> Result<Value> {
-        let r = sqlx::query(&sql(
+        let r = sqlx::query(sql(
             "SELECT w.id, w.name, w.color, m.role FROM workspaces w LEFT JOIN workspace_members m ON m.workspace = w.id AND m.person = ? WHERE w.id = ?",
         ))
         .bind(person)
@@ -61,19 +61,19 @@ impl<'c> Workspaces<'c> {
         };
         let mut id = base.clone();
         let mut n = 1;
-        while sqlx::query(&sql("SELECT 1 FROM workspaces WHERE id = ?")).bind(&id).fetch_optional(&mut *self.conn).await?.is_some() {
+        while sqlx::query(sql("SELECT 1 FROM workspaces WHERE id = ?")).bind(&id).fetch_optional(&mut *self.conn).await?.is_some() {
             n += 1;
             id = format!("{base}-{n}");
         }
         let at = stamp();
-        sqlx::query(&sql("INSERT INTO workspaces (id, name, color, created_at) VALUES (?, ?, ?, ?)"))
+        sqlx::query(sql("INSERT INTO workspaces (id, name, color, created_at) VALUES (?, ?, ?, ?)"))
             .bind(&id)
             .bind(&name)
             .bind(color.as_deref())
             .bind(&at)
             .execute(&mut *self.conn)
             .await?;
-        sqlx::query(&sql("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES (?, ?, 'owner', ?)"))
+        sqlx::query(sql("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES (?, ?, 'owner', ?)"))
             .bind(&id)
             .bind(person)
             .bind(&at)
@@ -88,7 +88,7 @@ impl<'c> Workspaces<'c> {
     pub(crate) async fn update(&mut self, id: &str, body: &Value, person: Option<&str>) -> Result<Value> {
         let missing = || ApiError::not_found(format!("No workspace {id}"));
         let person = person.ok_or_else(missing)?;
-        let role = sqlx::query(&sql("SELECT role FROM workspace_members WHERE workspace = ? AND person = ?"))
+        let role = sqlx::query(sql("SELECT role FROM workspace_members WHERE workspace = ? AND person = ?"))
             .bind(id)
             .bind(person)
             .fetch_optional(&mut *self.conn)
@@ -99,10 +99,10 @@ impl<'c> Workspaces<'c> {
             return Err(ApiError::forbidden("Only the workspace's owners change its name or colour"));
         }
         if let Some(name) = name_of(body)? {
-            sqlx::query(&sql("UPDATE workspaces SET name = ? WHERE id = ?")).bind(&name).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(sql("UPDATE workspaces SET name = ? WHERE id = ?")).bind(&name).bind(id).execute(&mut *self.conn).await?;
         }
         if let Some(color) = color_of(body)? {
-            sqlx::query(&sql("UPDATE workspaces SET color = ? WHERE id = ?")).bind(color.as_deref()).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(sql("UPDATE workspaces SET color = ? WHERE id = ?")).bind(color.as_deref()).bind(id).execute(&mut *self.conn).await?;
         }
         self.one(id, person).await
     }

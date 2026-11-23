@@ -58,10 +58,7 @@ impl Thread {
         }
     }
 
-    fn bind<'q>(
-        &'q self,
-        query: sqlx::query::Query<'q, sqlx::Any, sqlx::any::AnyArguments<'q>>,
-    ) -> sqlx::query::Query<'q, sqlx::Any, sqlx::any::AnyArguments<'q>> {
+    fn bind<'q>(&'q self, query: sqlx::query::Query<'q, sqlx::Any, sqlx::any::AnyArguments>) -> sqlx::query::Query<'q, sqlx::Any, sqlx::any::AnyArguments> {
         match self {
             Thread::Milestone { project, milestone } => query.bind(project.as_str()).bind(milestone.as_str()),
             Thread::Epic(epic) => query.bind(*epic),
@@ -149,14 +146,14 @@ impl<'c> Threads<'c> {
     /// Its comments, oldest first.
     pub async fn list(&mut self, thread: &Thread) -> Result<Value> {
         let query = sql(&format!("SELECT {} FROM {} WHERE {} ORDER BY created_at, id", thread.columns(), thread.table(), thread.on()));
-        let rows = thread.bind(sqlx::query(&query)).fetch_all(&mut *self.conn).await?;
+        let rows = thread.bind(sqlx::query(query.clone())).fetch_all(&mut *self.conn).await?;
         Ok(Value::Array(rows.iter().map(|r| comment_of(thread, r)).collect()))
     }
 
     async fn row(&mut self, thread: &Thread, id: i64) -> Result<AnyRow> {
         let query = sql(&format!("SELECT {} FROM {} WHERE id = ? AND {}", thread.columns(), thread.table(), thread.on()));
         thread
-            .bind(sqlx::query(&query).bind(id))
+            .bind(sqlx::query(query.clone()).bind(id))
             .fetch_optional(&mut *self.conn)
             .await?
             .ok_or_else(|| ApiError::not_found(format!("No comment {id} on {}", thread.what())))
@@ -174,11 +171,11 @@ impl<'c> Threads<'c> {
         let now = stamp();
         match thread {
             Thread::Epic(epic) => {
-                sqlx::query(&sql("UPDATE epics SET updated_at = ? WHERE id = ?")).bind(&now).bind(*epic).execute(&mut *self.conn).await?;
+                sqlx::query(sql("UPDATE epics SET updated_at = ? WHERE id = ?")).bind(&now).bind(*epic).execute(&mut *self.conn).await?;
                 self.effects.epics = true;
             }
             Thread::Milestone { project, .. } => {
-                sqlx::query(&sql("UPDATE projects SET updated_at = ? WHERE id = ?")).bind(&now).bind(project.as_str()).execute(&mut *self.conn).await?;
+                sqlx::query(sql("UPDATE projects SET updated_at = ? WHERE id = ?")).bind(&now).bind(project.as_str()).execute(&mut *self.conn).await?;
                 self.effects.changed = vec![project.clone()];
             }
         }
@@ -217,7 +214,7 @@ impl<'c> Threads<'c> {
         changes::begin(self.conn).await?;
         let done: Result<i64> = async {
             let row = thread
-                .bind(sqlx::query(&statement))
+                .bind(sqlx::query(statement.clone()))
                 .bind(&text)
                 .bind(&actor.name)
                 .bind(actor.session.as_deref())
@@ -244,7 +241,7 @@ impl<'c> Threads<'c> {
         let done: Result<()> = async {
             let sets = if text.is_some() { "body = ?, updated_at = ?" } else { "updated_at = ?" };
             let statement = sql(&format!("UPDATE {} SET {sets} WHERE id = ?", thread.table()));
-            let mut query = sqlx::query(&statement);
+            let mut query = sqlx::query(statement.clone());
             if let Some(text) = &text {
                 query = query.bind(text.clone());
             }
@@ -260,7 +257,7 @@ impl<'c> Threads<'c> {
         self.may_change(thread, id, actor, &format!("Deleting comment {id}")).await?;
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            sqlx::query(&sql(&format!("DELETE FROM {} WHERE id = ?", thread.table()))).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(sql(&format!("DELETE FROM {} WHERE id = ?", thread.table()))).bind(id).execute(&mut *self.conn).await?;
             self.touched(thread).await
         }
         .await;

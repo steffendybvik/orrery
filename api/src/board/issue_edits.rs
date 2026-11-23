@@ -340,7 +340,7 @@ impl IssueWrites<'_> {
         if !add.is_empty() || !remove.is_empty() {
             let issue = self.issue_id(project, sent).await?;
             self.issue_there(project, &issue).await?;
-            let row = sqlx::query(&sql("SELECT labels FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&issue).fetch_one(&mut *self.conn).await?;
+            let row = sqlx::query(sql("SELECT labels FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&issue).fetch_one(&mut *self.conn).await?;
             let now: Vec<String> = row.get::<Option<String>, _>("labels").and_then(|l| serde_json::from_str(&l).ok()).unwrap_or_default();
             let mut labels: Vec<String> = vec![];
             for label in now.into_iter().filter(|l| !remove.contains(l)).chain(add.iter().cloned()) {
@@ -458,7 +458,7 @@ impl IssueWrites<'_> {
             let position = match words.position {
                 Some(position) => position,
                 None => {
-                    let found = sqlx::query(&sql("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM issues WHERE project = ?"))
+                    let found = sqlx::query(sql("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM issues WHERE project = ?"))
                         .bind(project)
                         .fetch_one(&mut *self.conn)
                         .await?;
@@ -469,7 +469,7 @@ impl IssueWrites<'_> {
             let query = sql("INSERT INTO issues (project, id, title, status, priority, assignee, labels, external, github_issues, notes, proposal, choices, parent, milestone, ships_in, epic, \
                 position, created_by, session_name, owned, created_at, updated_at, created_person, claimed_by, claimed_at, model, effort) \
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            let insert = sqlx::query(&query)
+            let insert = sqlx::query(query.clone())
                 .bind(project)
                 .bind(&id)
                 .bind(words.title.clone().unwrap_or_default())
@@ -524,21 +524,20 @@ impl IssueWrites<'_> {
     /// The project's next issue id, `KEY-n`, its number taken in one statement so two writers never get the same one;
     /// one that's still an issue's id or an old one is skipped (`nextId`).
     async fn next_issue_id(&mut self, project: &str) -> Result<String> {
-        let key: String = sqlx::query(&sql("SELECT key FROM projects WHERE id = ?")).bind(project).fetch_one(&mut *self.conn).await?.get("key");
+        let key: String = sqlx::query(sql("SELECT key FROM projects WHERE id = ?")).bind(project).fetch_one(&mut *self.conn).await?.get("key");
         loop {
-            let row = sqlx::query(&sql("UPDATE projects SET next_number = next_number + 1 WHERE id = ? RETURNING CAST(next_number - 1 AS BIGINT) AS n"))
+            let row = sqlx::query(sql("UPDATE projects SET next_number = next_number + 1 WHERE id = ? RETURNING CAST(next_number - 1 AS BIGINT) AS n"))
                 .bind(project)
                 .fetch_one(&mut *self.conn)
                 .await?;
             let id = format!("{key}-{}", row.get::<i64, _>("n"));
-            let taken =
-                sqlx::query(&sql("SELECT 1 FROM issues WHERE project = ? AND id = ? UNION SELECT 1 FROM issue_aliases WHERE project = ? AND alias = ?"))
-                    .bind(project)
-                    .bind(&id)
-                    .bind(project)
-                    .bind(&id)
-                    .fetch_optional(&mut *self.conn)
-                    .await?;
+            let taken = sqlx::query(sql("SELECT 1 FROM issues WHERE project = ? AND id = ? UNION SELECT 1 FROM issue_aliases WHERE project = ? AND alias = ?"))
+                .bind(project)
+                .bind(&id)
+                .bind(project)
+                .bind(&id)
+                .fetch_optional(&mut *self.conn)
+                .await?;
             if taken.is_none() {
                 return Ok(id);
             }
@@ -553,7 +552,7 @@ impl IssueWrites<'_> {
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let words = check_words(body)?;
-        let row = sqlx::query(&sql(
+        let row = sqlx::query(sql(
             "SELECT title, status, priority, labels, external, github_issues, notes, model, effort, assignee, proposal, created_person, parent, milestone, ships_in, CAST(epic AS BIGINT) AS epic FROM issues WHERE project = ? AND id = ?",
         ))
         .bind(project)
@@ -760,7 +759,7 @@ impl IssueWrites<'_> {
             }
             columns.push("updated_at = ?".into());
             let query = sql(&format!("UPDATE issues SET {} WHERE project = ? AND id = ?", columns.join(", ")));
-            let mut update = sqlx::query(&query);
+            let mut update = sqlx::query(query.clone());
             for (_, value) in &set {
                 update = update.bind(value.clone());
             }
@@ -871,24 +870,24 @@ impl IssueWrites<'_> {
             }
             let renamed = |old: &str| names.iter().find(|(o, _)| o == old).map(|(_, n)| n.clone());
             let query = sql(&format!("SELECT id, parent FROM issues WHERE project = ? AND id IN ({marks})"));
-            let mut find = sqlx::query(&query).bind(from);
+            let mut find = sqlx::query(query.clone()).bind(from);
             for id in &subtree {
                 find = find.bind(id);
             }
             let links: Vec<(String, Option<String>)> = find.fetch_all(&mut *self.conn).await?.iter().map(|r| (r.get("id"), r.get("parent"))).collect();
             let query = sql(&format!("SELECT CAST(id AS BIGINT) AS id, issue FROM comments WHERE project = ? AND issue IN ({marks})"));
-            let mut find = sqlx::query(&query).bind(from);
+            let mut find = sqlx::query(query.clone()).bind(from);
             for id in &subtree {
                 find = find.bind(id);
             }
             let comments: Vec<(i64, String)> = find.fetch_all(&mut *self.conn).await?.iter().map(|r| (r.get("id"), r.get("issue"))).collect();
             let query = sql(&format!("SELECT alias, issue FROM issue_aliases WHERE project = ? AND issue IN ({marks})"));
-            let mut find = sqlx::query(&query).bind(from);
+            let mut find = sqlx::query(query.clone()).bind(from);
             for id in &subtree {
                 find = find.bind(id);
             }
             let aliases: Vec<(String, String)> = find.fetch_all(&mut *self.conn).await?.iter().map(|r| (r.get("alias"), r.get("issue"))).collect();
-            let row = sqlx::query(&sql("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM issues WHERE project = ?"))
+            let row = sqlx::query(sql("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM issues WHERE project = ?"))
                 .bind(to)
                 .fetch_one(&mut *self.conn)
                 .await?;
@@ -902,10 +901,19 @@ impl IssueWrites<'_> {
                 } else {
                     (up.as_deref().and_then(renamed), None)
                 };
-                sqlx::query(&query).bind(to).bind(renamed(id)).bind(under).bind(kept).bind(position).bind(from).bind(id).execute(&mut *self.conn).await?;
+                sqlx::query(query.clone())
+                    .bind(to)
+                    .bind(renamed(id))
+                    .bind(under)
+                    .bind(kept)
+                    .bind(position)
+                    .bind(from)
+                    .bind(id)
+                    .execute(&mut *self.conn)
+                    .await?;
             }
             for (id, on) in &comments {
-                sqlx::query(&sql("UPDATE comments SET project = ?, issue = ? WHERE id = ?"))
+                sqlx::query(sql("UPDATE comments SET project = ?, issue = ? WHERE id = ?"))
                     .bind(to)
                     .bind(renamed(on))
                     .bind(id)
@@ -913,7 +921,7 @@ impl IssueWrites<'_> {
                     .await?;
             }
             for (old, next) in &names {
-                sqlx::query(&sql("UPDATE issue_events SET project = ?, issue = ? WHERE project = ? AND issue = ?"))
+                sqlx::query(sql("UPDATE issue_events SET project = ?, issue = ? WHERE project = ? AND issue = ?"))
                     .bind(to)
                     .bind(next)
                     .bind(from)
@@ -924,14 +932,14 @@ impl IssueWrites<'_> {
             let moved = renamed(&issue).unwrap_or_default();
             self.record_field(to, &moved, actor, "project", Some(from), Some(to)).await?;
             let query = sql(&format!("DELETE FROM issue_aliases WHERE project = ? AND issue IN ({marks})"));
-            let mut drop = sqlx::query(&query).bind(from);
+            let mut drop = sqlx::query(query.clone()).bind(from);
             for id in &subtree {
                 drop = drop.bind(id);
             }
             drop.execute(&mut *self.conn).await?;
             let kept = aliases.iter().map(|(alias, on)| (alias.clone(), renamed(on).unwrap_or_default())).chain(names.iter().cloned());
             for (alias, on) in kept {
-                sqlx::query(&sql(UPSERT_ISSUE_ALIAS)).bind(to).bind(&alias).bind(&on).execute(&mut *self.conn).await?;
+                sqlx::query(sql(UPSERT_ISSUE_ALIAS)).bind(to).bind(&alias).bind(&on).execute(&mut *self.conn).await?;
             }
             // What names an issue without a foreign key to it follows it (`issuesMoved`): its signals and its links.
             for (old, next) in &names {
@@ -940,10 +948,10 @@ impl IssueWrites<'_> {
                     "UPDATE issue_links SET project = ?, issue = ? WHERE project = ? AND issue = ?",
                     "UPDATE issue_links SET on_project = ?, on_issue = ? WHERE on_project = ? AND on_issue = ?",
                 ] {
-                    sqlx::query(&sql(query)).bind(to).bind(next).bind(from).bind(old).execute(&mut *self.conn).await?;
+                    sqlx::query(sql(query)).bind(to).bind(next).bind(from).bind(old).execute(&mut *self.conn).await?;
                 }
             }
-            sqlx::query(&sql("UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?"))
+            sqlx::query(sql("UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?"))
                 .bind(stamp())
                 .bind(to)
                 .bind(&moved)
@@ -978,7 +986,7 @@ impl IssueWrites<'_> {
     /// one is refused (409). Another's mark only counts for a moment before its status lands, after which the claim
     /// goes by whether it has the issue started and is there to hear, which the Nuxt server checked (`claim`).
     async fn lock_for(&mut self, project: &str, issue: &str, session: &str) -> Result<()> {
-        let row = sqlx::query(&sql("SELECT claimed_session, claimed_at FROM issues WHERE project = ? AND id = ?"))
+        let row = sqlx::query(sql("SELECT claimed_session, claimed_at FROM issues WHERE project = ? AND id = ?"))
             .bind(project)
             .bind(issue)
             .fetch_optional(&mut *self.conn)
@@ -990,7 +998,7 @@ impl IssueWrites<'_> {
         let changed = if landing {
             0
         } else {
-            sqlx::query(&sql("UPDATE issues SET claimed_session = ?, claimed_at = ? WHERE project = ? AND id = ? AND coalesce(claimed_session, '') = ?"))
+            sqlx::query(sql("UPDATE issues SET claimed_session = ?, claimed_at = ? WHERE project = ? AND id = ? AND coalesce(claimed_session, '') = ?"))
                 .bind(session)
                 .bind(stamp())
                 .bind(project)
@@ -1010,7 +1018,7 @@ impl IssueWrites<'_> {
     /// Takes up an issue for `person`, only if it's still assigned as the rails read it and nobody else holds it
     /// (`claimFor`): one conditional write, so a reassignment or another server can't get in between.
     async fn claim_for(&mut self, project: &str, issue: &str, person: &str, assignee: Option<&str>) -> Result<()> {
-        let done = sqlx::query(&sql(
+        let done = sqlx::query(sql(
             "UPDATE issues SET claimed_by = ?, claimed_at = ? WHERE project = ? AND id = ? AND coalesce(assignee, '') = ? AND (claimed_by IS NULL OR claimed_by = ?)",
         ))
         .bind(person)
@@ -1063,11 +1071,8 @@ impl IssueWrites<'_> {
             while let Some(up) = self.parent_of(project, &root).await?.filter(|u| !u.is_empty()) {
                 root = up;
             }
-            let found = sqlx::query(&sql("SELECT milestone FROM issues WHERE project = ? AND id = ?"))
-                .bind(project)
-                .bind(&root)
-                .fetch_optional(&mut *self.conn)
-                .await?;
+            let found =
+                sqlx::query(sql("SELECT milestone FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&root).fetch_optional(&mut *self.conn).await?;
             let found = found.ok_or_else(|| ApiError::not_found(format!("No issue {root} in {project}")))?;
             milestone = Some(found.get("milestone"));
         }
@@ -1091,7 +1096,7 @@ impl IssueWrites<'_> {
         let uid = crate::work::presets::uid(&mut *self.conn).await?;
         let workspace = Workspace::of_project(&mut *self.conn, project).await?;
         let found = match epic_number(sent, &uid).and_then(|n| n.parse::<i64>().ok()) {
-            Some(id) => sqlx::query(&sql("SELECT id FROM epics WHERE id = ? AND workspace = ?"))
+            Some(id) => sqlx::query(sql("SELECT id FROM epics WHERE id = ? AND workspace = ?"))
                 .bind(id)
                 .bind(workspace.id())
                 .fetch_optional(&mut *self.conn)
@@ -1104,20 +1109,20 @@ impl IssueWrites<'_> {
 
     /// The issue's parent, or `None` at the top.
     async fn parent_of(&mut self, project: &str, issue: &str) -> Result<Option<String>> {
-        let row = sqlx::query(&sql("SELECT parent FROM issues WHERE project = ? AND id = ?")).bind(project).bind(issue).fetch_optional(&mut *self.conn).await?;
+        let row = sqlx::query(sql("SELECT parent FROM issues WHERE project = ? AND id = ?")).bind(project).bind(issue).fetch_optional(&mut *self.conn).await?;
         Ok(row.and_then(|r| r.get("parent")))
     }
 
     /// Whom the issue is assigned to.
     async fn assignee_of(&mut self, project: &str, issue: &str) -> Result<Option<String>> {
-        let row = sqlx::query(&sql("SELECT assignee FROM issues WHERE project = ? AND id = ?")).bind(project).bind(issue).fetch_one(&mut *self.conn).await?;
+        let row = sqlx::query(sql("SELECT assignee FROM issues WHERE project = ? AND id = ?")).bind(project).bind(issue).fetch_one(&mut *self.conn).await?;
         Ok(row.get("assignee"))
     }
 
     /// The GitHub issues as they're kept (`githubIssuesOf`): each `owner/name#523`, once whatever its case, refused
     /// when one isn't a GitHub issue.
     async fn github_issues_of(&mut self, project: &str, sent: &[String]) -> Result<Vec<String>> {
-        let repo = sqlx::query(&sql("SELECT repo FROM projects WHERE id = ?")).bind(project).fetch_one(&mut *self.conn).await?;
+        let repo = sqlx::query(sql("SELECT repo FROM projects WHERE id = ?")).bind(project).fetch_one(&mut *self.conn).await?;
         let repo = github_repo(repo.get::<Option<String>, _>("repo").as_deref());
         let mut kept: Vec<String> = vec![];
         for issue in sent {
@@ -1173,7 +1178,7 @@ impl IssueWrites<'_> {
         }
         // A sub-issue and its parent already go together: one waiting on the other could never start.
         let parent_of = async |conn: &mut sqlx::AnyConnection, id: &str| -> Result<Option<String>> {
-            let row = sqlx::query(&sql("SELECT parent FROM issues WHERE project = ? AND id = ?")).bind(project).bind(id).fetch_one(&mut *conn).await?;
+            let row = sqlx::query(sql("SELECT parent FROM issues WHERE project = ? AND id = ?")).bind(project).bind(id).fetch_one(&mut *conn).await?;
             Ok(row.get("parent"))
         };
         let parent = parent_of(&mut *self.conn, issue).await?;
@@ -1213,7 +1218,7 @@ impl IssueWrites<'_> {
                 }
                 return Ok(Some(path));
             }
-            let next = sqlx::query(&sql("SELECT on_project AS project, on_issue AS id FROM issue_links WHERE project = ? AND issue = ?"))
+            let next = sqlx::query(sql("SELECT on_project AS project, on_issue AS id FROM issue_links WHERE project = ? AND issue = ?"))
                 .bind(&at.0)
                 .bind(&at.1)
                 .fetch_all(&mut *self.conn)
@@ -1232,7 +1237,7 @@ impl IssueWrites<'_> {
 
     /// Makes `links` what the issue depends on, each one added or dropped once, in its activity as `depends` (`setLinks`).
     async fn set_links(&mut self, project: &str, issue: &str, links: &[(String, String)], actor: &Actor) -> Result<()> {
-        let before: Vec<(String, String)> = sqlx::query(&sql(
+        let before: Vec<(String, String)> = sqlx::query(sql(
             "SELECT on_project AS project, on_issue AS id FROM issue_links WHERE project = ? AND issue = ? ORDER BY created_at, on_project, on_issue",
         ))
         .bind(project)
@@ -1244,7 +1249,7 @@ impl IssueWrites<'_> {
         .collect();
         let now = stamp();
         for gone in before.iter().filter(|b| !links.contains(b)) {
-            sqlx::query(&sql("DELETE FROM issue_links WHERE project = ? AND issue = ? AND on_project = ? AND on_issue = ?"))
+            sqlx::query(sql("DELETE FROM issue_links WHERE project = ? AND issue = ? AND on_project = ? AND on_issue = ?"))
                 .bind(project)
                 .bind(issue)
                 .bind(&gone.0)
@@ -1254,7 +1259,7 @@ impl IssueWrites<'_> {
         }
         let added: Vec<&(String, String)> = links.iter().filter(|l| !before.contains(l)).collect();
         for (on_project, on_id) in &added {
-            sqlx::query(&sql("INSERT INTO issue_links (project, issue, on_project, on_issue, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"))
+            sqlx::query(sql("INSERT INTO issue_links (project, issue, on_project, on_issue, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"))
                 .bind(project)
                 .bind(issue)
                 .bind(on_project)
@@ -1280,7 +1285,7 @@ impl IssueWrites<'_> {
 
     /// The projects whose boards show this issue's links (`linkedProjects`): theirs change with it, as its own does.
     async fn linked_projects(&mut self, project: &str, issue: &str) -> Result<Vec<String>> {
-        let rows = sqlx::query(&sql(
+        let rows = sqlx::query(sql(
             "SELECT on_project AS project FROM issue_links WHERE project = ? AND issue = ? UNION SELECT project FROM issue_links WHERE on_project = ? AND on_issue = ?",
         ))
         .bind(project)

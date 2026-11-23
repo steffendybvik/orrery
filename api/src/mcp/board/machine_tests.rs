@@ -107,7 +107,7 @@ async fn an_untrusted_session_has_neither_the_log_nor_the_secrets() {
 async fn image_gives_the_chat_its_pasted_image_as_itself() {
     let api = TestApi::new().await;
     let id = "0123456789abcdef01234567";
-    sqlx::query(&crate::db::sql("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"))
+    sqlx::query(crate::db::sql("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"))
         .bind(id)
         .bind("image/webp")
         .bind("dot.webp")

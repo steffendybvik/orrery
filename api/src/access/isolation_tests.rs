@@ -105,7 +105,7 @@ async fn bos_world(api: &TestApi) -> Theirs {
     let key = as_bo(api, api.post("/api/keys", json!({"kind": "agent", "name": format!("Rig {MARK}"), "workspace": "acme"}))).await;
     let key = id_of(&key);
     let login: String = api.login("bo").await;
-    let login_id: String = sqlx::query_scalar(&crate::db::sql("SELECT id FROM logins WHERE person = 'bo' ORDER BY created_at DESC LIMIT 1"))
+    let login_id: String = sqlx::query_scalar(crate::db::sql("SELECT id FROM logins WHERE person = 'bo' ORDER BY created_at DESC LIMIT 1"))
         .fetch_one(&api.app.pool)
         .await
         .unwrap();
@@ -122,7 +122,7 @@ async fn bos_world(api: &TestApi) -> Theirs {
         &[&rockets, &format!("Broke {MARK}"), stamp, stamp],
     )
     .await;
-    let event: String = sqlx::query_scalar::<_, i64>(&crate::db::sql("SELECT max(id) FROM events")).fetch_one(&api.app.pool).await.unwrap().to_string();
+    let event: String = sqlx::query_scalar::<_, i64>(crate::db::sql("SELECT max(id) FROM events")).fetch_one(&api.app.pool).await.unwrap().to_string();
     let chat = format!("zephyrchat{}", &random_id()[..6]);
     let kept = api
         .put(

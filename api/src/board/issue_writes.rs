@@ -37,7 +37,7 @@ impl<'c> IssueWrites<'c> {
     /// session. A new issue has no session on it yet, so there's no one else's to keep (`takenFrom`).
     pub async fn worked_by(&mut self, project: &str, issue: &str, session: &str) -> Result<()> {
         let now = stamp();
-        sqlx::query(&sql(
+        sqlx::query(sql(
             "INSERT INTO issue_sessions (project, issue, session, at, since) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM issues WHERE project = ? AND id = ?) \
              ON CONFLICT (project, issue) DO UPDATE SET since = CASE WHEN issue_sessions.session = excluded.session THEN issue_sessions.since ELSE excluded.since END, \
              session = excluded.session, at = excluded.at",
@@ -55,11 +55,11 @@ impl<'c> IssueWrites<'c> {
     }
 
     async fn exists(&mut self, query: &str, project: &str, key: &str) -> Result<bool> {
-        Ok(sqlx::query(&sql(query)).bind(project).bind(key).fetch_optional(&mut *self.conn).await?.is_some())
+        Ok(sqlx::query(sql(query)).bind(project).bind(key).fetch_optional(&mut *self.conn).await?.is_some())
     }
 
     pub(crate) async fn project_uid(&mut self, project: &str) -> Result<String> {
-        let row = sqlx::query(&sql("SELECT uid FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
+        let row = sqlx::query(sql("SELECT uid FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
         row.map(|r| r.get::<Option<String>, _>("uid").unwrap_or_default()).ok_or_else(|| ApiError::not_found(format!("No project \"{project}\"")))
     }
 
@@ -70,7 +70,7 @@ impl<'c> IssueWrites<'c> {
             if self.exists("SELECT 1 FROM issues WHERE project = ? AND id = ?", project, &id).await? {
                 return Ok(id);
             }
-            let alias = sqlx::query(&sql("SELECT issue FROM issue_aliases WHERE project = ? AND alias = ?"))
+            let alias = sqlx::query(sql("SELECT issue FROM issue_aliases WHERE project = ? AND alias = ?"))
                 .bind(project)
                 .bind(&id)
                 .fetch_optional(&mut *self.conn)
@@ -126,7 +126,7 @@ impl<'c> IssueWrites<'c> {
             let guard = if actor.owner { "" } else { " AND coalesce(assignee, '') = ?" };
             let query = format!("UPDATE issues SET assignee = ?, claimed_by = ?, claimed_at = ?, claimed_session = NULL WHERE project = ? AND id = ?{guard}");
             let query = sql(&query);
-            let mut update = sqlx::query(&query).bind(assignee.clone()).bind(person.clone()).bind(stamp()).bind(project).bind(&issue);
+            let mut update = sqlx::query(query.clone()).bind(assignee.clone()).bind(person.clone()).bind(stamp()).bind(project).bind(&issue);
             if !actor.owner {
                 update = update.bind(held.clone().unwrap_or_default());
             }
@@ -159,7 +159,7 @@ impl<'c> IssueWrites<'c> {
         }
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            sqlx::query(&sql("UPDATE issues SET claimed_by = NULL, claimed_at = NULL, claimed_session = NULL, updated_at = ? WHERE project = ? AND id = ?"))
+            sqlx::query(sql("UPDATE issues SET claimed_by = NULL, claimed_at = NULL, claimed_session = NULL, updated_at = ? WHERE project = ? AND id = ?"))
                 .bind(stamp())
                 .bind(project)
                 .bind(&issue)
@@ -202,25 +202,25 @@ impl<'c> IssueWrites<'c> {
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
             for id in &subtree {
-                sqlx::query(&sql("DELETE FROM issue_aliases WHERE project = ? AND issue = ?")).bind(project).bind(id).execute(&mut *self.conn).await?;
+                sqlx::query(sql("DELETE FROM issue_aliases WHERE project = ? AND issue = ?")).bind(project).bind(id).execute(&mut *self.conn).await?;
             }
             for id in &subtree {
-                sqlx::query(&sql("DELETE FROM signals WHERE project = ? AND issue = ?")).bind(project).bind(id).execute(&mut *self.conn).await?;
+                sqlx::query(sql("DELETE FROM signals WHERE project = ? AND issue = ?")).bind(project).bind(id).execute(&mut *self.conn).await?;
                 self.drop_blocker(project, id, &subtree).await?;
-                sqlx::query(&sql("DELETE FROM issue_links WHERE (project = ? AND issue = ?) OR (on_project = ? AND on_issue = ?)"))
+                sqlx::query(sql("DELETE FROM issue_links WHERE (project = ? AND issue = ?) OR (on_project = ? AND on_issue = ?)"))
                     .bind(project)
                     .bind(id)
                     .bind(project)
                     .bind(id)
                     .execute(&mut *self.conn)
                     .await?;
-                sqlx::query(&sql("UPDATE schedule_runs SET issue = NULL WHERE issue = ? AND schedule IN (SELECT id FROM schedules WHERE project = ?)"))
+                sqlx::query(sql("UPDATE schedule_runs SET issue = NULL WHERE issue = ? AND schedule IN (SELECT id FROM schedules WHERE project = ?)"))
                     .bind(id)
                     .bind(project)
                     .execute(&mut *self.conn)
                     .await?;
             }
-            sqlx::query(&sql("DELETE FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&issue).execute(&mut *self.conn).await?;
+            sqlx::query(sql("DELETE FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&issue).execute(&mut *self.conn).await?;
             self.touch_project(project).await
         }
         .await;
@@ -232,7 +232,7 @@ impl<'c> IssueWrites<'c> {
     /// The issue's id and every id under it, depth first (`subtree`).
     pub(crate) async fn subtree(&mut self, project: &str, id: &str) -> Result<Vec<String>> {
         let mut out = vec![id.to_string()];
-        let children: Vec<String> = sqlx::query(&sql("SELECT id FROM issues WHERE project = ? AND parent = ?"))
+        let children: Vec<String> = sqlx::query(sql("SELECT id FROM issues WHERE project = ? AND parent = ?"))
             .bind(project)
             .bind(id)
             .fetch_all(&mut *self.conn)
@@ -252,14 +252,14 @@ impl<'c> IssueWrites<'c> {
         let mut out = vec![];
         let query = format!("SELECT id FROM issues WHERE project = ? AND owned = 1 AND id IN ({marks}) ORDER BY id");
         let query = sql(&query);
-        let mut find = sqlx::query(&query).bind(project);
+        let mut find = sqlx::query(query.clone()).bind(project);
         for id in issues {
             find = find.bind(id);
         }
         out.extend(find.fetch_all(&mut *self.conn).await?.iter().map(|r| r.get::<String, _>("id")));
         let query = format!("SELECT CAST(id AS BIGINT) AS id, issue FROM comments WHERE project = ? AND owned = 1 AND issue IN ({marks}) ORDER BY id");
         let query = sql(&query);
-        let mut find = sqlx::query(&query).bind(project);
+        let mut find = sqlx::query(query.clone()).bind(project);
         for id in issues {
             find = find.bind(id);
         }
@@ -270,7 +270,7 @@ impl<'c> IssueWrites<'c> {
     /// Each issue depending on `id`, which is going with `going`, without it in its activity as a `depends` change
     /// (`dropBlocker`, ORR-601): the dispatch reads that, and hands one out that it freed.
     pub(crate) async fn drop_blocker(&mut self, project: &str, id: &str, going: &[String]) -> Result<()> {
-        let dependents: Vec<(String, String)> = sqlx::query(&sql("SELECT project, issue FROM issue_links WHERE on_project = ? AND on_issue = ?"))
+        let dependents: Vec<(String, String)> = sqlx::query(sql("SELECT project, issue FROM issue_links WHERE on_project = ? AND on_issue = ?"))
             .bind(project)
             .bind(id)
             .fetch_all(&mut *self.conn)
@@ -284,7 +284,7 @@ impl<'c> IssueWrites<'c> {
             if on == project && going.contains(&dependent) {
                 continue;
             }
-            let before: Vec<(String, String)> = sqlx::query(&sql(
+            let before: Vec<(String, String)> = sqlx::query(sql(
                 "SELECT on_project AS project, on_issue AS id FROM issue_links WHERE project = ? AND issue = ? ORDER BY created_at, on_project, on_issue",
             ))
             .bind(&on)
@@ -309,7 +309,7 @@ impl<'c> IssueWrites<'c> {
 
     /// The issue's assignee and who has claimed it.
     async fn claim_of(&mut self, project: &str, issue: &str) -> Result<(Option<String>, Option<String>)> {
-        let row = sqlx::query(&sql("SELECT assignee, claimed_by FROM issues WHERE project = ? AND id = ?"))
+        let row = sqlx::query(sql("SELECT assignee, claimed_by FROM issues WHERE project = ? AND id = ?"))
             .bind(project)
             .bind(issue)
             .fetch_one(&mut *self.conn)
@@ -337,7 +337,7 @@ impl<'c> IssueWrites<'c> {
     }
 
     pub(crate) async fn touch_project(&mut self, project: &str) -> Result<()> {
-        sqlx::query(&sql("UPDATE projects SET updated_at = ? WHERE id = ?")).bind(stamp()).bind(project).execute(&mut *self.conn).await?;
+        sqlx::query(sql("UPDATE projects SET updated_at = ? WHERE id = ?")).bind(stamp()).bind(project).execute(&mut *self.conn).await?;
         Ok(())
     }
 
@@ -402,7 +402,7 @@ impl<'c> IssueWrites<'c> {
         if id == "claude" {
             return Ok(Some(self.owner_id().await?));
         }
-        let here = sqlx::query(&sql("SELECT 1 FROM people WHERE id = ? AND removed_at IS NULL")).bind(&id).fetch_optional(&mut *self.conn).await?;
+        let here = sqlx::query(sql("SELECT 1 FROM people WHERE id = ? AND removed_at IS NULL")).bind(&id).fetch_optional(&mut *self.conn).await?;
         Ok(here.map(|_| id))
     }
 
@@ -421,7 +421,7 @@ impl<'c> IssueWrites<'c> {
         before: Option<&str>,
         after: Option<&str>,
     ) -> Result<()> {
-        sqlx::query(&sql(
+        sqlx::query(sql(
             "INSERT INTO issue_events (project, issue, field, \"before\", \"after\", created_by, session_name, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ))
         .bind(project)
@@ -441,13 +441,8 @@ impl<'c> IssueWrites<'c> {
 
     pub(crate) async fn touch_issue(&mut self, project: &str, issue: &str) -> Result<()> {
         let now = stamp();
-        sqlx::query(&sql("UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?"))
-            .bind(&now)
-            .bind(project)
-            .bind(issue)
-            .execute(&mut *self.conn)
-            .await?;
-        sqlx::query(&sql("UPDATE projects SET updated_at = ? WHERE id = ?")).bind(&now).bind(project).execute(&mut *self.conn).await?;
+        sqlx::query(sql("UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?")).bind(&now).bind(project).bind(issue).execute(&mut *self.conn).await?;
+        sqlx::query(sql("UPDATE projects SET updated_at = ? WHERE id = ?")).bind(&now).bind(project).execute(&mut *self.conn).await?;
         Ok(())
     }
 }

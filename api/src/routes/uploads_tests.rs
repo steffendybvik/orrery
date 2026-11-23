@@ -11,7 +11,7 @@ const ID: &str = "0123456789abcdef01234567";
 
 /// Keeps an image straight into the table, for reading it back without the upload's compression.
 async fn keep(api: &TestApi, id: &str, kind: &str, data: &[u8]) {
-    sqlx::query(&crate::db::sql("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"))
+    sqlx::query(crate::db::sql("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"))
         .bind(id)
         .bind(kind)
         .bind("dot.png")
@@ -84,7 +84,7 @@ async fn an_upload_is_kept_compressed_and_served_back() {
     assert_eq!(reply.body["markdown"], format!("![shot one](/api/uploads/{id})"), "no extension, and no brackets to end the alt text");
     assert_eq!(reply.header("orrery-changed"), None, "an image is on no board until a comment shows it");
     let row: (String, Option<String>, i64, String, i64) =
-        sqlx::query_as(&crate::db::sql("SELECT type, name, size, created_by, owned FROM uploads WHERE id = ?"))
+        sqlx::query_as(crate::db::sql("SELECT type, name, size, created_by, owned FROM uploads WHERE id = ?"))
             .bind(&id)
             .fetch_one(&api.app.pool)
             .await
@@ -105,7 +105,7 @@ async fn an_upload_takes_a_data_url_and_keeps_who_sent_it() {
     assert!(reply.body["markdown"].as_str().unwrap().starts_with("![image](/api/uploads/"), "no name, so \"image\"");
     let id = reply.body["id"].as_str().unwrap();
     let row: (Option<String>, String, i64) =
-        sqlx::query_as(&crate::db::sql("SELECT name, created_by, owned FROM uploads WHERE id = ?")).bind(id).fetch_one(&api.app.pool).await.unwrap();
+        sqlx::query_as(crate::db::sql("SELECT name, created_by, owned FROM uploads WHERE id = ?")).bind(id).fetch_one(&api.app.pool).await.unwrap();
     assert_eq!(row, (None, "claude".into(), 0));
 }
 
@@ -178,7 +178,7 @@ async fn an_upload_is_its_workspaces_alone() {
     let made = api.signed(post, "bo").await.send().await;
     assert_eq!(made.status, 201, "{}", made.body);
     let id = made.body["id"].as_str().unwrap().to_string();
-    let workspace: (String,) = sqlx::query_as(&crate::db::sql("SELECT workspace FROM uploads WHERE id = ?")).bind(&id).fetch_one(&api.app.pool).await.unwrap();
+    let workspace: (String,) = sqlx::query_as(crate::db::sql("SELECT workspace FROM uploads WHERE id = ?")).bind(&id).fetch_one(&api.app.pool).await.unwrap();
     assert_eq!(workspace.0, "acme", "kept in the workspace it came from");
 
     let path = format!("/api/uploads/{id}");
@@ -194,7 +194,7 @@ async fn an_upload_is_its_workspaces_alone() {
     assert_eq!(ana.send().await.status, 404, "Ana can't keep one in Acme");
     let theirs = api.signed(api.post("/api/uploads", json!({"data": gif})).header("orrery-sent-origin", "http://localhost"), "ana").await.send().await;
     assert_eq!(theirs.status, 201, "with none named, it's default's: {}", theirs.body);
-    let workspace: (String,) = sqlx::query_as(&crate::db::sql("SELECT workspace FROM uploads WHERE id = ?"))
+    let workspace: (String,) = sqlx::query_as(crate::db::sql("SELECT workspace FROM uploads WHERE id = ?"))
         .bind(theirs.body["id"].as_str().unwrap())
         .fetch_one(&api.app.pool)
         .await
@@ -204,7 +204,7 @@ async fn an_upload_is_its_workspaces_alone() {
 
 /// Keeps an image made at `at`, in `workspace`, straight into the table.
 async fn keep_at(api: &TestApi, id: &str, size: usize, at: &str, workspace: &str) {
-    sqlx::query(&crate::db::sql(
+    sqlx::query(crate::db::sql(
         "INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at, workspace) VALUES (?, 'image/png', NULL, ?, ?, 'claude', 0, ?, ?)",
     ))
     .bind(id)

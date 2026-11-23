@@ -84,11 +84,11 @@ impl<'c> Secrets<'c> {
 
     /// Every secret by name, each with its latest use (`list`).
     pub async fn list(&mut self) -> Result<Value> {
-        let rows = sqlx::query(&sql(&format!("SELECT {SECRET_COLUMNS} FROM secrets WHERE workspace = ? ORDER BY name")))
+        let rows = sqlx::query(sql(&format!("SELECT {SECRET_COLUMNS} FROM secrets WHERE workspace = ? ORDER BY name")))
             .bind(self.workspace.id())
             .fetch_all(&mut *self.conn)
             .await?;
-        let last = sqlx::query(&sql(&format!(
+        let last = sqlx::query(sql(&format!(
             "SELECT {USE_COLUMNS} FROM secret_uses WHERE id IN (SELECT max(id) FROM secret_uses WHERE workspace = ? GROUP BY secret)"
         )))
         .bind(self.workspace.id())
@@ -107,13 +107,13 @@ impl<'c> Secrets<'c> {
 
     /// One secret with its latest uses, newest first (`get`).
     pub async fn secret(&mut self, name: &str) -> Result<Value> {
-        let row = sqlx::query(&sql(&format!("SELECT {SECRET_COLUMNS} FROM secrets WHERE name = ? AND workspace = ?")))
+        let row = sqlx::query(sql(&format!("SELECT {SECRET_COLUMNS} FROM secrets WHERE name = ? AND workspace = ?")))
             .bind(name)
             .bind(self.workspace.id())
             .fetch_optional(&mut *self.conn)
             .await?
             .ok_or_else(|| ApiError::not_found(format!("No secret {name}")))?;
-        let uses: Vec<Value> = sqlx::query(&sql(&format!("SELECT {USE_COLUMNS} FROM secret_uses WHERE secret = ? AND workspace = ? ORDER BY id DESC LIMIT ?")))
+        let uses: Vec<Value> = sqlx::query(sql(&format!("SELECT {USE_COLUMNS} FROM secret_uses WHERE secret = ? AND workspace = ? ORDER BY id DESC LIMIT ?")))
             .bind(name)
             .bind(self.workspace.id())
             .bind(USES)
@@ -129,7 +129,7 @@ impl<'c> Secrets<'c> {
     /// The secret as the local app sealed it, every column (`SecretRow`): its value is ciphertext only the local app's
     /// key opens. None when there's no such secret.
     pub async fn sealed(&mut self, name: &str) -> Result<Option<Value>> {
-        let row = sqlx::query(&sql(&format!("SELECT {SEALED_COLUMNS} FROM secrets WHERE name = ? AND workspace = ?")))
+        let row = sqlx::query(sql(&format!("SELECT {SEALED_COLUMNS} FROM secrets WHERE name = ? AND workspace = ?")))
             .bind(name)
             .bind(self.workspace.id())
             .fetch_optional(&mut *self.conn)
@@ -140,7 +140,7 @@ impl<'c> Secrets<'c> {
     /// Every secret as sealed, by name (`sealed` for each), in every workspace: for the local app's scrubber, which
     /// takes any secret's value out of what it logs.
     pub async fn all_sealed(&mut self) -> Result<Value> {
-        let rows = sqlx::query(&sql(&format!("SELECT {SEALED_COLUMNS} FROM secrets ORDER BY name"))).fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(sql(&format!("SELECT {SEALED_COLUMNS} FROM secrets ORDER BY name"))).fetch_all(&mut *self.conn).await?;
         Ok(Value::Array(rows.iter().map(sealed_of).collect()))
     }
 }

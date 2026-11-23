@@ -201,7 +201,7 @@ impl<'c> Notices<'c> {
             WHERE {}EXISTS (SELECT 1 FROM proposal_clears c WHERE c.project = pending.project AND c.issue = pending.id AND c.put_up = pending.put_up)",
             if cleared { "" } else { "NOT " }
         );
-        let rows = sqlx::query(&query).fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(sqlx::AssertSqlSafe(query)).fetch_all(&mut *self.conn).await?;
         let mut out: Vec<Value> = rows
             .iter()
             .map(|row| {
@@ -263,7 +263,7 @@ impl<'c> Notices<'c> {
             bell.mine
         );
         let query = sql(&query);
-        let mut q = sqlx::query(&query);
+        let mut q = sqlx::query(query.clone());
         if let Some(before) = before {
             q = if before.fract() == 0.0 { q.bind(before as i64) } else { q.bind(before) };
         }
@@ -301,7 +301,7 @@ impl<'c> Notices<'c> {
                 AND EXISTS (SELECT 1 FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue WHERE c.project = e.project AND c.issue = e.issue AND {mine})
              ORDER BY e.created_at DESC, e.id DESC LIMIT 2000"
         );
-        let rows = sqlx::query(&sql(&query)).bind(since).fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(sql(&query)).bind(since).fetch_all(&mut *self.conn).await?;
         Ok(Value::Array(
             rows.iter()
                 .rev()
@@ -325,7 +325,7 @@ impl<'c> Notices<'c> {
 
     async fn changed(&mut self, query: &str, binds: Vec<Bound<'_>>) -> Result<i64> {
         let query = sql(query);
-        let mut q = sqlx::query(&query);
+        let mut q = sqlx::query(query.clone());
         for bound in binds {
             q = match bound {
                 Bound::Id(id) => q.bind(id),

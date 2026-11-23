@@ -4,7 +4,7 @@
 use serde_json::Value;
 use sqlx::any::AnyRow;
 use sqlx::any::{install_default_drivers, AnyPoolOptions};
-use sqlx::{AnyPool, Column, Executor, Row};
+use sqlx::{AnyPool, AssertSqlSafe, Column, Executor, Row, SqlSafeStr, SqlStr};
 use std::sync::OnceLock;
 
 /// What the docs domain, the statuses, the issue, comment and activity reads and the people, keys and logins, the secrets, the settings and a pull request's read take, each a query that fails on a schema without it. Checked by the columns rather than a
@@ -43,11 +43,10 @@ pub fn on_postgres() -> bool {
 }
 
 /// SQL written with `?`, as the Nuxt server writes it for both; Postgres numbers them (`$1, $2, …`).
-pub fn sql(text: &str) -> String {
-    if !on_postgres() {
-        return text.to_string();
-    }
-    numbered(text)
+///
+/// Its text is ours, never a caller's: values go in as binds. So it's marked safe for sqlx 0.9 (`AssertSqlSafe`) here, once.
+pub fn sql(text: &str) -> SqlStr {
+    AssertSqlSafe(if on_postgres() { numbered(text) } else { text.to_string() }).into_sql_str()
 }
 
 /// Where `numbered` is in the SQL it reads.
@@ -130,7 +129,7 @@ pub async fn open(setting: &str, schema: Option<String>) -> Result<AnyPool, Stri
             Box::pin(async move {
                 if postgres {
                     if let Some(schema) = schema {
-                        conn.execute(format!("SET search_path TO \"{}\"", schema.replace('"', "")).as_str()).await?;
+                        conn.execute(sqlx::query(AssertSqlSafe(format!("SET search_path TO \"{}\"", schema.replace('"', ""))))).await?;
                     }
                 } else {
                     // As the Nuxt server opens it: wait for its writes rather than fail on them.

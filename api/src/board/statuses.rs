@@ -141,7 +141,7 @@ impl<'c> Statuses<'c> {
     /// `-3`… when only another workspace has it, so another's statuses never block or show through. `default` making
     /// `acme-review`, or a workspace `in` asking for `in-progress`, is no clash for either.
     async fn free_id(&mut self, id: &str) -> Result<String> {
-        let row = sqlx::query(&sql("SELECT workspace FROM statuses WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
+        let row = sqlx::query(sql("SELECT workspace FROM statuses WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
         match row.map(|r| r.get::<String, _>("workspace")) {
             None => return Ok(id.to_string()),
             Some(here) if here == self.workspace.id() => return Err(ApiError::conflict(format!("There is already a status \"{id}\""))),
@@ -151,7 +151,7 @@ impl<'c> Statuses<'c> {
         loop {
             n += 1;
             let next = format!("{id}-{n}");
-            if sqlx::query(&sql("SELECT 1 FROM statuses WHERE id = ?")).bind(&next).fetch_optional(&mut *self.conn).await?.is_none() {
+            if sqlx::query(sql("SELECT 1 FROM statuses WHERE id = ?")).bind(&next).fetch_optional(&mut *self.conn).await?.is_none() {
                 return Ok(next);
             }
         }
@@ -163,16 +163,15 @@ impl<'c> Statuses<'c> {
         if self.workspace.is_default() {
             return Ok(());
         }
-        let any = sqlx::query(&sql("SELECT 1 FROM statuses WHERE workspace = ? LIMIT 1")).bind(self.workspace.id()).fetch_optional(&mut *self.conn).await?;
-        if any.is_some()
-            || sqlx::query(&sql("SELECT 1 FROM workspaces WHERE id = ?")).bind(self.workspace.id()).fetch_optional(&mut *self.conn).await?.is_none()
+        let any = sqlx::query(sql("SELECT 1 FROM statuses WHERE workspace = ? LIMIT 1")).bind(self.workspace.id()).fetch_optional(&mut *self.conn).await?;
+        if any.is_some() || sqlx::query(sql("SELECT 1 FROM workspaces WHERE id = ?")).bind(self.workspace.id()).fetch_optional(&mut *self.conn).await?.is_none()
         {
             return Ok(());
         }
         for (position, (id, name, kind, color)) in SHIPPED.iter().enumerate() {
             let id = self.id_here(id);
             let id = self.free_id(&id).await?;
-            sqlx::query(&sql("INSERT INTO statuses (id, name, kind, color, position, workspace) VALUES (?, ?, ?, ?, ?, ?)"))
+            sqlx::query(sql("INSERT INTO statuses (id, name, kind, color, position, workspace) VALUES (?, ?, ?, ?, ?, ?)"))
                 .bind(&id)
                 .bind(*name)
                 .bind(*kind)
@@ -188,7 +187,7 @@ impl<'c> Statuses<'c> {
     /// In board order: by kind, then as arranged.
     async fn rows(&mut self) -> Result<Vec<Status>> {
         self.seed().await?;
-        let rows = sqlx::query(&sql(
+        let rows = sqlx::query(sql(
             "SELECT id, name, kind, color, CAST(position AS DOUBLE PRECISION) AS position FROM statuses WHERE workspace = ? ORDER BY position, id",
         ))
         .bind(self.workspace.id())
@@ -214,7 +213,7 @@ impl<'c> Statuses<'c> {
 
     /// Every board is drawn again with them, and the page gets the new list with the settings.
     async fn changed(&mut self) -> Result<()> {
-        let rows = sqlx::query(&sql("SELECT id FROM projects WHERE workspace = ?")).bind(self.workspace.id()).fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(sql("SELECT id FROM projects WHERE workspace = ?")).bind(self.workspace.id()).fetch_all(&mut *self.conn).await?;
         self.effects.changed = rows.iter().map(|r| r.get::<String, _>("id")).collect();
         self.effects.settings = true;
         Ok(())
@@ -243,7 +242,7 @@ impl<'c> Statuses<'c> {
         let position = match input.get("position").and_then(Value::as_f64) {
             Some(position) => position,
             None => {
-                let row = sqlx::query(&sql("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM statuses WHERE workspace = ?"))
+                let row = sqlx::query(sql("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM statuses WHERE workspace = ?"))
                     .bind(self.workspace.id())
                     .fetch_one(&mut *self.conn)
                     .await?;
@@ -253,7 +252,7 @@ impl<'c> Statuses<'c> {
         let color = input.get("color").and_then(Value::as_str).unwrap_or("slate");
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            sqlx::query(&sql("INSERT INTO statuses (id, name, kind, color, position, workspace) VALUES (?, ?, ?, ?, ?, ?)"))
+            sqlx::query(sql("INSERT INTO statuses (id, name, kind, color, position, workspace) VALUES (?, ?, ?, ?, ?, ?)"))
                 .bind(&id)
                 .bind(&name)
                 .bind(input["kind"].as_str().unwrap_or_default())
@@ -282,7 +281,7 @@ impl<'c> Statuses<'c> {
         }
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            sqlx::query(&sql("UPDATE statuses SET name = coalesce(?, name), kind = coalesce(?, kind), color = coalesce(?, color), position = ? WHERE id = ?"))
+            sqlx::query(sql("UPDATE statuses SET name = coalesce(?, name), kind = coalesce(?, kind), color = coalesce(?, color), position = ? WHERE id = ?"))
                 .bind(input.get("name").and_then(Value::as_str).map(|n| n.trim().to_string()))
                 .bind(kind.map(str::to_string))
                 .bind(input.get("color").and_then(Value::as_str).map(str::to_string))
@@ -305,7 +304,7 @@ impl<'c> Statuses<'c> {
         let status = self.status(id).await?;
         self.keep_one_of(&status).await?;
         let like = format!("%\"{id}\"%");
-        let row = sqlx::query(&sql(
+        let row = sqlx::query(sql(
             "SELECT CAST((SELECT count(*) FROM issues WHERE status = ?) + (SELECT count(*) FROM schedules WHERE place = ? OR move_from LIKE ?) AS BIGINT) AS n",
         ))
         .bind(id)
@@ -343,16 +342,16 @@ impl<'c> Statuses<'c> {
                 "UPDATE schedules SET place = ? WHERE place = ?",
                 "UPDATE signals SET status = ? WHERE status = ?",
             ] {
-                sqlx::query(&sql(query)).bind(into).bind(id).execute(&mut *self.conn).await?;
+                sqlx::query(sql(query)).bind(into).bind(id).execute(&mut *self.conn).await?;
             }
-            sqlx::query(&sql("UPDATE schedules SET move_from = replace(move_from, ?, ?) WHERE move_from LIKE ?"))
+            sqlx::query(sql("UPDATE schedules SET move_from = replace(move_from, ?, ?) WHERE move_from LIKE ?"))
                 .bind(format!("\"{id}\""))
                 .bind(format!("\"{into}\""))
                 .bind(like)
                 .execute(&mut *self.conn)
                 .await?;
         }
-        sqlx::query(&sql("DELETE FROM statuses WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM statuses WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
         Ok(())
     }
 }

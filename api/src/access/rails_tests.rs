@@ -6,7 +6,7 @@ use crate::testing::{from_outside, Req, TestApi};
 use serde_json::json;
 
 async fn on_board(api: &TestApi, project: &str, person: &str) {
-    sqlx::query(&sql("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'member', '2026-11-01')"))
+    sqlx::query(sql("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'member', '2026-11-01')"))
         .bind(project)
         .bind(person)
         .execute(&api.app.pool)
@@ -149,8 +149,8 @@ async fn only_the_boards_holder_passes_its_check() {
     api.team().await;
     let project = api.project("Primes").await;
     on_board(&api, &project, "ana").await;
-    sqlx::query(&sql("UPDATE project_members SET role = 'owner' WHERE project = ? AND person = 'sam'")).bind(&project).execute(&api.app.pool).await.unwrap();
-    sqlx::query(&sql("INSERT INTO project_members (project, person, role, created_at) SELECT ?, 'sam', 'owner', '2026-11-01' WHERE NOT EXISTS (SELECT 1 FROM project_members WHERE project = ? AND person = 'sam')"))
+    sqlx::query(sql("UPDATE project_members SET role = 'owner' WHERE project = ? AND person = 'sam'")).bind(&project).execute(&api.app.pool).await.unwrap();
+    sqlx::query(sql("INSERT INTO project_members (project, person, role, created_at) SELECT ?, 'sam', 'owner', '2026-11-01' WHERE NOT EXISTS (SELECT 1 FROM project_members WHERE project = ? AND person = 'sam')"))
         .bind(&project)
         .bind(&project)
         .execute(&api.app.pool)

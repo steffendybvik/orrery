@@ -75,7 +75,7 @@ fn whole(row: &AnyRow) -> Result<Value> {
 
 async fn rows(conn: &mut AnyConnection, query: &str, binds: &[&str]) -> Result<Vec<Value>> {
     let text = sql(query);
-    let mut q = sqlx::query(&text);
+    let mut q = sqlx::query(text.clone());
     for bind in binds {
         q = q.bind(*bind);
     }
@@ -85,7 +85,7 @@ async fn rows(conn: &mut AnyConnection, query: &str, binds: &[&str]) -> Result<V
 /// The board `project` as one file's contents (`exportBoard`): 404 when there's no such project. Its images go in only
 /// `with_uploads` (ORR-1248): they're most of a big board's file, and one past a proxy's body cap can't be uploaded.
 pub async fn export(conn: &mut AnyConnection, project: &str, with_uploads: bool) -> Result<Value> {
-    let found = sqlx::query(&sql("SELECT id FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *conn).await?;
+    let found = sqlx::query(sql("SELECT id FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *conn).await?;
     if found.is_none() {
         return Err(ApiError::not_found(format!("No project \"{project}\"")));
     }

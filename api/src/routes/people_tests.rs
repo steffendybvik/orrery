@@ -6,7 +6,7 @@ use sqlx::Row;
 
 /// A login, put straight in the table: `id` is its hash, as the router sends it in `Orrery-Login`.
 async fn login(api: &TestApi, id: &str, person: &str, by_key: Option<&str>, expires_at: &str) {
-    sqlx::query(&crate::db::sql("INSERT INTO logins (id, person, expires_at, by_key, known, created_at, last_used_at) VALUES (?, ?, ?, ?, 1, ?, ?)"))
+    sqlx::query(crate::db::sql("INSERT INTO logins (id, person, expires_at, by_key, known, created_at, last_used_at) VALUES (?, ?, ?, ?, 1, ?, ?)"))
         .bind(id)
         .bind(person)
         .bind(expires_at)
@@ -33,7 +33,7 @@ async fn lists_the_owner_first_then_people_in_the_order_they_were_added_the_remo
     api.member("ada", "Ada").await;
     api.owner().await;
     api.member("bo", "Bo").await;
-    sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'ada'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
+    sqlx::query(crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'ada'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
     let listed = api.get("/api/people").send().await;
     assert_eq!(listed.status, 200);
     assert_eq!(ids(&listed.body), ["sam", "ada", "bo"]);
@@ -55,7 +55,7 @@ async fn adds_a_member_whose_id_is_their_name_in_snake_case() {
     assert!(added.body["created_at"].is_string());
     assert_eq!(ids(&api.get("/api/people").send().await.body), ["sam", "ada_lovelace"]);
     // A member of the one workspace there is so far (ORR-1106).
-    let role: Option<String> = sqlx::query_scalar(&crate::db::sql("SELECT role FROM workspace_members WHERE workspace = 'default' AND person = ?"))
+    let role: Option<String> = sqlx::query_scalar(crate::db::sql("SELECT role FROM workspace_members WHERE workspace = 'default' AND person = ?"))
         .bind("ada_lovelace")
         .fetch_optional(&api.app.pool)
         .await
@@ -115,7 +115,7 @@ async fn an_id_taken_by_someone_here_or_someone_removed_stays_theirs() {
     api.owner().await;
     api.member("ada", "Ada").await;
     api.member("bo", "Bo").await;
-    sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'bo'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
+    sqlx::query(crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'bo'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
     for name in ["ADA", "Bo", "Sam"] {
         let refused = api.post("/api/people", json!({"name": name})).header("orrery-login-ways", "off").send().await;
         assert_eq!(refused.status, 409, "{name}: {}", refused.body);
@@ -212,7 +212,7 @@ async fn renaming_refuses_the_owner_someone_removed_someone_unknown_and_a_bad_na
     api.owner().await;
     api.member("ada", "Ada").await;
     api.member("bo", "Bo").await;
-    sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'bo'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
+    sqlx::query(crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'bo'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
     assert_eq!(api.patch("/api/people/sam", json!({"name": "S"})).send().await.status, 400);
     assert_eq!(api.patch("/api/people/bo", json!({"name": "Bob"})).send().await.status, 409);
     assert_eq!(api.patch("/api/people/nobody", json!({"name": "N"})).send().await.status, 404);
@@ -251,7 +251,7 @@ async fn removing_a_person_hands_their_boards_to_the_owner() {
     let held = api.project("Held").await;
     sqlx::query("DELETE FROM project_members").execute(&api.app.pool).await.unwrap();
     for (project, person, role) in [(&shared, "ada", "member"), (&shared, "sam", "owner"), (&held, "ada", "owner")] {
-        sqlx::query(&crate::db::sql("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, ?, ?)"))
+        sqlx::query(crate::db::sql("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, ?, ?)"))
             .bind(project)
             .bind(person)
             .bind(role)
@@ -281,7 +281,7 @@ async fn removing_a_person_unassigns_their_open_issues_and_tells_it() {
     let project = api.project("Primes").await;
     let open = api.issue(&project, json!({"title": "Open", "assignee": "ada"})).await;
     let done = api.issue(&project, json!({"title": "Done", "assignee": "ada"})).await;
-    sqlx::query(&crate::db::sql("UPDATE issues SET status = (SELECT id FROM statuses WHERE kind = 'done' LIMIT 1) WHERE id = ?"))
+    sqlx::query(crate::db::sql("UPDATE issues SET status = (SELECT id FROM statuses WHERE kind = 'done' LIMIT 1) WHERE id = ?"))
         .bind(&done)
         .execute(&api.app.pool)
         .await
@@ -292,7 +292,7 @@ async fn removing_a_person_unassigns_their_open_issues_and_tells_it() {
     let assignee = |id: String| {
         let pool = api.app.pool.clone();
         async move {
-            sqlx::query(&crate::db::sql("SELECT assignee FROM issues WHERE id = ?"))
+            sqlx::query(crate::db::sql("SELECT assignee FROM issues WHERE id = ?"))
                 .bind(id)
                 .fetch_one(&pool)
                 .await
@@ -303,7 +303,7 @@ async fn removing_a_person_unassigns_their_open_issues_and_tells_it() {
     assert_eq!(assignee(open.clone()).await, None);
     assert_eq!(assignee(done.clone()).await.as_deref(), Some("ada"), "a done issue keeps who did it");
     let noted =
-        sqlx::query(&crate::db::sql("SELECT \"before\", \"after\", created_by FROM issue_events WHERE issue = ? AND field = 'assignee' AND \"after\" IS NULL"))
+        sqlx::query(crate::db::sql("SELECT \"before\", \"after\", created_by FROM issue_events WHERE issue = ? AND field = 'assignee' AND \"after\" IS NULL"))
             .bind(&open)
             .fetch_all(&api.app.pool)
             .await
@@ -375,7 +375,7 @@ async fn an_invite_needs_a_provider_and_someone_here_to_invite() {
     api.owner().await;
     api.member("ada", "Ada").await;
     api.member("bo", "Bo").await;
-    sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'bo'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
+    sqlx::query(crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'bo'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
     assert_eq!(api.post("/api/invites", json!({"person": "ada"})).header("orrery-login-ways", "off").send().await.status, 409);
     let provider = |body: Value| api.post("/api/invites", body).header("orrery-login-ways", "provider");
     assert_eq!(provider(json!({})).send().await.status, 400);
@@ -403,7 +403,7 @@ async fn makes_a_key_shown_this_once_with_its_kind_in_its_prefix() {
     let text = listed.body.to_string();
     assert!(!text.contains(key) && !text.contains("\"key\"") && !text.contains("hash"), "{text}");
     let hash: String =
-        sqlx::query(&crate::db::sql("SELECT hash FROM keys WHERE id = ?")).bind(made.body["id"].as_str()).fetch_one(&api.app.pool).await.unwrap().get("hash");
+        sqlx::query(crate::db::sql("SELECT hash FROM keys WHERE id = ?")).bind(made.body["id"].as_str()).fetch_one(&api.app.pool).await.unwrap().get("hash");
     assert_ne!(hash, key);
 }
 
@@ -412,7 +412,7 @@ async fn a_key_needs_a_kind_and_a_name_and_someone_here() {
     let api = TestApi::new().await;
     api.owner().await;
     api.member("bo", "Bo").await;
-    sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'bo'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
+    sqlx::query(crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'bo'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
     let make = |body: Value| api.post("/api/keys", body).header("orrery-actor-name", "Sam");
     assert_eq!(make(json!({"name": "box"})).send().await.status, 400);
     assert_eq!(make(json!({"kind": "owner", "name": "box"})).send().await.status, 400);
@@ -509,7 +509,7 @@ async fn revoking_a_key_ends_the_logins_it_started_and_stays_listed() {
     // Again changes nothing.
     assert_eq!(api.delete(&format!("/api/keys/{id}")).member_browser("ada").send().await.status, 204);
     let again: String =
-        sqlx::query(&crate::db::sql("SELECT revoked_at FROM keys WHERE id = ?")).bind(id).fetch_one(&api.app.pool).await.unwrap().get("revoked_at");
+        sqlx::query(crate::db::sql("SELECT revoked_at FROM keys WHERE id = ?")).bind(id).fetch_one(&api.app.pool).await.unwrap().get("revoked_at");
     assert_eq!(json!(again), revoked_at);
 }
 
@@ -519,14 +519,14 @@ async fn revoking_a_key_ends_its_persons_logins_from_before_orrery_kept_which_ke
     api.owner().await;
     api.member("ada", "Ada").await;
     let made = api.post("/api/keys", json!({"kind": "person", "name": "laptop"})).member_browser("ada").send().await;
-    sqlx::query(&crate::db::sql("INSERT INTO logins (id, person, expires_at) VALUES (?, 'ada', ?)"))
+    sqlx::query(crate::db::sql("INSERT INTO logins (id, person, expires_at) VALUES (?, 'ada', ?)"))
         .bind(hashed('c'))
         .bind(later())
         .execute(&api.app.pool)
         .await
         .unwrap();
     login(&api, &hashed('d'), "sam", None, &later()).await;
-    sqlx::query(&crate::db::sql("UPDATE logins SET known = 0 WHERE id = ?")).bind(hashed('d')).execute(&api.app.pool).await.unwrap();
+    sqlx::query(crate::db::sql("UPDATE logins SET known = 0 WHERE id = ?")).bind(hashed('d')).execute(&api.app.pool).await.unwrap();
     assert_eq!(api.delete(&format!("/api/keys/{}", made.body["id"].as_str().unwrap())).member_browser("ada").send().await.status, 204);
     let ids: Vec<String> = sqlx::query("SELECT id FROM logins").fetch_all(&api.app.pool).await.unwrap().iter().map(|r| r.get("id")).collect();
     assert_eq!(ids, [hashed('d')], "another person's old login stays");

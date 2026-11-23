@@ -329,7 +329,7 @@ impl<'c> Settings<'c> {
             .filter(|(key, _)| !WORKSPACE_KEYS.contains(&key.as_str()))
             .collect();
         let own =
-            sqlx::query(&sql("SELECT key, value FROM workspace_settings WHERE workspace = ?")).bind(self.workspace.id()).fetch_all(&mut *self.conn).await?;
+            sqlx::query(sql("SELECT key, value FROM workspace_settings WHERE workspace = ?")).bind(self.workspace.id()).fetch_all(&mut *self.conn).await?;
         rows.extend(own.iter().map(parse));
         Ok(rows)
     }
@@ -338,7 +338,7 @@ impl<'c> Settings<'c> {
     pub async fn get(&mut self) -> Result<Value> {
         let mut rows = self.rows().await?;
         if !rows.iter().any(|(k, _)| k == "id") {
-            sqlx::query(&sql("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING"))
+            sqlx::query(sql("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING"))
                 .bind("id")
                 .bind(js(&json!(format!("orr_{}", hex(3)))))
                 .execute(&mut *self.conn)
@@ -383,7 +383,7 @@ impl<'c> Settings<'c> {
         let done: Result<()> = async {
             for (key, value) in &input {
                 if WORKSPACE_KEYS.contains(&key.as_str()) {
-                    sqlx::query(&sql(
+                    sqlx::query(sql(
                         "INSERT INTO workspace_settings (workspace, key, value) VALUES (?, ?, ?) ON CONFLICT (workspace, key) DO UPDATE SET value = excluded.value",
                     ))
                     .bind(self.workspace.id())
@@ -392,7 +392,7 @@ impl<'c> Settings<'c> {
                     .execute(&mut *self.conn)
                     .await?;
                 } else {
-                    sqlx::query(&sql("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value"))
+                    sqlx::query(sql("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value"))
                         .bind(key)
                         .bind(js(value))
                         .execute(&mut *self.conn)
@@ -401,7 +401,7 @@ impl<'c> Settings<'c> {
             }
             self.effects.settings = true;
             if input.contains_key("starts") {
-                let rows = sqlx::query(&sql("SELECT id FROM projects WHERE workspace = ?")).bind(self.workspace.id()).fetch_all(&mut *self.conn).await?;
+                let rows = sqlx::query(sql("SELECT id FROM projects WHERE workspace = ?")).bind(self.workspace.id()).fetch_all(&mut *self.conn).await?;
                 self.effects.changed = rows.iter().map(|r| r.get::<String, _>("id")).collect();
             }
             Ok(())

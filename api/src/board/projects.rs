@@ -262,7 +262,7 @@ struct ReleaseRow {
 /// workspace has already is a 409, and one only another workspace has is quietly given `-2`, `-3`… until it's free, as
 /// a workspace's own id is. So nothing says another workspace has it.
 pub(crate) async fn free_project_id(conn: &mut AnyConnection, workspace: &str, id: &str) -> Result<String> {
-    let row = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(id).fetch_optional(&mut *conn).await?;
+    let row = sqlx::query(sql("SELECT workspace FROM projects WHERE id = ?")).bind(id).fetch_optional(&mut *conn).await?;
     match row.map(|r| r.get::<String, _>("workspace")) {
         None => return Ok(id.to_string()),
         Some(here) if here == workspace => return Err(ApiError::conflict(format!("There is already a project \"{id}\": choose another id"))),
@@ -274,7 +274,7 @@ pub(crate) async fn free_project_id(conn: &mut AnyConnection, workspace: &str, i
         let tail = format!("-{n}");
         let base: String = id.chars().take(40 - tail.len()).collect();
         let next = format!("{}{tail}", base.trim_end_matches('-'));
-        let taken = sqlx::query(&sql("SELECT 1 FROM projects WHERE id = ?")).bind(&next).fetch_optional(&mut *conn).await?.is_some();
+        let taken = sqlx::query(sql("SELECT 1 FROM projects WHERE id = ?")).bind(&next).fetch_optional(&mut *conn).await?.is_some();
         if !taken {
             return Ok(next);
         }
@@ -282,8 +282,7 @@ pub(crate) async fn free_project_id(conn: &mut AnyConnection, workspace: &str, i
 }
 
 pub(crate) async fn not_moved(conn: &mut AnyConnection, project: &str) -> Result<()> {
-    let moved: Option<String> =
-        sqlx::query_scalar(&sql("SELECT moved_to FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *conn).await?.flatten();
+    let moved: Option<String> = sqlx::query_scalar(sql("SELECT moved_to FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *conn).await?.flatten();
     match moved {
         Some(to) => Err(ApiError::moved(project, &to)),
         None => Ok(()),
@@ -314,7 +313,7 @@ impl<'c> Projects<'c> {
     /// Whether orrery may start sessions, and within what: the workspace's setting, as every project in it shares it
     /// (`orreryStarts`). It's kept per workspace in `workspace_settings` since ORR-1107 (ORR-1208).
     async fn starts(&mut self, workspace: &str) -> Result<Option<Value>> {
-        let row = sqlx::query(&sql("SELECT value FROM workspace_settings WHERE workspace = ? AND key = ?"))
+        let row = sqlx::query(sql("SELECT value FROM workspace_settings WHERE workspace = ? AND key = ?"))
             .bind(workspace)
             .bind("starts")
             .fetch_optional(&mut *self.conn)
@@ -368,7 +367,7 @@ impl<'c> Projects<'c> {
     /// The ids of the projects sharing releases with `id`: those drawing on it, and the one it draws on (ORR-1174), as
     /// the Nuxt store's `pushChanged` read them.
     pub async fn release_peers(&mut self, id: &str) -> Result<Vec<String>> {
-        let rows = sqlx::query(&sql(
+        let rows = sqlx::query(sql(
             "SELECT id FROM projects WHERE workspace = ? AND (releases_from = ? OR id = (SELECT releases_from FROM projects WHERE id = ?)) ORDER BY id",
         ))
         .bind(self.workspace.id())
@@ -382,7 +381,7 @@ impl<'c> Projects<'c> {
     /// Every project `seen` sees, with its counts (or its board, with `boards`): the projects of other workspaces, and
     /// boards a member isn't on, are left out here rather than by each caller (ORR-1355).
     pub async fn list(&mut self, boards: bool, seen: &Seen) -> Result<Value> {
-        let rows = sqlx::query(&sql(&format!("SELECT {PROJECT_COLUMNS} FROM projects ORDER BY lower(name), name"))).fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(sql(&format!("SELECT {PROJECT_COLUMNS} FROM projects ORDER BY lower(name), name"))).fetch_all(&mut *self.conn).await?;
         let mut starts = std::collections::HashMap::<String, Option<Value>>::new();
         let mut out = Vec::new();
         for row in &rows {
@@ -406,7 +405,7 @@ impl<'c> Projects<'c> {
 
     /// The project with its board (`project`), without the `rev` the Nuxt server's read adds.
     pub async fn project(&mut self, id: &str) -> Result<Value> {
-        let row = sqlx::query(&sql(&format!("SELECT {PROJECT_COLUMNS} FROM projects WHERE id = ?")))
+        let row = sqlx::query(sql(&format!("SELECT {PROJECT_COLUMNS} FROM projects WHERE id = ?")))
             .bind(id)
             .fetch_optional(&mut *self.conn)
             .await?
@@ -421,13 +420,13 @@ impl<'c> Projects<'c> {
     }
 
     async fn release_row(&mut self, id: &str) -> Result<Option<ReleaseRow>> {
-        let row = sqlx::query(&sql("SELECT id, release_mode, releases_from FROM projects WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
+        let row = sqlx::query(sql("SELECT id, release_mode, releases_from FROM projects WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
         Ok(row.map(|r| ReleaseRow { id: r.get("id"), mode: r.get::<Option<String>, _>("release_mode").unwrap_or_default(), from: r.get("releases_from") }))
     }
 
     /// The projects taking their releases from `id`, by id (`drawingOn`).
     async fn drawing_on(&mut self, id: &str) -> Result<Vec<String>> {
-        let rows = sqlx::query(&sql("SELECT id FROM projects WHERE releases_from = ? ORDER BY id")).bind(id).fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(sql("SELECT id FROM projects WHERE releases_from = ? ORDER BY id")).bind(id).fetch_all(&mut *self.conn).await?;
         Ok(rows.iter().map(|r| r.get("id")).collect())
     }
 
@@ -437,8 +436,7 @@ impl<'c> Projects<'c> {
         if from == id {
             return Err(ApiError::bad_request("A project can't take its releases from itself; send release_mode \"own\" to give it its own"));
         }
-        let same =
-            sqlx::query(&sql("SELECT 1 FROM projects WHERE id = ? AND workspace = ?")).bind(from).bind(workspace).fetch_optional(&mut *self.conn).await?;
+        let same = sqlx::query(sql("SELECT 1 FROM projects WHERE id = ? AND workspace = ?")).bind(from).bind(workspace).fetch_optional(&mut *self.conn).await?;
         let source = match same {
             Some(_) => self.release_row(from).await?,
             None => None,
@@ -463,7 +461,7 @@ impl<'c> Projects<'c> {
                 let takes = if drawing.len() == 1 { "takes its" } else { "take their" };
                 return Err(ApiError::conflict(format!("{} {takes} releases from {}, so it keeps its own", drawing.join(", "), row.id)));
             }
-            let own = sqlx::query(&sql("SELECT version FROM releases WHERE project = ? ORDER BY version")).bind(&row.id).fetch_all(&mut *self.conn).await?;
+            let own = sqlx::query(sql("SELECT version FROM releases WHERE project = ? ORDER BY version")).bind(&row.id).fetch_all(&mut *self.conn).await?;
             if !own.is_empty() {
                 let versions: Vec<String> = own.iter().map(|r| r.get("version")).collect();
                 let lost = if mode == "shared" { format!("nothing merges into {}'s", from.unwrap_or_default()) } else { "nothing goes quietly".into() };
@@ -471,7 +469,7 @@ impl<'c> Projects<'c> {
             }
         }
         if let Some(from) = from {
-            let workspace: String = sqlx::query_scalar(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(&row.id).fetch_one(&mut *self.conn).await?;
+            let workspace: String = sqlx::query_scalar(sql("SELECT workspace FROM projects WHERE id = ?")).bind(&row.id).fetch_one(&mut *self.conn).await?;
             self.check_releases_from(&row.id, from, &workspace).await?;
         }
         Ok(())
@@ -516,7 +514,7 @@ impl<'c> Projects<'c> {
         let done: Result<()> = async {
             let now = stamp();
             let field = |key: &str| input.get(key).and_then(Value::as_str).map(str::to_string);
-            sqlx::query(&sql(
+            sqlx::query(sql(
                 "INSERT INTO projects (id, name, key, uid, description, icon, icon_color, repo, release_mode, releases_from, created_by, owned, created_at, updated_at, workspace) \
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             ))
@@ -541,13 +539,13 @@ impl<'c> Projects<'c> {
             if !sets.is_empty() {
                 let columns: Vec<String> = sets.iter().map(|(key, _)| format!("{key} = ?")).collect();
                 let statement = sql(&format!("UPDATE projects SET {} WHERE id = ?", columns.join(", ")));
-                let mut query = sqlx::query(&statement);
+                let mut query = sqlx::query(statement.clone());
                 for (_, value) in &sets {
                     query = query.bind(value.as_str().map(str::to_string));
                 }
                 query.bind(&id).execute(&mut *self.conn).await?;
             }
-            sqlx::query(&sql("INSERT INTO project_members (project, person, role, created_at) SELECT ?, id, 'owner', ? FROM people WHERE id = ?"))
+            sqlx::query(sql("INSERT INTO project_members (project, person, role, created_at) SELECT ?, id, 'owner', ? FROM people WHERE id = ?"))
                 .bind(&id)
                 .bind(&now)
                 .bind(&holder)
@@ -588,7 +586,7 @@ impl<'c> Projects<'c> {
             sets.extend(prompt_columns(&input));
             let columns: Vec<String> = sets.iter().map(|(key, _)| format!("{key} = ?")).chain(["updated_at = ?".to_string()]).collect();
             let statement = sql(&format!("UPDATE projects SET {} WHERE id = ?", columns.join(", ")));
-            let mut query = sqlx::query(&statement);
+            let mut query = sqlx::query(statement.clone());
             for (_, value) in &sets {
                 query = query.bind(value.as_str().map(str::to_string));
             }
@@ -602,14 +600,14 @@ impl<'c> Projects<'c> {
                 };
                 match source {
                     Some(source) => {
-                        sqlx::query(&sql("UPDATE issues SET ships_in = NULL WHERE project = ? AND ships_in IS NOT NULL AND ships_in NOT IN (SELECT version FROM releases WHERE project = ?)"))
+                        sqlx::query(sql("UPDATE issues SET ships_in = NULL WHERE project = ? AND ships_in IS NOT NULL AND ships_in NOT IN (SELECT version FROM releases WHERE project = ?)"))
                             .bind(id)
                             .bind(source)
                             .execute(&mut *self.conn)
                             .await?;
                     }
                     None => {
-                        sqlx::query(&sql("UPDATE issues SET ships_in = NULL WHERE project = ?")).bind(id).execute(&mut *self.conn).await?;
+                        sqlx::query(sql("UPDATE issues SET ships_in = NULL WHERE project = ?")).bind(id).execute(&mut *self.conn).await?;
                     }
                 }
             }
@@ -635,13 +633,13 @@ impl<'c> Projects<'c> {
         if to.is_some_and(|to| !REPO.is_match(to)) {
             return Err(ApiError::bad_request("to: the address of the orrery the board went to, e.g. https://orrery.example.com"));
         }
-        let here: Option<String> = sqlx::query_scalar(&sql("SELECT id FROM projects WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
+        let here: Option<String> = sqlx::query_scalar(sql("SELECT id FROM projects WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
         if here.is_none() {
             return Err(ApiError::not_found(format!("No project \"{id}\"")));
         }
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            sqlx::query(&sql("UPDATE projects SET moved_to = ?, updated_at = ? WHERE id = ?")).bind(to).bind(stamp()).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(sql("UPDATE projects SET moved_to = ?, updated_at = ? WHERE id = ?")).bind(to).bind(stamp()).bind(id).execute(&mut *self.conn).await?;
             self.effects.changed = vec![id.into()];
             Ok(())
         }
@@ -657,7 +655,7 @@ impl<'c> Projects<'c> {
             return Err(ApiError::forbidden("Only the owner lets sessions pick from an uploaded board, from its Settings"));
         }
         let held: Option<Option<String>> =
-            sqlx::query_scalar(&sql("SELECT picks_held FROM projects WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
+            sqlx::query_scalar(sql("SELECT picks_held FROM projects WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
         let Some(held) = held else {
             return Err(ApiError::not_found(format!("No project \"{id}\"")));
         };
@@ -666,7 +664,7 @@ impl<'c> Projects<'c> {
         }
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            sqlx::query(&sql("UPDATE projects SET picks_held = NULL, updated_at = ? WHERE id = ?")).bind(stamp()).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(sql("UPDATE projects SET picks_held = NULL, updated_at = ? WHERE id = ?")).bind(stamp()).bind(id).execute(&mut *self.conn).await?;
             self.effects.changed = vec![id.into()];
             Ok(())
         }
@@ -695,10 +693,10 @@ impl<'c> Projects<'c> {
             ("SELECT id FROM docs WHERE project = ? AND owned = 1 ORDER BY id", "doc \"{}\""),
             ("SELECT version FROM releases WHERE project = ? AND owned = 1 ORDER BY version", "release {}"),
         ] {
-            let ids: Vec<String> = sqlx::query_scalar(&sql(query)).bind(id).fetch_all(&mut *self.conn).await?;
+            let ids: Vec<String> = sqlx::query_scalar(sql(query)).bind(id).fetch_all(&mut *self.conn).await?;
             out.extend(ids.into_iter().map(|one| shown.replace("{}", &one)));
         }
-        let issues: Vec<String> = sqlx::query_scalar(&sql("SELECT id FROM issues WHERE project = ?")).bind(id).fetch_all(&mut *self.conn).await?;
+        let issues: Vec<String> = sqlx::query_scalar(sql("SELECT id FROM issues WHERE project = ?")).bind(id).fetch_all(&mut *self.conn).await?;
         if !issues.is_empty() {
             out.extend(IssueWrites::new(&mut *self.conn).owned_under(id, &issues).await?);
         }
@@ -709,7 +707,7 @@ impl<'c> Projects<'c> {
     /// owner made, and nobody can while another project takes its releases from it.
     pub async fn delete(&mut self, id: &str, actor: &Actor) -> Result<()> {
         let owned: Option<i64> =
-            sqlx::query_scalar(&sql("SELECT CAST(owned AS BIGINT) FROM projects WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
+            sqlx::query_scalar(sql("SELECT CAST(owned AS BIGINT) FROM projects WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
         let owned = owned.ok_or_else(|| ApiError::not_found(format!("No project \"{id}\"")))? != 0;
         if !actor.owner {
             let owned = self.owned_in(id, owned).await?;
@@ -753,10 +751,10 @@ impl<'c> Projects<'c> {
             "DELETE FROM schedules WHERE project = ?",
             "DELETE FROM presets WHERE project = ?",
         ] {
-            sqlx::query(&sql(statement)).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(sql(statement)).bind(id).execute(&mut *self.conn).await?;
         }
-        sqlx::query(&sql("DELETE FROM issue_links WHERE project = ? OR on_project = ?")).bind(id).bind(id).execute(&mut *self.conn).await?;
-        sqlx::query(&sql("DELETE FROM projects WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM issue_links WHERE project = ? OR on_project = ?")).bind(id).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM projects WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
         self.effects.changed.push(id.into());
         // Its schedules went with it, for the local app's runner to drop.
         self.effects.schedules.push(id.into());

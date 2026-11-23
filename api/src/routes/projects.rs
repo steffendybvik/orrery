@@ -57,7 +57,7 @@ async fn upload_board(State(app): Shared, request: Request) -> Result<Response> 
     let mut conn = app.pool.acquire().await?;
     let workspace = Seen::workspace(&mut conn, &headers).await?;
     // The local app makes the board for whoever uploaded it: it goes only into a workspace they're in (ORR-1195).
-    let theirs = sqlx::query(&sql("SELECT 1 FROM workspace_members WHERE workspace = ? AND person = ?"))
+    let theirs = sqlx::query(sql("SELECT 1 FROM workspace_members WHERE workspace = ? AND person = ?"))
         .bind(workspace.id())
         .bind(holder)
         .fetch_optional(&mut *conn)
@@ -240,7 +240,7 @@ async fn project_row(State(app): Shared, Path(project): Path<String>, headers: H
         return Err(ApiError::forbidden("Only the local app reads a project's row"));
     }
     let mut conn = app.pool.acquire().await?;
-    let row = sqlx::query(&crate::db::sql("SELECT * FROM projects WHERE id = ?"))
+    let row = sqlx::query(crate::db::sql("SELECT * FROM projects WHERE id = ?"))
         .bind(&project)
         .fetch_optional(&mut *conn)
         .await?

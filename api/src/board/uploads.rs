@@ -113,7 +113,7 @@ pub async fn create_upload(conn: &mut AnyConnection, body: &Value, actor: &Actor
     let name = name.map(|n| n.trim().chars().take(200).collect::<String>()).filter(|n| !n.is_empty());
     let id = crate::work::settings::hex(12);
     let size = data.len() as i64;
-    sqlx::query(&sql("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at, workspace) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"))
+    sqlx::query(sql("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at, workspace) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"))
         .bind(&id)
         .bind(kind)
         .bind(name.as_deref())
@@ -136,7 +136,7 @@ pub async fn create_upload(conn: &mut AnyConnection, body: &Value, actor: &Actor
 /// (ORR-1226), as with the rails; an untrusted session also reaches its own project's workspace.
 pub async fn upload(conn: &mut AnyConnection, id: &str, seen: &Seen) -> Result<Response> {
     let row = if ID.is_match(id) {
-        sqlx::query(&sql("SELECT type, data, workspace FROM uploads WHERE id = ?")).bind(id).fetch_optional(&mut *conn).await?
+        sqlx::query(sql("SELECT type, data, workspace FROM uploads WHERE id = ?")).bind(id).fetch_optional(&mut *conn).await?
     } else {
         None
     };
@@ -167,7 +167,7 @@ async fn reaches(conn: &mut AnyConnection, seen: &Seen, workspace: &str) -> Resu
 
 /// The workspace of an untrusted session's own project, if it's here.
 async fn own_workspace(conn: &mut AnyConnection, project: &str) -> Result<Option<String>> {
-    let row = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(project).fetch_optional(conn).await?;
+    let row = sqlx::query(sql("SELECT workspace FROM projects WHERE id = ?")).bind(project).fetch_optional(conn).await?;
     Ok(row.map(|r| r.get("workspace")))
 }
 
@@ -210,7 +210,7 @@ pub(crate) async fn shown(conn: &mut AnyConnection) -> Result<HashSet<String>> {
     let mut ids = HashSet::new();
     for (table, column) in columns {
         let text = sql(&format!("SELECT CAST(\"{column}\" AS TEXT) FROM \"{table}\" WHERE CAST(\"{column}\" AS TEXT) LIKE ?"));
-        let found: Vec<(Option<String>,)> = sqlx::query_as(&text).bind("%/api/uploads/%").fetch_all(&mut *conn).await?;
+        let found: Vec<(Option<String>,)> = sqlx::query_as(text.clone()).bind("%/api/uploads/%").fetch_all(&mut *conn).await?;
         for text in found.into_iter().filter_map(|(text,)| text) {
             ids.extend(UPLOAD.captures_iter(&text).filter_map(|found| found.get(1)).map(|m| m.as_str().to_string()));
         }
@@ -228,7 +228,7 @@ fn grace() -> String {
 pub async fn list_uploads(conn: &mut AnyConnection, workspace: &str, unused_only: bool) -> Result<Value> {
     let shown = shown(conn).await?;
     let before = grace();
-    let found = sqlx::query(&sql("SELECT id, type, name, size, created_by, created_at FROM uploads WHERE workspace = ? ORDER BY created_at DESC, id"))
+    let found = sqlx::query(sql("SELECT id, type, name, size, created_by, created_at FROM uploads WHERE workspace = ? ORDER BY created_at DESC, id"))
         .bind(workspace)
         .fetch_all(&mut *conn)
         .await?;
@@ -262,7 +262,7 @@ pub async fn list_uploads(conn: &mut AnyConnection, workspace: &str, unused_only
 /// Removes one of `workspace`'s images: 404 when it isn't one, 409 while something still shows it.
 pub async fn delete_upload(conn: &mut AnyConnection, id: &str, workspace: &str) -> Result<()> {
     let found = if ID.is_match(id) {
-        sqlx::query(&sql("SELECT id FROM uploads WHERE id = ? AND workspace = ?")).bind(id).bind(workspace).fetch_optional(&mut *conn).await?
+        sqlx::query(sql("SELECT id FROM uploads WHERE id = ? AND workspace = ?")).bind(id).bind(workspace).fetch_optional(&mut *conn).await?
     } else {
         None
     };
@@ -272,7 +272,7 @@ pub async fn delete_upload(conn: &mut AnyConnection, id: &str, workspace: &str) 
     if shown(conn).await?.contains(id) {
         return Err(ApiError::conflict(format!("Image {id} is still shown: take it out of what shows it first")));
     }
-    sqlx::query(&sql("DELETE FROM uploads WHERE id = ?")).bind(id).execute(conn).await?;
+    sqlx::query(sql("DELETE FROM uploads WHERE id = ?")).bind(id).execute(conn).await?;
     Ok(())
 }
 
@@ -283,7 +283,7 @@ pub async fn sweep_uploads(conn: &mut AnyConnection, workspace: &str) -> Result<
     for chunk in ids.chunks(200) {
         let marks = vec!["?"; chunk.len()].join(", ");
         let text = sql(&format!("DELETE FROM uploads WHERE id IN ({marks})"));
-        let mut q = sqlx::query(&text);
+        let mut q = sqlx::query(text.clone());
         for id in chunk {
             q = q.bind(id);
         }

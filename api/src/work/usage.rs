@@ -43,7 +43,7 @@ impl<'c> Usage<'c> {
     /// over 30 and 90 days, coldest first (`featureUse`).
     pub(crate) async fn list(&mut self) -> Result<Value> {
         let on = Settings::of(self.conn, Workspace::installation()).get().await?["count_use"].clone();
-        let rows = sqlx::query(&sql("SELECT feature, MAX(day) AS last, CAST(SUM(CASE WHEN day >= ? THEN count ELSE 0 END) AS BIGINT) AS days30, \
+        let rows = sqlx::query(sql("SELECT feature, MAX(day) AS last, CAST(SUM(CASE WHEN day >= ? THEN count ELSE 0 END) AS BIGINT) AS days30, \
              CAST(SUM(CASE WHEN day >= ? THEN count ELSE 0 END) AS BIGINT) AS days90 FROM feature_use GROUP BY feature"))
         .bind(days_before(30))
         .bind(days_before(90))
@@ -99,14 +99,14 @@ impl<'c> Usage<'c> {
             return Ok(());
         }
         for (feature, day, n) in kept {
-            sqlx::query(&sql("INSERT INTO feature_use (feature, day, count) VALUES (?, ?, ?) ON CONFLICT (feature, day) DO UPDATE SET count = feature_use.count + excluded.count"))
+            sqlx::query(sql("INSERT INTO feature_use (feature, day, count) VALUES (?, ?, ?) ON CONFLICT (feature, day) DO UPDATE SET count = feature_use.count + excluded.count"))
                 .bind(feature)
                 .bind(day)
                 .bind(n)
                 .execute(&mut *self.conn)
                 .await?;
         }
-        sqlx::query(&sql("DELETE FROM feature_use WHERE day < ?")).bind(days_before(KEEP_DAYS)).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM feature_use WHERE day < ?")).bind(days_before(KEEP_DAYS)).execute(&mut *self.conn).await?;
         Ok(())
     }
 

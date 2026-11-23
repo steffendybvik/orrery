@@ -170,7 +170,7 @@ impl<'c> Chats<'c> {
         kept.shift_remove("messages");
         let text = |key: &str| sent[key].as_str().unwrap_or_default().to_string();
         changes::begin(self.conn).await?;
-        let done = sqlx::query(&sql(
+        let done = sqlx::query(sql(
             "INSERT INTO chats (id, project, started_at, ended_at, chat) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET ended_at = excluded.ended_at, chat = excluded.chat",
         ))
         .bind(id)
@@ -194,8 +194,8 @@ impl<'c> Chats<'c> {
     }
 
     async fn forget_in(&mut self, id: &str) -> Result<()> {
-        sqlx::query(&sql("DELETE FROM chat_messages WHERE chat = ?")).bind(id).execute(&mut *self.conn).await?;
-        sqlx::query(&sql("DELETE FROM chats WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM chat_messages WHERE chat = ?")).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM chats WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
         Ok(())
     }
 
@@ -221,7 +221,7 @@ impl<'c> Chats<'c> {
         let last: i64 = sqlx::query("SELECT CAST(COALESCE(MAX(id), 0) AS BIGINT) AS n FROM chat_messages").fetch_one(&mut *self.conn).await?.get("n");
         let id = last + 1;
         let at = crate::write::stamp();
-        sqlx::query(&sql("INSERT INTO chat_messages (chat, id, at, message) VALUES (?, ?, ?, ?)"))
+        sqlx::query(sql("INSERT INTO chat_messages (chat, id, at, message) VALUES (?, ?, ?, ?)"))
             .bind(chat)
             .bind(id)
             .bind(&at)
@@ -253,7 +253,7 @@ impl<'c> Chats<'c> {
     }
 
     async fn change_in(&mut self, chat: &str, id: i64, message: serde_json::Map<String, Value>) -> Result<Value> {
-        let changed = sqlx::query(&sql("UPDATE chat_messages SET message = ? WHERE chat = ? AND id = ?"))
+        let changed = sqlx::query(sql("UPDATE chat_messages SET message = ? WHERE chat = ? AND id = ?"))
             .bind(Value::Object(message).to_string())
             .bind(chat)
             .bind(id)
@@ -262,7 +262,7 @@ impl<'c> Chats<'c> {
         if changed.rows_affected() == 0 {
             return Err(ApiError::not_found(format!("No message {id} in chat {chat}")));
         }
-        let row = sqlx::query(&sql("SELECT CAST(id AS BIGINT) AS id, at, message FROM chat_messages WHERE chat = ? AND id = ?"))
+        let row = sqlx::query(sql("SELECT CAST(id AS BIGINT) AS id, at, message FROM chat_messages WHERE chat = ? AND id = ?"))
             .bind(chat)
             .bind(id)
             .fetch_one(&mut *self.conn)
@@ -278,7 +278,7 @@ impl<'c> Chats<'c> {
             return Err(ApiError::bad_request("Send the answer as {\"text\": \"…\"}"));
         }
         let running: Option<String> =
-            sqlx::query_scalar(&sql("SELECT id FROM chats WHERE id = ? AND ended_at IS NULL")).bind(chat).fetch_optional(&mut *self.conn).await?;
+            sqlx::query_scalar(sql("SELECT id FROM chats WHERE id = ? AND ended_at IS NULL")).bind(chat).fetch_optional(&mut *self.conn).await?;
         if running.is_none() {
             return Err(ApiError::not_found(format!("No chat {chat}: it has ended")));
         }
@@ -312,7 +312,7 @@ impl<'c> Chats<'c> {
             }
         }
         // What it's set to in the chat's own workspace, not `default`'s (ORR-1355).
-        let workspace: Option<String> = sqlx::query_scalar(&sql("SELECT workspace FROM chats WHERE id = ?")).bind(chat).fetch_optional(&mut *self.conn).await?;
+        let workspace: Option<String> = sqlx::query_scalar(sql("SELECT workspace FROM chats WHERE id = ?")).bind(chat).fetch_optional(&mut *self.conn).await?;
         let workspace = workspace.map(|w| Workspace::across(Across::Stored, w)).unwrap_or_else(Workspace::installation);
         let from = crate::work::settings::Settings::of(&mut *self.conn, workspace).get().await?.get(setting).cloned().unwrap_or(Value::Null);
         let why = body.get("why").and_then(Value::as_str).map(str::trim).unwrap_or_default().to_string();
@@ -324,7 +324,7 @@ impl<'c> Chats<'c> {
 
     async fn ask_setting_in(&mut self, chat: &str, setting: &str, from: Value, to: Value, why: String) -> Result<Value> {
         let ended: Option<Option<String>> =
-            sqlx::query_scalar(&sql("SELECT ended_at FROM chats WHERE id = ?")).bind(chat).fetch_optional(&mut *self.conn).await?;
+            sqlx::query_scalar(sql("SELECT ended_at FROM chats WHERE id = ?")).bind(chat).fetch_optional(&mut *self.conn).await?;
         if !matches!(ended, Some(None)) {
             return Err(ApiError::not_found(format!("No chat {chat}: it has ended")));
         }
@@ -670,7 +670,7 @@ impl<'c> Chats<'c> {
     /// The project of chat `chat`, a 404 unless it's running.
     async fn running(&mut self, chat: &str) -> Result<String> {
         let own: Option<String> =
-            sqlx::query_scalar(&sql("SELECT project FROM chats WHERE id = ? AND ended_at IS NULL")).bind(chat).fetch_optional(&mut *self.conn).await?;
+            sqlx::query_scalar(sql("SELECT project FROM chats WHERE id = ? AND ended_at IS NULL")).bind(chat).fetch_optional(&mut *self.conn).await?;
         own.ok_or_else(|| ApiError::not_found(format!("No chat {chat}: it has ended")))
     }
 
@@ -735,7 +735,7 @@ impl<'c> Chats<'c> {
 
     /// A 404 unless the chat is kept.
     async fn known(&mut self, chat: &str) -> Result<()> {
-        let kept: Option<String> = sqlx::query_scalar(&sql("SELECT id FROM chats WHERE id = ?")).bind(chat).fetch_optional(&mut *self.conn).await?;
+        let kept: Option<String> = sqlx::query_scalar(sql("SELECT id FROM chats WHERE id = ?")).bind(chat).fetch_optional(&mut *self.conn).await?;
         kept.map(|_| ()).ok_or_else(|| ApiError::not_found(format!("No chat {chat}")))
     }
 
@@ -743,7 +743,7 @@ impl<'c> Chats<'c> {
     async fn messages(&mut self, chat: Option<&str>) -> Result<std::collections::HashMap<String, Vec<Value>>> {
         let rows = match chat {
             Some(chat) => {
-                sqlx::query(&sql("SELECT chat, CAST(id AS BIGINT) AS id, at, message FROM chat_messages WHERE chat = ? ORDER BY id"))
+                sqlx::query(sql("SELECT chat, CAST(id AS BIGINT) AS id, at, message FROM chat_messages WHERE chat = ? ORDER BY id"))
                     .bind(chat)
                     .fetch_all(&mut *self.conn)
                     .await?
@@ -769,7 +769,7 @@ impl<'c> Chats<'c> {
 
     /// One chat, running or ended, or a 404 (`readChat`).
     pub async fn get(&mut self, id: &str) -> Result<Value> {
-        let row = sqlx::query(&sql("SELECT project, chat FROM chats WHERE id = ?"))
+        let row = sqlx::query(sql("SELECT project, chat FROM chats WHERE id = ?"))
             .bind(id)
             .fetch_optional(&mut *self.conn)
             .await?

@@ -197,7 +197,7 @@ impl<'c> EventLog<'c> {
     ) -> Result<Value> {
         let workspace = self.workspace_of(project).await?;
         let again = !activity
-            && sqlx::query(&sql(
+            && sqlx::query(sql(
                 "SELECT id FROM events WHERE workspace = ? AND level = ? AND kind = ? AND coalesce(project, '') = ? AND message = ? AND resolved_at IS NULL LIMIT 1",
             ))
             .bind(&workspace)
@@ -209,7 +209,7 @@ impl<'c> EventLog<'c> {
             .await?
             .is_some();
         let at = stamp();
-        let row = sqlx::query(&sql(&format!(
+        let row = sqlx::query(sql(&format!(
             "INSERT INTO events (level, kind, project, subject, message, details, count, first_seen, last_seen, workspace) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?) \
              RETURNING {COLUMNS}"
         )))
@@ -236,7 +236,7 @@ impl<'c> EventLog<'c> {
     /// The project line `id` of this workspace names: `None` when there's no such line here, `Some(None)` for one naming
     /// no project.
     pub(crate) async fn project_of(&mut self, id: i64) -> Result<Option<Option<String>>> {
-        Ok(sqlx::query_scalar(&sql("SELECT project FROM events WHERE id = ? AND workspace = ?"))
+        Ok(sqlx::query_scalar(sql("SELECT project FROM events WHERE id = ? AND workspace = ?"))
             .bind(id)
             .bind(self.workspace.id())
             .fetch_optional(&mut *self.conn)
@@ -254,19 +254,19 @@ impl<'c> EventLog<'c> {
     /// changes to the roadmap and past MAX_ROWS of the rest, so many changes can't push an error out. How many went.
     pub(crate) async fn prune(&mut self) -> Result<u64> {
         let before = |days: i64| (chrono::Utc::now() - chrono::Duration::days(days)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        let mut gone = sqlx::query(&sql("DELETE FROM events WHERE level = 'info' AND last_seen < ?"))
+        let mut gone = sqlx::query(sql("DELETE FROM events WHERE level = 'info' AND last_seen < ?"))
             .bind(before(KEEP_INFO))
             .execute(&mut *self.conn)
             .await?
             .rows_affected();
-        gone += sqlx::query(&sql("DELETE FROM events WHERE level <> 'info' AND last_seen < ?"))
+        gone += sqlx::query(sql("DELETE FROM events WHERE level <> 'info' AND last_seen < ?"))
             .bind(before(KEEP_PROBLEMS))
             .execute(&mut *self.conn)
             .await?
             .rows_affected();
         let activity = activity_sql();
         for (which, most) in [(activity.clone(), MAX_ACTIVITY), (format!("NOT {activity}"), MAX_ROWS)] {
-            gone += sqlx::query(&sql(&format!(
+            gone += sqlx::query(sql(&format!(
                 "DELETE FROM events WHERE {which} AND id NOT IN (SELECT id FROM events WHERE {which} ORDER BY last_seen DESC, id DESC LIMIT {most})"
             )))
             .execute(&mut *self.conn)
@@ -312,7 +312,7 @@ impl<'c> EventLog<'c> {
         }
         let wheres = format!("WHERE {}", wheres.join(" AND "));
         let statement = sql(&format!("SELECT {COLUMNS} FROM events {wheres} ORDER BY last_seen DESC, id DESC LIMIT {}", limit_of(filter.limit)));
-        let mut query = sqlx::query(&statement);
+        let mut query = sqlx::query(statement.clone());
         for bind in &binds {
             query = query.bind(bind);
         }
@@ -331,7 +331,7 @@ impl<'c> EventLog<'c> {
     async fn resolving(&mut self, id: i64, by: &Actor) -> Result<Value> {
         let at = stamp();
         let who = (!by.owner).then(|| by.name.clone());
-        let row = sqlx::query(&sql(&format!(
+        let row = sqlx::query(sql(&format!(
             "UPDATE events SET resolved_by = CASE WHEN resolved_at IS NULL THEN ? ELSE resolved_by END, resolved_at = coalesce(resolved_at, ?) \
              WHERE id = ? AND workspace = ? RETURNING {COLUMNS}"
         )))
@@ -345,7 +345,7 @@ impl<'c> EventLog<'c> {
         let event = event_of(&row);
         let (level, kind, project, message): (String, String, Option<String>, String) =
             (row.get("level"), row.get("kind"), row.get("project"), row.get("message"));
-        let repeats = sqlx::query(&sql(&format!(
+        let repeats = sqlx::query(sql(&format!(
             "UPDATE events SET resolved_at = ?, resolved_by = ? WHERE resolved_at IS NULL AND level = ? AND kind = ? \
              AND coalesce(project, '') = ? AND message = ? AND workspace = ? RETURNING {COLUMNS}"
         )))

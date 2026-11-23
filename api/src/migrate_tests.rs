@@ -41,7 +41,7 @@ async fn sqlite_at(step: u32) -> (String, AnyConnection) {
 }
 
 async fn rows(conn: &mut AnyConnection, query: &str) -> Vec<Vec<Option<String>>> {
-    let rows = sqlx::query(query).fetch_all(&mut *conn).await.unwrap();
+    let rows = sqlx::query(sqlx::AssertSqlSafe(query)).fetch_all(&mut *conn).await.unwrap();
     rows.iter().map(|r| (0..r.len()).map(|i| r.try_get::<Option<String>, _>(i).unwrap()).collect()).collect()
 }
 
@@ -327,8 +327,12 @@ async fn on_postgres_one_at_the_latest_runs_nothing_and_one_from_a_newer_orrery_
     exec(&mut conn, &format!("UPDATE \"{schema}\".schema_version SET version = {}", latest + 1)).await.unwrap();
     let Err(refused) = migrate(&url, Some(&schema)).await else { panic!("it should be refused") };
     assert!(refused.contains("written by a newer orrery") && refused.contains(&format!("schema step {}", latest + 1)), "{refused}");
-    let version: i64 =
-        sqlx::query(&format!("SELECT CAST(version AS bigint) FROM \"{schema}\".schema_version")).fetch_one(&mut conn).await.unwrap().try_get(0).unwrap();
+    let version: i64 = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT CAST(version AS bigint) FROM \"{schema}\".schema_version")))
+        .fetch_one(&mut conn)
+        .await
+        .unwrap()
+        .try_get(0)
+        .unwrap();
     assert_eq!(version, (latest + 1) as i64, "and left as it was");
 }
 

@@ -205,7 +205,7 @@ impl<'c> ScheduleRequests<'c> {
         let title = request["title"].as_str().unwrap_or_default().to_string();
         match schedule {
             None => {
-                sqlx::query(&sql("UPDATE schedule_requests SET state = 'expired' WHERE state = 'asked' AND schedule IS NULL AND title = ? \
+                sqlx::query(sql("UPDATE schedule_requests SET state = 'expired' WHERE state = 'asked' AND schedule IS NULL AND title = ? \
                     AND comment IN (SELECT id FROM comments WHERE project = ? AND issue = ?)"))
                 .bind(&title)
                 .bind(project)
@@ -214,7 +214,7 @@ impl<'c> ScheduleRequests<'c> {
                 .await?;
             }
             Some(id) => {
-                sqlx::query(&sql("UPDATE schedule_requests SET state = 'expired' WHERE state = 'asked' AND schedule = ? \
+                sqlx::query(sql("UPDATE schedule_requests SET state = 'expired' WHERE state = 'asked' AND schedule = ? \
                     AND comment IN (SELECT id FROM comments WHERE project = ?)"))
                 .bind(id)
                 .bind(project)
@@ -227,7 +227,7 @@ impl<'c> ScheduleRequests<'c> {
         let (comment, handoff) = writes.create(project, &issue, &json!({"body": words, "asks": "decision"}), actor).await?;
         let effects = std::mem::take(&mut writes.effects);
         let id = comment["id"].as_i64().unwrap_or_default();
-        sqlx::query(&sql("INSERT INTO schedule_requests (comment, schedule, title, changes, body, state) VALUES (?, ?, ?, ?, ?, ?)"))
+        sqlx::query(sql("INSERT INTO schedule_requests (comment, schedule, title, changes, body, state) VALUES (?, ?, ?, ?, ?, ?)"))
             .bind(id)
             .bind(schedule)
             .bind(&title)
@@ -309,7 +309,7 @@ impl ScheduleRequests<'_> {
             None
         };
         let schedule = made.as_ref().and_then(|m| m["id"].as_i64());
-        sqlx::query(&sql("UPDATE schedule_requests SET state = ?, schedule = COALESCE(?, schedule), answered_by = ?, answered_at = ? WHERE comment = ?"))
+        sqlx::query(sql("UPDATE schedule_requests SET state = ?, schedule = COALESCE(?, schedule), answered_by = ?, answered_at = ? WHERE comment = ?"))
             .bind(if allow { "allowed" } else { "denied" })
             .bind(schedule)
             .bind(&actor.name)

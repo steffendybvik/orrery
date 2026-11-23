@@ -188,7 +188,7 @@ impl<'c> Presets<'c> {
 
     async fn row(&mut self, id: i64) -> Result<AnyRow> {
         let query = format!("SELECT {COLUMNS} FROM presets WHERE id = ? AND workspace = ?");
-        sqlx::query(&sql(&query))
+        sqlx::query(sql(&query))
             .bind(id)
             .bind(self.workspace.id())
             .fetch_optional(&mut *self.conn)
@@ -208,7 +208,7 @@ impl<'c> Presets<'c> {
         };
         let query =
             format!("SELECT {COLUMNS} FROM presets WHERE (project IS NULL AND workspace = ?) OR project = ? ORDER BY project IS NOT NULL, lower(name), id");
-        let rows = sqlx::query(&sql(&query)).bind(workspace.id()).bind(project).fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(sql(&query)).bind(workspace.id()).bind(project).fetch_all(&mut *self.conn).await?;
         Ok(Value::Array(rows.iter().map(preset_of).collect()))
     }
 
@@ -222,7 +222,7 @@ impl<'c> Presets<'c> {
         let input = check_input(body, false)?;
         let (name, text) = (trimmed(&input, "name")?, trimmed(&input, "text")?);
         let now = stamp();
-        let row = sqlx::query(&sql(
+        let row = sqlx::query(sql(
             "INSERT INTO presets (project, name, text, icon, color, created_by, owned, created_at, updated_at, workspace) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING CAST(id AS BIGINT) AS id",
         ))
         .bind(project)
@@ -265,7 +265,7 @@ impl<'c> Presets<'c> {
     async fn set(&mut self, id: i64, set: Vec<(&str, Option<String>)>) -> Result<()> {
         let columns: Vec<String> = set.iter().map(|(column, _)| format!("{column} = ?")).chain(["updated_at = ?".to_string()]).collect();
         let query = sql(&format!("UPDATE presets SET {} WHERE id = ?", columns.join(", ")));
-        let mut update = sqlx::query(&query);
+        let mut update = sqlx::query(query.clone());
         for (_, value) in set {
             update = update.bind(value);
         }
@@ -276,7 +276,7 @@ impl<'c> Presets<'c> {
     pub async fn delete(&mut self, id: i64, actor: &Actor) -> Result<()> {
         owner_only(actor)?;
         self.row(id).await?;
-        sqlx::query(&sql("DELETE FROM presets WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM presets WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
         Ok(())
     }
 
@@ -302,7 +302,7 @@ impl<'c> Presets<'c> {
     /// Adds back the presets orrery ships that were removed, as it ships them; says which.
     pub async fn restore(&mut self, actor: &Actor) -> Result<Value> {
         owner_only(actor)?;
-        let rows = sqlx::query(&sql("SELECT default_key FROM presets WHERE default_key IS NOT NULL AND workspace = ?"))
+        let rows = sqlx::query(sql("SELECT default_key FROM presets WHERE default_key IS NOT NULL AND workspace = ?"))
             .bind(self.workspace.id())
             .fetch_all(&mut *self.conn)
             .await?;
@@ -311,7 +311,7 @@ impl<'c> Presets<'c> {
         for shipped in SHIPPED.iter().filter(|d| !kept.contains(&d.key)) {
             let now = stamp();
             let row =
-                sqlx::query(&sql("INSERT INTO presets (project, name, text, icon, color, default_key, created_by, owned, created_at, updated_at, workspace) \
+                sqlx::query(sql("INSERT INTO presets (project, name, text, icon, color, default_key, created_by, owned, created_at, updated_at, workspace) \
                  VALUES (NULL, ?, ?, ?, ?, ?, 'orrery', 1, ?, ?, ?) RETURNING CAST(id AS BIGINT) AS id"))
                 .bind(&shipped.name)
                 .bind(&shipped.text)
@@ -347,7 +347,7 @@ impl<'c> Presets<'c> {
         }
         for shipped in SHIPPED.iter() {
             for old in &shipped.was {
-                sqlx::query(&sql("UPDATE presets SET text = ?, updated_at = ? WHERE default_key = ? AND text = ?"))
+                sqlx::query(sql("UPDATE presets SET text = ?, updated_at = ? WHERE default_key = ? AND text = ?"))
                     .bind(&shipped.text)
                     .bind(stamp())
                     .bind(&shipped.key)
@@ -361,12 +361,12 @@ impl<'c> Presets<'c> {
 
     /// Adds to `workspace` the presets orrery ships that it hasn't had yet; says how many.
     async fn seed_in(&mut self, workspace: &str) -> Result<usize> {
-        let rows = sqlx::query(&sql("SELECT key FROM preset_defaults WHERE workspace = ?")).bind(workspace).fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(sql("SELECT key FROM preset_defaults WHERE workspace = ?")).bind(workspace).fetch_all(&mut *self.conn).await?;
         let seeded: Vec<String> = rows.iter().map(|r| r.get("key")).collect();
         let due: Vec<&Shipped> = SHIPPED.iter().filter(|d| !seeded.contains(&d.key)).collect();
         for shipped in &due {
             let now = stamp();
-            sqlx::query(&sql("INSERT INTO presets (project, name, text, icon, color, default_key, created_by, owned, created_at, updated_at, workspace) \
+            sqlx::query(sql("INSERT INTO presets (project, name, text, icon, color, default_key, created_by, owned, created_at, updated_at, workspace) \
                  VALUES (NULL, ?, ?, ?, ?, ?, 'orrery', 1, ?, ?, ?)"))
             .bind(&shipped.name)
             .bind(&shipped.text)
@@ -378,7 +378,7 @@ impl<'c> Presets<'c> {
             .bind(workspace)
             .execute(&mut *self.conn)
             .await?;
-            sqlx::query(&sql("INSERT INTO preset_defaults (key, seeded_at, workspace) VALUES (?, ?, ?)"))
+            sqlx::query(sql("INSERT INTO preset_defaults (key, seeded_at, workspace) VALUES (?, ?, ?)"))
                 .bind(&shipped.key)
                 .bind(&now)
                 .bind(workspace)

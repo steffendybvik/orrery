@@ -158,7 +158,7 @@ impl<'c> Epics<'c> {
     }
 
     async fn row(&mut self, id: i64) -> Result<AnyRow> {
-        sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM epics WHERE id = ? AND workspace = ?")))
+        sqlx::query(sql(&format!("SELECT {COLUMNS} FROM epics WHERE id = ? AND workspace = ?")))
             .bind(id)
             .bind(self.workspace.id())
             .fetch_optional(&mut *self.conn)
@@ -169,9 +169,7 @@ impl<'c> Epics<'c> {
     /// The projects with an issue set for one of `epics` (every epic, without), by id (`projectsIn`).
     async fn projects_in(&mut self, epic: Option<i64>) -> Result<Vec<String>> {
         let rows = match epic {
-            Some(epic) => {
-                sqlx::query(&sql("SELECT DISTINCT project FROM issues WHERE epic = ? ORDER BY project")).bind(epic).fetch_all(&mut *self.conn).await?
-            }
+            Some(epic) => sqlx::query(sql("SELECT DISTINCT project FROM issues WHERE epic = ? ORDER BY project")).bind(epic).fetch_all(&mut *self.conn).await?,
             None => sqlx::query("SELECT DISTINCT project FROM issues WHERE epic IS NOT NULL ORDER BY project").fetch_all(&mut *self.conn).await?,
         };
         Ok(rows.iter().map(|r| r.get("project")).collect())
@@ -180,7 +178,7 @@ impl<'c> Epics<'c> {
     /// Every epic, in the order they're arranged in, a new one on top, each with its progress and each project's part
     /// (`epics`).
     pub async fn list(&mut self) -> Result<Value> {
-        let rows = sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM epics WHERE workspace = ? ORDER BY position, id DESC")))
+        let rows = sqlx::query(sql(&format!("SELECT {COLUMNS} FROM epics WHERE workspace = ? ORDER BY position, id DESC")))
             .bind(self.workspace.id())
             .fetch_all(&mut *self.conn)
             .await?;
@@ -260,7 +258,7 @@ impl<'c> Epics<'c> {
     /// Puts the epic at `index` among them (0 the top, past the end the bottom), numbering them all again from 0
     /// (`placeEpic`).
     async fn place(&mut self, id: i64, index: f64) -> Result<()> {
-        let rows = sqlx::query(&sql("SELECT CAST(id AS BIGINT) AS id FROM epics WHERE workspace = ? ORDER BY position, id DESC"))
+        let rows = sqlx::query(sql("SELECT CAST(id AS BIGINT) AS id FROM epics WHERE workspace = ? ORDER BY position, id DESC"))
             .bind(self.workspace.id())
             .fetch_all(&mut *self.conn)
             .await?;
@@ -268,7 +266,7 @@ impl<'c> Epics<'c> {
         let at = (index.trunc().max(0.0) as usize).min(order.len());
         order.insert(at, id);
         for (position, each) in order.iter().enumerate() {
-            sqlx::query(&sql("UPDATE epics SET position = ? WHERE id = ?")).bind(position as i64).bind(each).execute(&mut *self.conn).await?;
+            sqlx::query(sql("UPDATE epics SET position = ? WHERE id = ?")).bind(position as i64).bind(each).execute(&mut *self.conn).await?;
         }
         Ok(())
     }
@@ -281,12 +279,12 @@ impl<'c> Epics<'c> {
         let now = stamp();
         changes::begin(self.conn).await?;
         let done: Result<i64> = async {
-            let top: Option<i64> = sqlx::query(&sql("SELECT CAST(min(position) AS BIGINT) AS n FROM epics WHERE workspace = ?"))
+            let top: Option<i64> = sqlx::query(sql("SELECT CAST(min(position) AS BIGINT) AS n FROM epics WHERE workspace = ?"))
                 .bind(self.workspace.id())
                 .fetch_one(&mut *self.conn)
                 .await?
                 .get("n");
-            let row = sqlx::query(&sql(
+            let row = sqlx::query(sql(
                 "INSERT INTO epics (title, notes, position, created_by, owned, created_at, updated_at, workspace) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING CAST(id AS BIGINT) AS id",
             ))
             .bind(&title)
@@ -331,7 +329,7 @@ impl<'c> Epics<'c> {
             }
             sets.push("updated_at = ?");
             let statement = sql(&format!("UPDATE epics SET {} WHERE id = ?", sets.join(", ")));
-            let mut query = sqlx::query(&statement);
+            let mut query = sqlx::query(statement.clone());
             if let Some(title) = &title {
                 query = query.bind(title.clone());
             }
@@ -360,18 +358,18 @@ impl<'c> Epics<'c> {
             return Err(ApiError::refused_for("epics.delete", format!("Deleting epic {id} is the owner's call: they made it")));
         }
         let projects = self.projects_in(Some(id)).await?;
-        let issues = sqlx::query(&sql("SELECT project, id FROM issues WHERE epic = ? ORDER BY project, id")).bind(id).fetch_all(&mut *self.conn).await?;
+        let issues = sqlx::query(sql("SELECT project, id FROM issues WHERE epic = ? ORDER BY project, id")).bind(id).fetch_all(&mut *self.conn).await?;
         let issues: Vec<(String, String)> = issues.iter().map(|r| (r.get("project"), r.get("id"))).collect();
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            sqlx::query(&sql("UPDATE issues SET epic = NULL WHERE epic = ?")).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(sql("UPDATE issues SET epic = NULL WHERE epic = ?")).bind(id).execute(&mut *self.conn).await?;
             for (project, issue) in &issues {
                 self.effects.tell_change("issue.epic", project, issue, Some(&id.to_string()), None);
             }
-            sqlx::query(&sql("DELETE FROM epics WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(sql("DELETE FROM epics WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
             let now = stamp();
             for project in &projects {
-                sqlx::query(&sql("UPDATE projects SET updated_at = ? WHERE id = ?")).bind(&now).bind(project).execute(&mut *self.conn).await?;
+                sqlx::query(sql("UPDATE projects SET updated_at = ? WHERE id = ?")).bind(&now).bind(project).execute(&mut *self.conn).await?;
             }
             self.effects.changed = projects.clone();
             self.effects.epics = true;
