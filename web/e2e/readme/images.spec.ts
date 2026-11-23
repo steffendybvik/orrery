@@ -127,3 +127,22 @@ test('events', async ({page}) => {
     })
     await shoot(page, 'events')
 })
+
+test('roadmap', async ({page}) => {
+    await open(page, '/p/primes/roadmap')
+    await expect(page.getByText('Sieves').first()).toBeVisible()
+    await shoot(page, 'roadmap')
+})
+
+test('connect', async ({page}) => {
+    await open(page, '/connect')
+    await expect(page.getByRole('heading', {name: 'Give a session its roadmap'})).toBeVisible()
+    // The install line names this run's port, which differs by checkout: the default address in its place.
+    await page.evaluate(() => {
+        const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+        for (let node = walk.nextNode(); node; node = walk.nextNode()) {
+            node.textContent = node.textContent!.replace(/http:\/\/localhost:\d+/g, 'http://localhost:9000')
+        }
+    })
+    await shoot(page, 'connect')
+})
