@@ -72,7 +72,7 @@ async fn create_milestone(State(app): Shared, scoped: ScopedProject, headers: He
     let mut conn = app.pool.acquire().await?;
     let mut milestones = Milestones::new(&mut conn);
     milestones.outbox = Some(Outbox::new(actor_of(&headers)));
-    let id = milestones.create(&project, &body_of(&body), &actor_of(&headers)).await?;
+    let id = milestones.create(&scoped, &body_of(&body), &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut milestones.effects);
     let value = Plans::new(&mut Issues::new(&mut conn)).milestone(&project, &id).await?;
     Ok(reply(StatusCode::CREATED, Some(value), effects))
@@ -89,18 +89,17 @@ async fn patch_milestone(
     let mut conn = app.pool.acquire().await?;
     let mut milestones = Milestones::new(&mut conn);
     milestones.outbox = Some(Outbox::new(actor_of(&headers)));
-    let id = milestones.update(&project, &milestone, &body_of(&body)).await?;
+    let id = milestones.update(&scoped, &milestone, &body_of(&body)).await?;
     let effects = std::mem::take(&mut milestones.effects);
     let value = Plans::new(&mut Issues::new(&mut conn)).milestone(&project, &id).await?;
     Ok(reply(StatusCode::OK, Some(value), effects))
 }
 
 async fn delete_milestone(State(app): Shared, scoped: ScopedProject, Path((_, milestone)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
-    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let mut milestones = Milestones::new(&mut conn);
     milestones.outbox = Some(Outbox::new(actor_of(&headers)));
-    milestones.delete(&project, &milestone, &actor_of(&headers)).await?;
+    milestones.delete(&scoped, &milestone, &actor_of(&headers)).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut milestones.effects)))
 }
 

@@ -32,7 +32,7 @@ async fn create_release(State(app): Shared, scoped: ScopedProject, headers: Head
     let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
     let mut releases = Releases::new(&mut conn);
     releases.outbox = Some(Outbox::new(actor_of(&headers)));
-    let version = releases.create(&project, &body_of(&body), &actor_of(&headers)).await?;
+    let version = releases.create(&scoped, &body_of(&body), &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut releases.effects);
     let value = Plans::new(&mut Issues::new(&mut conn)).hiding(hidden).release(&project, &version).await?;
     Ok(reply(StatusCode::CREATED, Some(value), effects))
@@ -50,18 +50,17 @@ async fn patch_release(
     let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
     let mut releases = Releases::new(&mut conn);
     releases.outbox = Some(Outbox::new(actor_of(&headers)));
-    releases.update(&project, &release, &body_of(&body)).await?;
+    releases.update(&scoped, &release, &body_of(&body)).await?;
     let effects = std::mem::take(&mut releases.effects);
     let value = Plans::new(&mut Issues::new(&mut conn)).hiding(hidden).release(&project, &release).await?;
     Ok(reply(StatusCode::OK, Some(value), effects))
 }
 
 async fn delete_release(State(app): Shared, scoped: ScopedProject, Path((_, release)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
-    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let mut releases = Releases::new(&mut conn);
     releases.outbox = Some(Outbox::new(actor_of(&headers)));
-    releases.delete(&project, &release, &actor_of(&headers)).await?;
+    releases.delete(&scoped, &release, &actor_of(&headers)).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut releases.effects)))
 }
 

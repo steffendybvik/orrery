@@ -54,8 +54,7 @@ async fn list_docs(State(app): Shared, scoped: ScopedProject, Query(query): Quer
 }
 
 async fn create_doc(State(app): Shared, scoped: ScopedProject, headers: HeaderMap, body: Bytes) -> Result<Response> {
-    let project = scoped.id().to_string();
-    let (value, effects) = with_docs!(app, headers, |docs| docs.create(&project, &body_of(&body), &actor_of(&headers)).await?);
+    let (value, effects) = with_docs!(app, headers, |docs| docs.create(&scoped, &body_of(&body), &actor_of(&headers)).await?);
     Ok(reply(StatusCode::CREATED, Some(value), effects))
 }
 
@@ -66,20 +65,17 @@ async fn get_doc(State(app): Shared, scoped: ScopedProject, Path((_, doc)): Path
 }
 
 async fn put_doc(State(app): Shared, scoped: ScopedProject, Path((_, doc)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
-    let project = scoped.id().to_string();
-    let ((value, made), effects) = with_docs!(app, headers, |docs| docs.put(&project, &doc, &body_of(&body), &actor_of(&headers)).await?);
+    let ((value, made), effects) = with_docs!(app, headers, |docs| docs.put(&scoped, &doc, &body_of(&body), &actor_of(&headers)).await?);
     Ok(reply(if made { StatusCode::CREATED } else { StatusCode::OK }, Some(value), effects))
 }
 
 async fn patch_doc(State(app): Shared, scoped: ScopedProject, Path((_, doc)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
-    let project = scoped.id().to_string();
-    let (value, effects) = with_docs!(app, headers, |docs| docs.update(&project, &doc, &body_of(&body), &actor_of(&headers)).await?);
+    let (value, effects) = with_docs!(app, headers, |docs| docs.update(&scoped, &doc, &body_of(&body), &actor_of(&headers)).await?);
     Ok(reply(StatusCode::OK, Some(value), effects))
 }
 
 async fn delete_doc(State(app): Shared, scoped: ScopedProject, Path((_, doc)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
-    let project = scoped.id().to_string();
-    let ((), effects) = with_docs!(app, headers, |docs| docs.delete(&project, &doc, &actor_of(&headers)).await?);
+    let ((), effects) = with_docs!(app, headers, |docs| docs.delete(&scoped, &doc, &actor_of(&headers)).await?);
     Ok(reply(StatusCode::NO_CONTENT, None, effects))
 }
 
@@ -101,8 +97,7 @@ async fn restore_revision(
     Path((_, doc, revision)): Path<(String, String, String)>,
     headers: HeaderMap,
 ) -> Result<Response> {
-    let project = scoped.id().to_string();
-    let ((value, made), effects) = with_docs!(app, headers, |docs| docs.restore(&project, &doc, &revision, &actor_of(&headers)).await?);
+    let ((value, made), effects) = with_docs!(app, headers, |docs| docs.restore(&scoped, &doc, &revision, &actor_of(&headers)).await?);
     Ok(reply(if made { StatusCode::CREATED } else { StatusCode::OK }, Some(value), effects))
 }
 
@@ -119,8 +114,7 @@ async fn list_sections(State(app): Shared, scoped: ScopedProject) -> Result<Resp
 }
 
 async fn create_section(State(app): Shared, scoped: ScopedProject, headers: HeaderMap, body: Bytes) -> Result<Response> {
-    let project = scoped.id().to_string();
-    let (name, effects) = with_docs!(app, headers, |docs| docs.create_section(&project, &body_of(&body)).await?);
+    let (name, effects) = with_docs!(app, headers, |docs| docs.create_section(&scoped, &body_of(&body)).await?);
     Ok(reply(StatusCode::CREATED, Some(json!({"name": name})), effects))
 }
 
@@ -131,14 +125,12 @@ async fn patch_section(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response> {
-    let project = scoped.id().to_string();
-    let (name, effects) = with_docs!(app, headers, |docs| docs.update_section(&project, &section, &body_of(&body)).await?);
+    let (name, effects) = with_docs!(app, headers, |docs| docs.update_section(&scoped, &section, &body_of(&body)).await?);
     Ok(reply(StatusCode::OK, Some(json!({"name": name})), effects))
 }
 
 async fn delete_section(State(app): Shared, scoped: ScopedProject, Path((_, section)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
-    let project = scoped.id().to_string();
-    let ((), effects) = with_docs!(app, headers, |docs| docs.delete_section(&project, &section).await?);
+    let ((), effects) = with_docs!(app, headers, |docs| docs.delete_section(&scoped, &section).await?);
     Ok(reply(StatusCode::NO_CONTENT, None, effects))
 }
 
