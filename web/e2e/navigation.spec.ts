@@ -126,8 +126,8 @@ test('each sidebar entry goes to its page and shows as active there', async ({pa
 })
 
 // The pages ORR-561 and ORR-565 moved to App settings → Advanced are back in the sidebar under Schedules (ORR-578),
-// each on its own row, with no fold (ORR-973 took ORR-967's out).
-test('Events, Context and Pull requests are in the sidebar only while Advanced is on', async ({page}) => {
+// each on its own row, with no fold (ORR-973 took ORR-967's out). Context left the sidebar (ORR-1398).
+test('Events and Pull requests are in the sidebar only while Advanced is on', async ({page}) => {
     const entries = ROUTES().filter(r => r.advanced)
     await setAdvanced(page, true)
     for (const route of entries) {
@@ -137,6 +137,7 @@ test('Events, Context and Pull requests are in the sidebar only while Advanced i
     await page.goto('/mine')
     for (const route of entries) await expect(sidebarLink(page, route.path, route.sidebar!)).toBeVisible()
     await expect(page.locator('aside nav').getByRole('button', {name: 'Advanced', exact: true})).toHaveCount(0)
+    await expect(page.locator('aside').getByRole('link', {name: 'Context', exact: true})).toHaveCount(0)
     await sidebarLink(page, '/events', 'Events').click()
     await expect(heading(page, 'Events')).toBeVisible()
     await setAdvanced(page, false)

@@ -8,8 +8,8 @@ const route = useRoute()
 const {byProject: schedulesByProject} = useSchedules()
 const {settings: appSettings} = useAppSettings()
 const {newErrors} = useLoggedEvents()
-// Events, Context and Pull requests sit under Schedules while Advanced is on (ORR-578), each also linked from App settings →
-// Advanced. Pull requests counts those that need someone, asked every two minutes while Advanced is on.
+// Events and Pull requests sit under Schedules while Advanced is on (ORR-578), each also linked from App settings →
+// Advanced; Context is only there, and on a running session's card (ORR-1398). Pull requests counts those that need someone, asked every two minutes while Advanced is on.
 const {pulls, load: loadPulls} = useOpenPulls()
 let pullsTimer: ReturnType<typeof setInterval> | undefined
 
@@ -273,15 +273,6 @@ const workspaceEdge = computed(() => workspaceColor(workspaceHere.value?.color))
           <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7" /><circle cx="18" cy="16" r="3" /></svg>
           <span class="flex-1">Events</span>
           <ErrorBadge v-if="newErrors.length" :count="newErrors.length" :title="`${newErrors.length} new kind${newErrors.length === 1 ? '' : 's'} of error`" />
-        </NuxtLink>
-
-        <NuxtLink
-            to="/context"
-            class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors"
-            :class="pagePath(route.path) === '/context' ? 'bg-active font-medium text-fg' : 'text-muted hover:bg-hover hover:text-fg'"
-        >
-          <svg class="size-4 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V5M9 19v-8M14 19V9M19 19v-4" /></svg>
-          <span class="flex-1">Context</span>
         </NuxtLink>
 
         <NuxtLink

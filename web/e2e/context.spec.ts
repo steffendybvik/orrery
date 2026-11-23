@@ -18,11 +18,12 @@ test.afterAll(async ({request}) => {
 
 test("shows a work session's parts and their sizes, with the total, and the chat's own", async ({page, request}) => {
     const work = await (await request.get('/api/projects/almanac/context?kind=work')).json()
-    // In the sidebar under Schedules while Advanced is on (ORR-578), with Events and Pull requests, each on its own row;
-    // gone with it off, when App settings → Advanced still links all three, and the old address opens that tab (ORR-561).
+    // Events and Pull requests are in the sidebar under Schedules while Advanced is on (ORR-578), each on its own row;
+    // Context isn't (ORR-1398). With Advanced off, App settings → Advanced still links all three, and the old address
+    // opens that tab (ORR-561).
     await page.goto('/')
     await expect(page.getByRole('link', {name: 'Events', exact: true})).toHaveAttribute('href', '/w/default/events')
-    await expect(page.getByRole('link', {name: 'Context', exact: true})).toHaveAttribute('href', '/w/default/context')
+    await expect(page.locator('aside').getByRole('link', {name: 'Context', exact: true})).toHaveCount(0)
     await expect(page.getByRole('link', {name: /^Pull requests/})).toHaveAttribute('href', '/w/default/pulls')
     const off = await request.patch('/api/settings', {data: {advanced: false}, headers: OWNER})
     expect(off.ok(), await off.text()).toBeTruthy()
