@@ -37,7 +37,7 @@ export const ROUTES = (w: Walked): Route[] => [
     {path: '/epics', heading: 'Epics', sidebar: 'Epics', palette: 'Epics'},
     {path: `/epics/${w.epic}`, heading: 'Survey the coasts', sidebar: 'Epics'},
     {path: '/events', heading: 'Events', sidebar: 'Events', palette: 'Events', advanced: true},
-    {path: '/context', heading: 'Context', sidebar: 'Context', palette: 'Context', advanced: true},
+    {path: '/context', heading: 'Context', palette: 'Context'},
     {path: '/pulls', heading: 'Pull requests', sidebar: 'Pull requests', palette: 'Pull requests', advanced: true},
     {path: '/notifications', heading: 'Notifications', palette: 'Notifications'},
     {path: '/getting-started', heading: 'Getting started', palette: 'Getting started'},

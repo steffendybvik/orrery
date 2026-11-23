@@ -891,7 +891,7 @@ type as its kind and what it was to as its `subject`: `issue.<field>` (`issue.cr
 `doc.deleted` and `release.<what>` (`release.created`, `release.frozen`, `release.shipped`…). Its message says who did
 what (`claude moved ORR-12: todo → done`), and its details hold `by`, `owner`, `from`, `to`, `untrusted` and the
 `schedule` whose run made it. No titles, notes or comment text are kept. Advanced also counts each new kind of error in the
-bell and shows Events, Context and Pull requests in the sidebar under Schedules. The Events page is also reached from App settings → Advanced either way.
+bell and shows Events and Pull requests in the sidebar under Schedules. Both, and the Context page, are also reached from App settings → Advanced either way.
 
 Each event is `{id, level, kind, project?, subject?, message, details?, count, first_seen, last_seen, resolved_at?, resolved_by?}`,
 with `level` one of `error`, `warn`, `info`. Each is a line of its own (`count` 1, `last_seen` its `first_seen`); a
