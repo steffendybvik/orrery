@@ -1,6 +1,7 @@
 // The owner's chats as they're kept: the handlers and the routes they answer (ORR-1048).
+use crate::access::seen::Seen;
 use crate::changes::Outbox;
-use crate::error::Result;
+use crate::error::{ApiError, Result};
 use crate::reply::reply;
 use crate::request::{actor_of, body_of};
 use crate::work::chats::Chats;
@@ -132,16 +133,26 @@ async fn change_message(State(app): Shared, Path((chat, message)): Path<(String,
     Ok(reply(StatusCode::OK, Some(changed), std::mem::take(&mut chats.effects)))
 }
 
-async fn list_chats(State(app): Shared) -> Result<Response> {
+/// The chats on the projects the asker sees (ORR-1352); the rails hold each chat's own routes the same way.
+async fn list_chats(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Chats::new(&mut conn).list().await?).into_response())
+    let mut list = Chats::new(&mut conn).list().await?;
+    Seen::listed(&mut conn, &headers).await?.keep(&mut conn, &mut list, "project").await?;
+    Ok(Json(list).into_response())
 }
 
 async fn keep_chat(State(app): Shared, Path(chat): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
+    let body = body_of(&body);
+    // A chat kept on a project the asker can't see is one more row there: refused as that project isn't here.
+    if let Some(project) = body["project"].as_str() {
+        if Seen::listed(&mut conn, &headers).await?.hidden(&mut conn).await?.contains(project) {
+            return Err(ApiError::not_found(format!("No project \"{project}\"")));
+        }
+    }
     let mut chats = Chats::new(&mut conn);
     chats.outbox = Some(Outbox::new(actor_of(&headers)));
-    chats.keep(&chat, &body_of(&body)).await?;
+    chats.keep(&chat, &body).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut chats.effects)))
 }
 

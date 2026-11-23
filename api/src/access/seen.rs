@@ -183,3 +183,7 @@ pub(crate) fn keep_in(hidden: &HashSet<String>, list: &mut Value, key: &str) {
 #[cfg(test)]
 #[path = "seen_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "isolation_tests.rs"]
+mod isolation_tests;

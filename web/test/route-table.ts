@@ -47,6 +47,7 @@ export const NOT_ROUTED: Readonly<Record<string, Line>> = {
     'POST /api/auth/login': LOGIN,
     'POST /api/auth/logout': LOGIN,
     'GET /api/auth/oidc/callback': LOGIN,
+    'GET /api/auth/oidc/logout': LOGIN,
     'GET /api/auth/oidc/start': LOGIN,
     'GET /api/auth/status': ORR_1038,
     'GET /api/changes': OUTBOX,

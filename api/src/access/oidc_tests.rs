@@ -269,7 +269,7 @@ fn cookie_value(cookie: &str) -> String {
 async fn start_sends_the_browser_with_a_state_nonce_and_s256_challenge_it_keeps() {
     let stub = Stub::new().await;
     let at = headers(&[("host", "inside:3300"), ("x-forwarded-host", "orrery.example"), ("x-forwarded-proto", "https")]);
-    let (to, cookie) = start_with(&stub.settings(), ALLOWED, &at, Some("inv".into()), Some(ALLOWED.into())).await.unwrap();
+    let (to, cookie) = start_with(&stub.settings(), ALLOWED, &at, Some("inv".into()), Some(ALLOWED.into()), false).await.unwrap();
     let to = Url::parse(&to).unwrap();
     assert_eq!(format!("{}{}", stub.base, to.path()), format!("{}/authorize", stub.base));
     let query: HashMap<String, String> = to.query_pairs().into_owned().collect();
@@ -295,13 +295,13 @@ async fn start_keeps_back_only_when_its_an_allowed_origin() {
     let stub = Stub::new().await;
     let at = headers(&[("host", "localhost:9010")]);
     for back in ["https://evil.example", "https://app.example.com/page", "null", ""] {
-        let (_, cookie) = start_with(&stub.settings(), ALLOWED, &at, None, Some(back.into())).await.unwrap();
+        let (_, cookie) = start_with(&stub.settings(), ALLOWED, &at, None, Some(back.into()), false).await.unwrap();
         let kept = read_kept(&cookie_value(&cookie)).unwrap();
         assert!(!kept.contains_key("back"), "{back}");
         assert!(!kept.contains_key("invite"));
         assert!(!cookie.contains("Secure"), "plain http: {cookie}");
     }
-    let (to, _) = start_with(&stub.settings(), ALLOWED, &at, None, None).await.unwrap();
+    let (to, _) = start_with(&stub.settings(), ALLOWED, &at, None, None, false).await.unwrap();
     assert!(to.contains(&format!("redirect_uri={}", "http%3A%2F%2Flocalhost%3A9010%2Fapi%2Fauth%2Foidc%2Fcallback")), "{to}");
 }
 
@@ -447,4 +447,55 @@ async fn back_is_checked_again_on_the_way_back() {
     let Ok(found) = way.finish_allowing("https://another.example").await else { panic!("refused") };
     assert_eq!(found.back, None, "no longer allowed, so it's dropped");
     assert_eq!(found.subject, "person-1", "the login itself still stands");
+}
+
+// ---- signing out of the provider too (ORR-1319) ----
+
+#[tokio::test]
+async fn someone_else_asks_the_provider_for_its_login_form() {
+    let stub = Stub::new().await;
+    let at = headers(&[("host", "localhost:9010")]);
+    let (to, _) = start_with(&stub.settings(), ALLOWED, &at, None, None, true).await.unwrap();
+    let query: HashMap<String, String> = Url::parse(&to).unwrap().query_pairs().into_owned().collect();
+    assert_eq!(query["prompt"], "login");
+}
+
+#[tokio::test]
+async fn ending_goes_through_the_providers_end_session_with_the_hint_and_back_to_the_login_page() {
+    let stub = Stub::new().await;
+    let base = stub.base.clone();
+    stub.set(|s| s.discovery["end_session_endpoint"] = json!(format!("{base}/logout?x=1")));
+    let at = headers(&[("host", "inside:3300"), ("x-forwarded-host", "orrery.example"), ("x-forwarded-proto", "https")]);
+    let to = Url::parse(&end_with(&stub.settings(), ALLOWED, &at, None, Some("the-id-token".into())).await.unwrap()).unwrap();
+    assert_eq!(format!("{}{}", stub.base, to.path()), format!("{}/logout", stub.base));
+    let query: HashMap<String, String> = to.query_pairs().into_owned().collect();
+    assert!(!query.contains_key("x"), "the endpoint's own query is replaced");
+    assert_eq!(query["client_id"], "orrery");
+    assert_eq!(query["id_token_hint"], "the-id-token");
+    assert_eq!(query["post_logout_redirect_uri"], "https://orrery.example/login");
+    assert!(query["state"].len() > 20);
+
+    // A page on a listed site comes back there; another origin, or no kept token, is left out.
+    let to = end_with(&stub.settings(), ALLOWED, &at, Some(ALLOWED.into()), None).await.unwrap();
+    let query: HashMap<String, String> = Url::parse(&to).unwrap().query_pairs().into_owned().collect();
+    assert_eq!(query["post_logout_redirect_uri"], format!("{ALLOWED}/login"));
+    assert!(!query.contains_key("id_token_hint"));
+    let to = end_with(&stub.settings(), ALLOWED, &at, Some("https://evil.example".into()), None).await.unwrap();
+    assert!(to.contains("post_logout_redirect_uri=https%3A%2F%2Forrery.example%2Flogin"), "{to}");
+}
+
+#[tokio::test]
+async fn ending_with_a_provider_that_has_no_end_session_goes_straight_to_the_login_page() {
+    let stub = Stub::new().await;
+    let at = headers(&[("host", "localhost:9010")]);
+    assert_eq!(end_with(&stub.settings(), ALLOWED, &at, None, Some("t".into())).await.unwrap(), "http://localhost:9010/login");
+}
+
+#[test]
+fn the_hint_cookie_is_http_only_under_the_oidc_path_and_cleared_alike() {
+    let at = headers(&[("x-forwarded-proto", "https")]);
+    let cookie = hint_cookie("a.b.c", &at);
+    assert!(cookie.starts_with("orrery_oidc_hint=a.b.c;") && cookie.contains("HttpOnly;") && cookie.contains("Secure;"), "{cookie}");
+    assert!(cookie.contains("Path=/api/auth/oidc;") && cookie.contains(&format!("Max-Age={};", 30 * 24 * 3600)), "{cookie}");
+    assert_eq!(cleared_hint(), "orrery_oidc_hint=; Max-Age=0; Path=/api/auth/oidc");
 }

@@ -325,7 +325,7 @@ async fn no_route_of_a_project_reads_or_writes_across_workspaces() {
     let api = TestApi::new().await;
     let (_, rockets) = two_workspaces(&api).await;
     let login = api.login("ana").await;
-    let held = format!("No project {rockets}");
+    let held = format!("No project \"{rockets}\"");
     let mut leaks = Vec::new();
     for (method, route) in project_routes() {
         let path = filled(&route, &rockets);
@@ -504,7 +504,7 @@ async fn no_route_of_a_board_reads_or_writes_for_a_member_off_it() {
     let api = TestApi::new().await;
     let quarry = a_board_ana_isnt_on(&api).await;
     let login = api.login("ana").await;
-    let held = format!("No project {quarry}");
+    let held = format!("No project \"{quarry}\"");
     let mut leaks = Vec::new();
     for (method, route) in project_routes() {
         let path = filled(&route, &quarry);

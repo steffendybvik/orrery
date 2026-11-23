@@ -28,6 +28,8 @@ pub(crate) enum Across {
     Stored,
     /// A list across every workspace a `Seen` holds it to, which leaves out each row it doesn't see.
     Listed,
+    /// A workspace the asker has just made, as its owner, being given what a new one starts with.
+    Made,
     /// Deleting a workspace or an account (ORR-1203): it goes with everything in the workspaces being deleted.
     Deleting,
 }
@@ -35,7 +37,7 @@ pub(crate) enum Across {
 impl Across {
     /// Every way across, for the test that holds each to a reason.
     #[cfg(test)]
-    pub(crate) const ALL: [Across; 5] = [Across::Server, Across::Installation, Across::Stored, Across::Listed, Across::Deleting];
+    pub(crate) const ALL: [Across; 6] = [Across::Server, Across::Installation, Across::Stored, Across::Listed, Across::Made, Across::Deleting];
 
     /// Why this way across is allowed.
     #[cfg_attr(not(test), allow(dead_code))]
@@ -45,6 +47,7 @@ impl Across {
             Across::Installation => "the installation's own settings are nobody's workspace's",
             Across::Stored => "a row acts in the workspace it was made in",
             Across::Listed => "a list held to what the asker sees leaves out the rest itself",
+            Across::Made => "the asker made the workspace and owns it",
             Across::Deleting => "deleting a workspace or an account takes everything in it",
         }
     }

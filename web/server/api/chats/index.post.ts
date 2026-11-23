@@ -10,5 +10,6 @@ export default defineEventHandler(async event => {
     const body = await readBody(event).catch(() => null) as {project?: unknown, issues?: unknown} | null
     if (typeof body?.project !== 'string' || !body.project) throw badRequest('Send {project}: the project to chat about')
     const project = await projectIdOf(body.project)
+    await needsSeen(event, project)
     return created(event, await openChat(project, chatIssuesOf(body.issues)))
 })

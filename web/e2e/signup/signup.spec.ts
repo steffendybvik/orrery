@@ -164,3 +164,39 @@ test('they delete their account, with their workspace, and are signed out; the o
     expect(await ownerPage.evaluate(async () => (await fetch('/api/projects/greenhouse')).status)).toBe(200)
     expect(await ownerPage.evaluate(async () => (await fetch('/api/projects/rockets')).status)).toBe(404)
 })
+
+/** Who the page's browser is signed in as, by the server's word. */
+const whoIs = async (page: Page) => (await (await page.request.get('/api/auth/status')).json() as {person?: string}).person
+
+test("signing out ends the provider's session too, so the next sign-in can be someone else (ORR-1319)", async ({baseURL}) => {
+    const provider = await providerOf(baseURL!)
+    await ownerPage.goto('/')
+    expect(await whoIs(ownerPage)).toBe('ada_lovelace')
+    await ownerPage.getByRole('complementary').first().getByRole('button', {name: 'Sign out'}).click()
+    await expect(ownerPage).toHaveURL(/\/login(\?state=.+)?$/)
+    const {logout} = await (await fetch(`${provider}/seen`)).json() as {logout: Record<string, string>}
+    expect(logout.post_logout_redirect_uri).toBe(`${baseURL}/login`)
+    expect(logout.client_id).toBe('orrery-e2e')
+    expect(logout.id_token_hint?.split('.')).toHaveLength(3)
+    // The provider's session is gone: signing in again is whoever signs in there now, not Ada straight back.
+    expect((await fetch(`${provider}/next`, {method: 'POST', body: JSON.stringify({sub: 'alan', name: 'Alan Turing'})})).ok).toBe(true)
+    await ownerPage.getByRole('link', {name: 'Sign in or sign up'}).click()
+    await expect(ownerPage).not.toHaveURL(/\/login/)
+    expect(await whoIs(ownerPage)).toBe('alan_turing')
+})
+
+test("“Sign in as someone else” shows the provider's form, though it's still signed in there (ORR-1319)", async ({baseURL}) => {
+    const provider = await providerOf(baseURL!)
+    // Out of orrery alone, as a session that ran out is: the provider still has Alan.
+    expect((await ownerPage.request.post('/api/auth/logout', {headers: {'Orrery-Sent-Origin': baseURL!}})).ok()).toBe(true)
+    await ownerPage.goto('/login')
+    const forms = (await (await fetch(`${provider}/seen`)).json() as {forms: number}).forms
+    expect((await fetch(`${provider}/next`, {method: 'POST', body: JSON.stringify({sub: 'ada', name: 'Ada Lovelace'})})).ok).toBe(true)
+    await ownerPage.getByRole('link', {name: 'Sign in as someone else'}).click()
+    await expect(ownerPage.getByRole('heading', {name: 'Sign in at the test provider'})).toBeVisible()
+    await expect(ownerPage.getByText('Signed in here as Alan Turing')).toBeVisible()
+    expect((await (await fetch(`${provider}/seen`)).json() as {forms: number}).forms).toBe(forms + 1)
+    await ownerPage.getByRole('link', {name: 'Continue as Ada Lovelace'}).click()
+    await expect(ownerPage).not.toHaveURL(/\/login|\/authorize/)
+    expect(await whoIs(ownerPage)).toBe('ada_lovelace')
+})

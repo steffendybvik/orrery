@@ -72,9 +72,11 @@ async fn upload_board(State(app): Shared, request: Request) -> Result<Response> 
     }
     // The rest of a board too big for one request, sent after it in parts (ORR-1257).
     let into = body.get("into").and_then(Value::as_bool).unwrap_or(false);
-    let upload = Upload { id, key, name: text("name"), holder, body: &body, workspace: workspace.id(), own, into };
+    // A new board's id is its workspace's to have: one only another workspace has gets `-2` (ORR-1350).
+    let id = if into { id.to_string() } else { projects::free_project_id(&mut conn, workspace.id(), id).await? };
+    let upload = Upload { id: &id, key, name: text("name"), holder, body: &body, workspace: workspace.id(), own, into };
     let effects = board_upload::upload_board(&mut conn, &upload, &actor).await?;
-    let value = Projects::of(&mut conn, workspace.clone()).project(id).await?;
+    let value = Projects::of(&mut conn, workspace.clone()).project(&id).await?;
     Ok(reply(if into { StatusCode::OK } else { StatusCode::CREATED }, Some(value), effects))
 }
 

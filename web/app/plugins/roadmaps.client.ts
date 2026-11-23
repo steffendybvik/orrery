@@ -117,7 +117,11 @@ export default defineNuxtPlugin(() => {
     /** How long to wait before opening a stream the browser gave up on again, longer each time. */
     let wait = 1000
     function connect() {
-        const events = new EventSource(apiUrl('/events?patch=1'), {withCredentials: apiCrossOrigin('/events')})
+        // The tab's workspace, as an EventSource sends no headers: the stream holds what it tells of to it (ORR-1347).
+        // Switching workspace loads the page again, so it opens a new stream.
+        const workspace = workspaceIn(location.pathname)
+        const query = `patch=1${workspace ? `&workspace=${encodeURIComponent(workspace)}` : ''}`
+        const events = new EventSource(apiUrl(`/events?${query}`), {withCredentials: apiCrossOrigin('/events')})
         events.addEventListener('open', () => {
             live.value = 'connected'
             wait = 1000

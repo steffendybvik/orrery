@@ -233,6 +233,16 @@ impl<'c> EventLog<'c> {
         Ok(json!({"event": event, "fresh": !again}))
     }
 
+    /// The project line `id` of this workspace names: `None` when there's no such line here, `Some(None)` for one naming
+    /// no project.
+    pub(crate) async fn project_of(&mut self, id: i64) -> Result<Option<Option<String>>> {
+        Ok(sqlx::query_scalar(&sql("SELECT project FROM events WHERE id = ? AND workspace = ?"))
+            .bind(id)
+            .bind(self.workspace.id())
+            .fetch_optional(&mut *self.conn)
+            .await?)
+    }
+
     /// The workspace a line about `project` is in: the project's, or this log's for one naming none (or one gone).
     async fn workspace_of(&mut self, project: Option<&str>) -> Result<String> {
         let Some(project) = project else { return Ok(self.workspace.id().to_string()) };

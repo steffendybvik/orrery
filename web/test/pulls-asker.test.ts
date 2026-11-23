@@ -41,6 +41,8 @@ beforeEach(async () => {
     const {pullsForAsker, pullsPage} = await import('../server/utils/pulls')
     vi.stubGlobal('pullsForAsker', pullsForAsker)
     vi.stubGlobal('pullsPage', pullsPage)
+    // Nobody signed in here: every repo's (ORR-1347).
+    vi.stubGlobal('reposSeen', (await import('../server/utils/member-sees')).reposSeen)
     vi.resetModules()
     routes = {
         issue: (await import('../server/api/projects/[project]/issues/[issue]/pulls.get')).default as unknown as typeof routes.issue,

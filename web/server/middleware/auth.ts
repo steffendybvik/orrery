@@ -11,7 +11,7 @@ import {viaPhone} from '../utils/phone-port'
 
 // A machine connecting from its install line (ORR-1192) has nothing else yet: it brings the line's one-time code, or a
 // request's secret, and gets an agent key once its person says yes.
-const OPEN = new Set(['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/link', '/api/auth/oidc/start', '/api/auth/oidc/callback', '/api/machines/connect', '/api/machines/claim'])
+const OPEN = new Set(['/api/auth/status', '/api/auth/login', '/api/auth/logout', '/api/auth/link', '/api/auth/oidc/start', '/api/auth/oidc/callback', '/api/auth/oidc/logout', '/api/machines/connect', '/api/machines/claim'])
 const WRITES = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
 export default defineEventHandler(async event => {
