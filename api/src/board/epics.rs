@@ -168,11 +168,24 @@ impl<'c> Epics<'c> {
 
     /// The projects with an issue set for one of `epics` (every epic, without), by id (`projectsIn`).
     async fn projects_in(&mut self, epic: Option<i64>) -> Result<Vec<String>> {
+        // Only this workspace's projects: another's issues may carry the same epic number, and counting them would
+        // show its projects, names and tallies here (ORR-1347).
         let rows = match epic {
             Some(epic) => {
-                sqlx::query(&sql("SELECT DISTINCT project FROM issues WHERE epic = ? ORDER BY project")).bind(epic).fetch_all(&mut *self.conn).await?
+                sqlx::query(&sql(
+                    "SELECT DISTINCT i.project FROM issues i JOIN projects p ON p.id = i.project WHERE i.epic = ? AND p.workspace = ? ORDER BY i.project",
+                ))
+                .bind(epic)
+                .bind(self.workspace.id())
+                .fetch_all(&mut *self.conn)
+                .await?
             }
-            None => sqlx::query("SELECT DISTINCT project FROM issues WHERE epic IS NOT NULL ORDER BY project").fetch_all(&mut *self.conn).await?,
+            None => sqlx::query(&sql(
+                "SELECT DISTINCT i.project FROM issues i JOIN projects p ON p.id = i.project WHERE i.epic IS NOT NULL AND p.workspace = ? ORDER BY i.project",
+            ))
+            .bind(self.workspace.id())
+            .fetch_all(&mut *self.conn)
+            .await?,
         };
         Ok(rows.iter().map(|r| r.get("project")).collect())
     }
