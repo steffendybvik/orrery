@@ -28,4 +28,20 @@ describe('streamHearing', () => {
         const hearing = streamHearing({person: 'sam', owner: true, via: 'browser'}, () => undefined)
         expect(hearing.sees('anything')).toBe(true)
     })
+
+    it("holds the owner's bell notices and log rows to the projects they see (ORR-1353)", () => {
+        const hearing = streamHearing({person: 'sam', owner: true, via: 'browser'}, seen)
+        expect(hearing.hearsNotice({project: 'rockets'})).toBe(true)
+        expect(hearing.hearsNotice({project: 'theirs'})).toBe(false)
+        expect(hearing.hearsLogged({event: {project: 'rockets'}})).toBe(true)
+        expect(hearing.hearsLogged({event: {project: 'theirs'}})).toBe(false)
+        expect(hearing.hearsLogged({event: {kind: 'server.error'}})).toBe(true)
+    })
+
+    it('gives a member no bell notice or log row, even of a project they see', () => {
+        const hearing = streamHearing({person: 'bo', owner: false, via: 'browser'}, seen)
+        expect(hearing.hearsNotice({project: 'rockets'})).toBe(false)
+        expect(hearing.hearsLogged({event: {project: 'rockets'}})).toBe(false)
+        expect(hearing.hearsLogged({event: {}})).toBe(false)
+    })
 })

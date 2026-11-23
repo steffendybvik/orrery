@@ -6,16 +6,25 @@ import type {Who} from './auth'
  * settings). A chat is heard with its project. */
 export function streamHearing(who: Who | undefined, seen: () => Set<string> | undefined) {
     const held = !!who
+    const sees = (project: string | null | undefined) => {
+        const projects = held ? seen() : undefined
+        return !projects || (!!project && projects.has(project))
+    }
     return {
         /** Whether what they hear is held to `seen`, which has to be asked of the API for them. */
         held,
         /** Whether events about `project` reach them. */
-        sees: (project: string | null | undefined) => {
-            const projects = held ? seen() : undefined
-            return !projects || (!!project && projects.has(project))
-        },
+        sees,
         /** Whether what's the owner's own reaches them. */
         ownersToo: !who || who.owner,
+        /** Whether a bell notice reaches them (ORR-1353): the owner's, with a project they see, as `GET /notices` keeps it. */
+        hearsNotice: (notice: unknown) => (!who || who.owner) && sees((notice as {project?: string} | null)?.project),
+        /** Whether an event log row reaches them (ORR-1353): the owner's, with a project they see, as `/events/log`
+         * keeps it; a row naming none (a server error) is the installation's, so the owner's. */
+        hearsLogged: (logged: unknown) => {
+            const project = (logged as {event?: {project?: string | null}} | null)?.event?.project
+            return (!who || who.owner) && (!project || sees(project))
+        },
     }
 }
 

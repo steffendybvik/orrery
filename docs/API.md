@@ -948,7 +948,7 @@ with no `Origin`: anything else is a 403. Only a listed site gets CORS headers, 
 - `epics` (nothing: read `GET /epics` again): an epic was made, changed or deleted
 - `logged` (`{event, fresh}`): the [event log](#event-log) recorded or resolved one; `fresh` when it's a row of its own
 
-Anyone signed in, the owner too, hears only the boards they can see in the workspace `?workspace=` names (else `default`, else their first), and a chat only when they see its project (ORR-1347). A member who isn't the owner hears none of what's the owner's: `notice`, `chat`, `secrets`, `logged` and `settings`.
+Anyone signed in, the owner too, hears only the boards they can see in the workspace `?workspace=` names (else `default`, else their first), and a chat, a `notice` or a `logged` row only when they see its project (ORR-1347, ORR-1353); a `logged` row naming no project is the owner's. A member who isn't the owner hears none of what's the owner's: `notice`, `chat`, `secrets`, `logged` and `settings`.
 
 ## Example
 

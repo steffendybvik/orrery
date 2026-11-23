@@ -19,7 +19,7 @@ export default defineEventHandler(async event => {
     const named = getQuery(event).workspace
     const workspace = typeof named === 'string' && named ? named : undefined
     let seen: Set<string> | undefined = new Set<string>()
-    const {held, sees, ownersToo} = streamHearing(event.context?.who as Who | undefined, () => seen)
+    const {held, sees, ownersToo, hearsNotice, hearsLogged} = streamHearing(event.context?.who as Who | undefined, () => seen)
     let looked = 0
     let looking: Promise<void> | undefined
     const look = (fresh = false) => looking ??= listedSees(event, {workspace, fresh})
@@ -52,10 +52,11 @@ export default defineEventHandler(async event => {
     const onLaunchers = (project: string) => sees(project) && stream.push({event: 'launchers', data: JSON.stringify({project, count: launchersOf(project)})})
     const onSessions = (project: string) => sees(project) && stream.push({event: 'sessions', data: JSON.stringify({project, sessions: listSessions(project)})})
     const onSignal = (signal: Signal) => sees(signal.project) && stream.push({event: 'signal', data: JSON.stringify(signal)})
-    const onNotice = owners((notice: unknown) => stream.push({event: 'notice', data: JSON.stringify(notice)}))
+    // A bell's notice and an event log row go only with a project they see (ORR-1353): see streamHearing.
+    const onNotice = (notice: unknown) => hearsNotice(notice) && stream.push({event: 'notice', data: JSON.stringify(notice)})
     const onSettings = owners((settings: unknown) => stream.push({event: 'settings', data: JSON.stringify(settings)}))
     const onSecrets = owners((secrets: unknown) => stream.push({event: 'secrets', data: JSON.stringify(secrets)}))
-    const onLogged = owners((logged: unknown) => stream.push({event: 'logged', data: JSON.stringify(logged)}))
+    const onLogged = (logged: unknown) => hearsLogged(logged) && stream.push({event: 'logged', data: JSON.stringify(logged)})
     const onChat = owners((chat: unknown) => sees((chat as {project?: string}).project) && stream.push({event: 'chat', data: JSON.stringify(chat)}))
     const onEpics = () => stream.push({event: 'epics', data: ''})
     const onSchedules = (project: string) => sees(project) && useScheduler().list(project)
