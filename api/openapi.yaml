@@ -1304,8 +1304,25 @@ paths:
       parameters:
         - {name: invite, in: query, description: An invite's secret, to attach a new account to its person, schema: {type: string}}
         - {name: back, in: query, description: 'The page''s origin, when NUXT_ALLOWED_ORIGINS lists it; any other is ignored', schema: {type: string}}
+        - {name: someone_else, in: query, description: '`1` asks the provider for its login form even with a session of its own (`prompt=login`), to sign in as another account', schema: {type: string}}
       responses:
         '302': {description: To the provider's login}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '502': {description: The provider is set up wrong or didn't answer}
+  /api/auth/oidc/logout:
+    get:
+      x-served: false
+      summary: Signs the browser out of the login provider too
+      description: >-
+        Where the page sends the browser once `POST /api/auth/logout` has ended orrery's own login. With an
+        `end_session_endpoint` in the provider's discovery document (RP-Initiated Logout 1.0), a redirect there with
+        `client_id`, `state`, the ID token the login came with as `id_token_hint` (kept in the http-only
+        `orrery_oidc_hint` cookie, which this clears) and `post_logout_redirect_uri`, the login page on orrery's own
+        address (`<origin>/login`), which has to be registered with the provider. Without one, straight to the login page.
+      parameters:
+        - {name: back, in: query, description: 'The page''s origin, when NUXT_ALLOWED_ORIGINS lists it; any other is ignored', schema: {type: string}}
+      responses:
+        '302': {description: To the provider's sign-out, or the login page}
         '404': {$ref: '#/components/responses/NotFound'}
         '502': {description: The provider is set up wrong or didn't answer}
   /api/auth/oidc/callback:

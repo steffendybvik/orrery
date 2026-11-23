@@ -20,6 +20,10 @@ use url::Url;
 
 pub const COOKIE: &str = "orrery_oidc";
 pub const COOKIE_PATH: &str = "/api/auth/oidc";
+/// The ID token the last login came with, kept for signing out of the provider as `id_token_hint` (ORR-1319): http-only,
+/// read only under `COOKIE_PATH`, and as long as a login lasts.
+pub const HINT: &str = "orrery_oidc_hint";
+const HINT_FOR: u32 = 30 * 24 * 3600;
 /// How long a started login waits for the way back, in seconds.
 const KEPT_FOR: u32 = 600;
 /// How long the provider's discovery document is kept.
@@ -56,6 +60,9 @@ struct Provider {
     issuer: String,
     #[serde(default)]
     token_endpoint_auth_methods_supported: Option<Vec<String>>,
+    /// Where the provider ends its own session (RP-Initiated Logout 1.0), when it offers that.
+    #[serde(default)]
+    end_session_endpoint: Option<String>,
 }
 
 /// How the client's secret goes to the token endpoint (ORR-1181, `clientAuth` in oidc.ts): HTTP Basic, which every
@@ -124,7 +131,7 @@ async fn provider(settings: &Settings) -> Result<Provider> {
     if trimmed(&document.issuer) != issuer {
         return Err(ApiError::provider("The OIDC provider gives a different issuer from the one set"));
     }
-    for url in [&document.authorization_endpoint, &document.token_endpoint, &document.jwks_uri] {
+    for url in [&document.authorization_endpoint, &document.token_endpoint, &document.jwks_uri].into_iter().chain(document.end_session_endpoint.as_ref()) {
         secure(url)?;
     }
     FOUND.lock().unwrap().get_or_insert_with(HashMap::new).insert(issuer, (document.clone(), Instant::now()));
@@ -141,10 +148,15 @@ pub fn over_https(headers: &HeaderMap) -> bool {
     first(headers, "x-forwarded-proto").as_deref() == Some("https")
 }
 
+/// This orrery's own address, as the proxy in front gives it.
+fn own_origin(headers: &HeaderMap) -> String {
+    let host = first(headers, "x-forwarded-host").or_else(|| first(headers, "host")).unwrap_or_else(|| "localhost".into());
+    format!("{}://{host}", if over_https(headers) { "https" } else { "http" })
+}
+
 /// Where the provider sends the browser back: this orrery's own address, as the proxy in front gives it.
 fn redirect_uri(headers: &HeaderMap) -> String {
-    let host = first(headers, "x-forwarded-host").or_else(|| first(headers, "host")).unwrap_or_else(|| "localhost".into());
-    format!("{}://{host}{COOKIE_PATH}/callback", if over_https(headers) { "https" } else { "http" })
+    format!("{}{COOKIE_PATH}/callback", own_origin(headers))
 }
 
 fn random() -> String {
@@ -196,15 +208,33 @@ pub fn cleared_cookie() -> String {
     format!("{COOKIE}=; Max-Age=0; Path={COOKIE_PATH}")
 }
 
+/// The cookie that keeps the ID token for signing out of the provider (`keepHint`).
+pub fn hint_cookie(id_token: &str, headers: &HeaderMap) -> String {
+    format!("{HINT}={id_token}; Max-Age={HINT_FOR}; Path={COOKIE_PATH}; HttpOnly;{} SameSite=Lax", if over_https(headers) { " Secure;" } else { "" })
+}
+
+/// The cookie that clears the kept ID token again.
+pub fn cleared_hint() -> String {
+    format!("{HINT}=; Max-Age=0; Path={COOKIE_PATH}")
+}
+
 /// Where to send the browser to log in (`startOidc`), and the short http-only cookie with what the way back has to
 /// match. `back` is the page's own origin when it's hosted on another site, which the callback returns to (ORR-667):
-/// only a listed one.
-pub async fn start(headers: &HeaderMap, invite: Option<String>, back: Option<String>) -> Result<(String, String)> {
-    start_with(&needs_settings()?, &allowed_origins(), headers, invite, back).await
+/// only a listed one. `someone_else` asks the provider for its login form even with a session of its own
+/// (`prompt=login`, ORR-1319), so another account can be picked.
+pub async fn start(headers: &HeaderMap, invite: Option<String>, back: Option<String>, someone_else: bool) -> Result<(String, String)> {
+    start_with(&needs_settings()?, &allowed_origins(), headers, invite, back, someone_else).await
 }
 
 /// `start`, with the environment's settings already read, so tests needn't set them.
-async fn start_with(settings: &Settings, allowed: &str, headers: &HeaderMap, invite: Option<String>, back: Option<String>) -> Result<(String, String)> {
+async fn start_with(
+    settings: &Settings,
+    allowed: &str,
+    headers: &HeaderMap,
+    invite: Option<String>,
+    back: Option<String>,
+    someone_else: bool,
+) -> Result<(String, String)> {
     let Provider { authorization_endpoint, .. } = provider(settings).await?;
     let (state, nonce, verifier) = (random(), random(), random());
     let mut kept = Map::new();
@@ -230,6 +260,9 @@ async fn start_with(settings: &Settings, allowed: &str, headers: &HeaderMap, inv
         ("code_challenge", URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes())).as_str()),
         ("code_challenge_method", "S256"),
     ]);
+    if someone_else {
+        url.query_pairs_mut().append_pair("prompt", "login");
+    }
     Ok((url.to_string(), cookie))
 }
 
@@ -245,6 +278,8 @@ pub struct Finished {
     pub name: Option<String>,
     pub invite: Option<String>,
     pub back: Option<String>,
+    /// The ID token itself, kept for signing out of the provider (`hint_cookie`, ORR-1319).
+    pub id_token: String,
 }
 
 /// What `start` kept in its cookie; none when the cookie isn't that, as a browser can send anything.
@@ -312,7 +347,35 @@ async fn finish_with(
     let back = text("back").filter(|b| origin_allowed(allowed, b));
     let name =
         ["name", "preferred_username"].iter().find_map(|claim| claims.get(*claim).and_then(Value::as_str).filter(|n| !n.trim().is_empty())).map(str::to_owned);
-    Ok(Finished { issuer: trimmed(&issuer).to_owned(), subject, name, invite: text("invite").filter(|i| !i.is_empty()), back })
+    Ok(Finished { issuer: trimmed(&issuer).to_owned(), subject, name, invite: text("invite").filter(|i| !i.is_empty()), back, id_token: id_token.to_owned() })
+}
+
+/// Where to send the browser once orrery's own login has ended (`endOidc`, ORR-1319): to the provider's
+/// `end_session_endpoint` (RP-Initiated Logout 1.0), with the kept ID token as `id_token_hint`, so its session ends too
+/// and the next sign-in asks who it is. It comes back to the login page on orrery's own address, or `back`'s when the
+/// page is hosted on a listed site: that address has to be registered with the provider as a post-logout redirect URI.
+/// A provider that offers no `end_session_endpoint` keeps its session, and the browser goes straight to the login page.
+pub async fn end(headers: &HeaderMap, back: Option<String>, hint: Option<String>) -> Result<String> {
+    end_with(&needs_settings()?, &allowed_origins(), headers, back, hint).await
+}
+
+/// `end`, with the environment's settings already read, so tests needn't set them.
+async fn end_with(settings: &Settings, allowed: &str, headers: &HeaderMap, back: Option<String>, hint: Option<String>) -> Result<String> {
+    let origin = back.filter(|b| origin_allowed(allowed, b)).unwrap_or_else(|| own_origin(headers));
+    let login = format!("{origin}/login");
+    let Provider { end_session_endpoint, .. } = provider(settings).await?;
+    let Some(end_session_endpoint) = end_session_endpoint else { return Ok(login) };
+    let mut url = Url::parse(&end_session_endpoint).map_err(|_| ApiError::provider("The OIDC provider has to be on https"))?;
+    url.set_query(None);
+    url.query_pairs_mut().extend_pairs([
+        ("client_id", settings.client_id.as_str()),
+        ("post_logout_redirect_uri", login.as_str()),
+        ("state", random().as_str()),
+    ]);
+    if let Some(hint) = hint.filter(|h| !h.is_empty()) {
+        url.query_pairs_mut().append_pair("id_token_hint", &hint);
+    }
+    Ok(url.to_string())
 }
 
 /// The ID token's claims, when it's signed by one of the provider's keys and is for this client from this issuer and
