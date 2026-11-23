@@ -720,6 +720,31 @@ async fn a_board_takes_only_someone_here_and_named_as_a_string() {
 }
 
 #[tokio::test]
+async fn a_board_takes_only_someone_in_its_workspace_and_says_nothing_of_anyone_else() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let rockets = api.acme(&["ana"]).await;
+    api.run(
+        "INSERT INTO project_members (project, person, role, created_at) VALUES (?, 'sam', 'owner', ?) ON CONFLICT (project, person) DO NOTHING",
+        &[&rockets, &stamp()],
+    )
+    .await;
+    let add = |person: &str| api.post(&format!("/api/projects/{rockets}/members"), json!({"person": person})).send();
+    // Bo is on the server but not in Acme: the same 404 as nobody, with nothing of Bo in it (ORR-1385).
+    let bo = add("bo").await;
+    let nobody = add("nobody").await;
+    assert_eq!((bo.status.as_u16(), nobody.status.as_u16()), (404, 404), "{} {}", bo.body, nobody.body);
+    assert_eq!(bo.body["message"], "No person \"bo\"");
+    // Removed and not in Acme: still 404, not a 409 that names them.
+    api.run("UPDATE people SET removed_at = ? WHERE id = 'bo'", &["2026-11-01T00:00:00.000Z"]).await;
+    let removed = add("bo").await;
+    assert_eq!((removed.status.as_u16(), removed.body["message"].clone()), (404, json!("No person \"bo\"")));
+    assert_eq!(api.count(&format!("SELECT count(*) FROM project_members WHERE project = '{rockets}' AND person = 'bo'")).await, 0);
+    // Ana is in Acme, so she can be added.
+    assert_eq!(add("ana").await.status, 201);
+}
+
+#[tokio::test]
 async fn the_owner_is_unnamed_until_they_give_their_name_which_anyone_may_the_first_time() {
     let api = TestApi::new().await;
     let unnamed = api.get("/api/owner").send().await;
