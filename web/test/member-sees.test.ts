@@ -55,10 +55,16 @@ describe('memberSees', () => {
         expect(asked).toHaveBeenCalledTimes(2)
     })
 
-    it('gives a member nothing, and the owner everything, when the API gives no answer', async () => {
+    // A read that failed never widens what anyone sees (ORR-1368), and isn't kept: the next ask tries again.
+    it('gives a member and the owner nothing when the API gives no answer, and keeps none of it', async () => {
         asked.mockResolvedValue(undefined as never)
         expect([...await memberSees(eventOf({person: 'bo-none', owner: false, via: 'browser'})) ?? ['?']]).toEqual([])
-        expect(await memberSees(eventOf({person: 'sam-none', owner: true, via: 'browser'}))).toBeUndefined()
+        const sam = eventOf({person: 'sam-none', owner: true, via: 'browser'})
+        expect([...await memberSees(sam) ?? ['?']]).toEqual([])
+        await expect(needsSeen(sam, 'rockets')).rejects.toMatchObject({statusCode: 404})
+        expect([...await reposSeen(sam) ?? ['?']]).toEqual([])
+        asked.mockImplementation(async () => [{id: 'rockets'}])
+        expect([...await memberSees(sam) ?? []]).toEqual(['rockets'])
     })
 })
 
@@ -105,9 +111,14 @@ describe('listedSees', () => {
         expect(asked).toHaveBeenCalledTimes(2)
     })
 
-    it('holds nobody back when the API gives no answer', async () => {
-        asked.mockResolvedValueOnce(undefined as never)
-        expect(await listedSees(eventOf({person: 'nobody-answers', owner: true, via: 'browser'}))).toBeUndefined()
+    // `undefined` reads as every workspace's rows to the routes that list across projects (ORR-1368).
+    it('lists nothing to anyone signed in when the API gives no answer, and keeps none of it', async () => {
+        asked.mockResolvedValue(undefined as never)
+        const sam = eventOf({person: 'nobody-answers', owner: true, via: 'browser'})
+        expect([...await listedSees(sam) ?? ['?']]).toEqual([])
+        expect([...await listedSees(eventOf({person: 'bo-unanswered', owner: false, via: 'browser'})) ?? ['?']]).toEqual([])
+        asked.mockImplementation(async () => [{id: 'rockets'}])
+        expect([...await listedSees(sam) ?? []]).toEqual(['rockets'])
     })
 })
 

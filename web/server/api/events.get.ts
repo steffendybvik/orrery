@@ -24,7 +24,8 @@ export default defineEventHandler(async event => {
     let looking: Promise<void> | undefined
     const look = (fresh = false) => looking ??= listedSees(event, {workspace, fresh})
         .then(projects => {
-            // With no API to ask, the owner hears every board, and a member none.
+            // Undefined with login off alone: with no answer from the API, anyone signed in hears no board, the owner
+            // too (ORR-1368), and an event about one is asked of the API again (`about`).
             seen = projects ?? (ownersToo ? undefined : new Set())
             looked = Date.now()
         }, () => {})
