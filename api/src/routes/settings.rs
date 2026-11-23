@@ -4,7 +4,7 @@ use crate::access::seen::Seen;
 use crate::changes::Outbox;
 use crate::error::Result;
 use crate::reply::reply;
-use crate::request::{actor_of, body_of, came_of, header};
+use crate::request::{actor_of, body_of, came_of, header, who_of};
 use crate::work::settings::Settings;
 use crate::{App, Shared};
 use axum::body::Bytes;
@@ -47,7 +47,21 @@ async fn get_settings(State(app): Shared, headers: HeaderMap, Query(query): Quer
         Err(_) => Workspace::installation(),
     };
     let mut settings = Settings::of(&mut conn, workspace);
-    Ok(Json(settings.get().await?).into_response())
+    let mut value = settings.get().await?;
+    // The person's and the machine's (ORR-1387) are kept once, for the server's owner: anyone else signed in gets
+    // their defaults, never the owner's starred and hidden projects, handle, terminal or agent.
+    if who_of(&headers).is_some_and(|who| !who.owner) && !came_of(&headers).server {
+        for (key, default) in owners_own() {
+            value[key] = default;
+        }
+    }
+    Ok(Json(value).into_response())
+}
+
+/// The settings that are the server's owner's own, in `settings` once for the whole server, with what anyone else gets.
+fn owners_own() -> [(&'static str, serde_json::Value); 5] {
+    use serde_json::{json, Value};
+    [("starred", json!([])), ("hidden", json!([])), ("handle", Value::Null), ("terminal", json!("terminal")), ("agent", json!("claude"))]
 }
 
 async fn patch_settings(State(app): Shared, headers: HeaderMap, Query(query): Query<HashMap<String, String>>, body: Bytes) -> Result<Response> {
