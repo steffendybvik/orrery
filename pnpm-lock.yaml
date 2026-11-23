@@ -9,6 +9,7 @@ overrides:
   hono: ^4.13.16
   '@hono/node-server': ^2.1.6
   glob@>=9 <14.0.2: ^14.0.2
+  readdir-glob>minimatch: ^11.0.1
 
 importers:
 
@@ -8710,7 +8711,7 @@ snapshots:
 
   readdir-glob@3.0.0:
     dependencies:
-      minimatch: 10.2.6
+      minimatch: 11.0.8
 
   readdirp@5.1.1: {}
 
