@@ -80,7 +80,7 @@ async fn a_work_sessions_list_names_the_project_only_once_there_are_several() {
     let issues = |reply: &Reply| reply.body["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == "issues").unwrap().clone();
     assert!(issues(&one)["inputSchema"]["properties"].get("project").is_none());
     assert!(names(&one).contains(&"more_tools".into()));
-    assert!(!names(&one).contains(&"milestones".into()), "the chat's reads aren't a work session's");
+    assert!(!names(&one).contains(&"milestones".into()), "a work session's milestones wait behind more_tools (ORR-1397)");
     api.project("beta").await;
     let two = rpc(&api, "tools/list", json!({})).send().await;
     assert_eq!(issues(&two)["inputSchema"]["properties"]["project"]["enum"], json!(["alpha", "beta"]));
@@ -321,6 +321,21 @@ async fn milestones_are_made_changed_and_listed_through_their_routes() {
     assert!(listed.starts_with(&format!("{id} [")) && listed.contains(", P1] Launch: 0/0 done"), "{listed}");
     let changed = said(&tool(&api, "update_milestone", json!({"id": id, "title": "Lift-off"})).header("orrery-actor-kind", "chat").send().await).to_string();
     assert_eq!(changed, format!("Milestone {id} is now: Lift-off"));
+}
+
+#[tokio::test]
+async fn a_work_session_lists_makes_and_fills_milestones_and_hears_of_a_missing_one() {
+    // ORR-1397: a work session plans with milestones too, behind more_tools.
+    let api = TestApi::new().await;
+    api.project("alpha").await;
+    let made = said(&tool(&api, "create_milestone", json!({"title": "Cheap devices", "summary": "Runs on a phone\nand more", "position": 0})).send().await)
+        .to_string();
+    let id = made.trim_start_matches("Made milestone ").split(':').next().unwrap().to_string();
+    assert_eq!(made, format!("Made milestone {id}: Cheap devices. Put issues in it with update_issue (milestone: \"{id}\")."));
+    let listed = said(&tool(&api, "milestones", json!({})).send().await).to_string();
+    assert_eq!(listed, format!("{id} [backlog] Cheap devices: 0/0 done\n    Runs on a phone"));
+    assert_eq!(said(&tool(&api, "issues", json!({"milestone": id})).send().await), "No issues match.");
+    assert_eq!(said(&tool(&api, "issues", json!({"milestone": "404"})).send().await), "No milestone \"404\" in alpha: the milestones tool lists them.");
 }
 
 #[tokio::test]

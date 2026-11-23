@@ -341,6 +341,19 @@
    }
   },
   {
+   "name": "milestones",
+   "description": "Lists the project's milestones, a line each: id, column, priority, title, progress, summary; done ones with all.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "all": {
+      "type": "boolean",
+      "description": "Done milestones too"
+     }
+    }
+   }
+  },
+  {
    "name": "releases",
    "description": "Lists the project's releases with their branches and progress; of the shipped ones, only the latest unless all.",
    "inputSchema": {
@@ -712,6 +725,87 @@
      }
     }
    }
+  },
+  {
+   "name": "create_milestone",
+   "description": "Makes a milestone (a group of issues) in this project, at once; put issues in it with update_issue (milestone: its id).",
+   "inputSchema": {
+    "type": "object",
+    "required": [
+     "title"
+    ],
+    "properties": {
+     "title": {
+      "type": "string",
+      "description": "Its name"
+     },
+     "summary": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "priority": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "enum": [
+       "P0",
+       "P1",
+       "P2",
+       "P3",
+       null
+      ]
+     },
+     "position": {
+      "type": "number",
+      "description": "Its place among the milestones, 0 at the top"
+     }
+    }
+   }
+  },
+  {
+   "name": "update_milestone",
+   "description": "Changes one of this project's milestones, by its id (the milestones tool lists them), at once: send only what changes. Removing one is the owner's, on its page.",
+   "inputSchema": {
+    "type": "object",
+    "required": [
+     "id"
+    ],
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "title": {
+      "type": "string",
+      "description": "Its name"
+     },
+     "summary": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "priority": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "enum": [
+       "P0",
+       "P1",
+       "P2",
+       "P3",
+       null
+      ]
+     },
+     "position": {
+      "type": "number",
+      "description": "Its place among the milestones, 0 at the top"
+     }
+    }
+   }
   }
  ],
  "chat": [
@@ -916,7 +1010,7 @@
   },
   {
    "name": "milestones",
-   "description": "Lists the project's milestones with their status and progress; done ones with all.",
+   "description": "Lists the project's milestones, a line each: id, column, priority, title, progress, summary; done ones with all.",
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -1737,7 +1831,7 @@
  ],
  "more_tools": {
   "name": "more_tools",
-  "description": "Adds tools: schedules (ask the owner on your issue for one), secrets (the keys egress can use, by name), debug (orrery's event log), review (rate each PR you open), epics (work across projects), releases (make and change them).",
+  "description": "Adds tools: schedules (ask the owner on your issue for one), secrets (the keys egress can use, by name), debug (orrery's event log), review (rate each PR you open), epics (work across projects), releases (make and change them), milestones (list, make and change them).",
   "inputSchema": {
    "type": "object",
    "required": [
@@ -1752,7 +1846,8 @@
       "debug",
       "review",
       "epics",
-      "releases"
+      "releases",
+      "milestones"
      ]
     }
    }
@@ -1782,6 +1877,11 @@
   "releases": [
    "create_release",
    "update_release"
+  ],
+  "milestones": [
+   "milestones",
+   "create_milestone",
+   "update_milestone"
   ]
  },
  "scoped": [
