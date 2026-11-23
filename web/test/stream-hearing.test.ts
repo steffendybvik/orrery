@@ -38,6 +38,19 @@ describe('streamHearing', () => {
         expect(hearing.hearsLogged({event: {kind: 'server.error'}})).toBe(true)
     })
 
+    // A line is in one workspace's log, and only that workspace's tabs hear it (ORR-1386).
+    it("hears a log row only in its own workspace's tab", () => {
+        const sam = {person: 'sam', owner: true, via: 'browser'} as const
+        const home = streamHearing(sam, seen)
+        expect(home.hearsLogged({event: {kind: 'server.error', workspace: 'default'}})).toBe(true)
+        expect(home.hearsLogged({event: {kind: 'request.refused', workspace: 'acme'}})).toBe(false)
+        const acme = streamHearing(sam, seen, 'acme')
+        expect(acme.hearsLogged({event: {kind: 'request.refused', workspace: 'acme'}})).toBe(true)
+        expect(acme.hearsLogged({event: {kind: 'server.error'}})).toBe(false)
+        // With login off too: a tab is one workspace's.
+        expect(streamHearing(undefined, seen).hearsLogged({event: {workspace: 'acme'}})).toBe(false)
+    })
+
     it('gives a member no bell notice or log row, even of a project they see', () => {
         const hearing = streamHearing({person: 'bo', owner: false, via: 'browser'}, seen)
         expect(hearing.hearsNotice({project: 'rockets'})).toBe(false)

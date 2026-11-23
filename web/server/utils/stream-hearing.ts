@@ -3,8 +3,9 @@ import type {Who} from './auth'
 /** What one subscriber to `/api/events` hears (ORR-1195, ORR-1347): with login off, everything; anyone signed in, the
  * owner too, only the boards in `seen`, the projects of the tab's workspace they can see (undefined: every one, as for
  * the owner with no API to ask); and the owner alone what's the owner's own (the bell, secrets, the event log, the
- * settings). A chat is heard with its project. */
-export function streamHearing(who: Who | undefined, seen: () => Set<string> | undefined) {
+ * settings). A chat is heard with its project. `workspace` is the tab's (`default` when it names none): an event log
+ * line is heard in its own workspace's tabs alone (ORR-1386). */
+export function streamHearing(who: Who | undefined, seen: () => Set<string> | undefined, workspace = 'default') {
     const held = !!who
     const sees = (project: string | null | undefined) => {
         const projects = held ? seen() : undefined
@@ -19,11 +20,13 @@ export function streamHearing(who: Who | undefined, seen: () => Set<string> | un
         ownersToo: !who || who.owner,
         /** Whether a bell notice reaches them (ORR-1353): the owner's, with a project they see, as `GET /notices` keeps it. */
         hearsNotice: (notice: unknown) => (!who || who.owner) && sees((notice as {project?: string} | null)?.project),
-        /** Whether an event log row reaches them (ORR-1353): the owner's, with a project they see, as `/events/log`
-         * keeps it; a row naming none (a server error) is the installation's, so the owner's. */
+        /** Whether an event log row reaches them (ORR-1353): the owner's, in the tab's workspace (ORR-1386: a member's
+         * refusal is in the member's), with a project they see, as `/events/log` keeps it; a row naming no project (a
+         * server error) is the installation's, so the owner's. A row from before lines named their workspace is `default`'s. */
         hearsLogged: (logged: unknown) => {
-            const project = (logged as {event?: {project?: string | null}} | null)?.event?.project
-            return (!who || who.owner) && (!project || sees(project))
+            const line = (logged as {event?: {project?: string | null, workspace?: string | null}} | null)?.event
+            if ((line?.workspace || 'default') !== workspace) return false
+            return (!who || who.owner) && (!line?.project || sees(line.project))
         },
     }
 }

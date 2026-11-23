@@ -229,6 +229,8 @@ impl<'c> EventLog<'c> {
         if !again {
             told["fresh"] = json!(true);
         }
+        // Whose log it's in (ORR-1386), so the local app pushes it to that workspace's pages alone.
+        told["workspace"] = json!(workspace);
         self.effects.logged.push(told);
         Ok(json!({"event": event, "fresh": !again}))
     }
@@ -359,8 +361,13 @@ impl<'c> EventLog<'c> {
         .fetch_all(&mut *self.conn)
         .await?;
         // In the order the store hears them: the repeats, then the line itself.
-        self.effects.logged.extend(repeats.iter().map(event_of));
-        self.effects.logged.push(event.clone());
+        let workspace = self.workspace.id().to_string();
+        let told = |mut line: Value| {
+            line["workspace"] = json!(workspace);
+            line
+        };
+        self.effects.logged.extend(repeats.iter().map(event_of).map(told));
+        self.effects.logged.push(told(event.clone()));
         Ok(event)
     }
 }

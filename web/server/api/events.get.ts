@@ -19,7 +19,7 @@ export default defineEventHandler(async event => {
     const named = getQuery(event).workspace
     const workspace = typeof named === 'string' && named ? named : undefined
     let seen: Set<string> | undefined = new Set<string>()
-    const {held, sees, ownersToo, hearsNotice, hearsLogged} = streamHearing(event.context?.who as Who | undefined, () => seen)
+    const {held, sees, ownersToo, hearsNotice, hearsLogged} = streamHearing(event.context?.who as Who | undefined, () => seen, workspace)
     let looked = 0
     let looking: Promise<void> | undefined
     const look = (fresh = false) => looking ??= listedSees(event, {workspace, fresh})

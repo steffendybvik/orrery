@@ -60,18 +60,19 @@ async fn the_projects_list_holds_only_the_askers_workspaces() {
 }
 
 #[tokio::test]
-async fn the_changes_feed_holds_only_the_askers_workspaces() {
+async fn the_changes_feed_is_nobodys_but_the_local_apps() {
+    // Rows with no project (settings, epics, chats, the event log's lines) can't be held to a workspace by their
+    // project, so the feed is the local app's alone (ORR-1386), and it pushes each to the pages it's for.
     let api = TestApi::new().await;
     let (primes, rockets) = two_workspaces(&api).await;
     api.issue(&primes, json!({"title": "Sieve"})).await;
     api.issue(&rockets, json!({"title": "Fuel"})).await;
-    let anas = as_person(&api, "/api/changes", "ana").await;
-    let seen = projects_of(&anas["changes"]);
-    assert!(seen.contains(&primes) && !seen.contains(&rockets), "{seen:?}");
-    let bos = projects_of(&as_person(&api, "/api/changes", "bo").await["changes"]);
-    assert!(bos.contains(&rockets), "{bos:?}");
-    // Where to carry on from is the feed's, whatever was held back.
-    assert_eq!(anas["last"], api.get("/api/changes").send().await.body["last"]);
+    for person in ["ana", "bo", "sam"] {
+        let reply = api.signed(api.get("/api/changes"), person).await.send().await;
+        assert_eq!(reply.status, 403, "{person}: {}", reply.body);
+    }
+    let all = projects_of(&api.get("/api/changes").send().await.body["changes"]);
+    assert!(all.contains(&primes) && all.contains(&rockets), "{all:?}");
 }
 
 #[tokio::test]
@@ -540,8 +541,8 @@ async fn a_members_lists_and_feeds_keep_to_the_boards_theyre_on() {
     let mut owners = ids(&as_person(&api, "/api/projects", "sam").await);
     owners.sort();
     assert_eq!(owners, [primes.clone(), quarry.clone()]);
-    let feed = projects_of(&as_person(&api, "/api/changes", "ana").await["changes"]);
-    assert!(feed.contains(&primes) && !feed.contains(&quarry), "{feed:?}");
+    // The outbox feed is the local app's alone (ORR-1386).
+    assert_eq!(api.signed(api.get("/api/changes"), "ana").await.send().await.status, 403);
     // Her agent key is held alike.
     let read = with_agent_key(&api, api.get(&format!("/api/projects/{quarry}/issues")), "ana", None).await.send().await;
     assert_eq!(read.status, 404, "{}", read.body);
