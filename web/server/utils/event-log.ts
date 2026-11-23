@@ -274,13 +274,32 @@ export function refusal(status: number, method: string, path: string, message: s
     }
 }
 
+/** Values to keep out of the log wherever they show, whatever their shape: the token this server gave the API it
+ * started (ORR-1392). */
+const kept = new Set<string>()
+
+/** Keeps `value` out of every line from now on (`redact`); gives back what lets it in again. */
+export function keepOutOfLog(value: string | undefined | null): () => void {
+    if (!value || value.length < 8) return () => {}
+    kept.add(value)
+    return () => kept.delete(value)
+}
+
 /** Passwords in addresses (`postgres://me:…@host`, with no user or an `@` in the password too), as a setting
- * (`?password=…`, `host=db password=…`), and bearer tokens, whoever's they are. */
+ * (`?password=…`, `host=db password=…`), bearer tokens, whoever's they are, and orrery's own credentials (ORR-1392):
+ * agent and person keys, the login cookie, the phone link's `?t=` and an invite's, the API's token (named, in its header,
+ * or as `keepOutOfLog` was told it). */
 export function redact(text: string): string {
-    return text
+    const out = text
         .replace(/(\b[a-z][a-z0-9+.-]*:\/\/[^\s:/@]*:)[^\s/]+@/gi, '$1…@')
         .replace(/\b(password\s*=\s*)('[^']*'|"[^"]*"|[^\s&'"]+)/gi, '$1…')
         .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 …')
+        .replace(/\b(orrery_(?:agent|person)_)[A-Za-z0-9_-]{8,}/gi, '$1…')
+        .replace(/\b(orrery_login(?:_\d+)?\s*=\s*)[^;\s,'"]+/gi, '$1…')
+        .replace(/([?&](?:t|token|invite)=)[^&#\s'"]+/gi, '$1…')
+        .replace(/\b((?:NUXT_API_TOKEN|ORRERY_KEY)\s*[=:]\s*['"]?)[^\s'"&]+/gi, '$1…')
+        .replace(/\b(Orrery-Api-Token['"]?\s*[:=]\s*['"]?)[^\s'",}]+/gi, '$1…')
+    return [...kept].reduce((line, value) => line.replaceAll(value, '…'), out)
 }
 
 /** A change to the roadmap in a line: who did what to which, and what it went from and to. */

@@ -1,6 +1,6 @@
 import {beforeEach, describe, expect, it} from 'vitest'
 import type {LoggedEvent} from '#shared/roadmap'
-import {describe as describeChange, EventLog, HOLD, redact, refusal} from '../server/utils/event-log'
+import {describe as describeChange, EventLog, HOLD, keepOutOfLog, redact, refusal} from '../server/utils/event-log'
 import {writeToApi} from '../server/utils/api-router'
 import {ORRERY} from '../server/store/schema'
 import {Store} from '../server/utils/store'
@@ -64,6 +64,21 @@ describe('the event log', () => {
         expect(redact('postgres://me@db/orrery?sslmode=require&password=hunter22')).toBe('postgres://me@db/orrery?sslmode=require&password=…')
         expect(redact("host=db user=me password='hunter 22' dbname=orrery")).toBe('host=db user=me password=… dbname=orrery')
         expect(redact('host=db password=hunter22')).toBe('host=db password=…')
+    })
+
+    it("keeps orrery's own credentials out: keys, the login cookie, links' tokens and the API's token (ORR-1392)", () => {
+        expect(redact('key orrery_agent_AbC-123_xyzXYZ0987 refused')).toBe('key orrery_agent_… refused')
+        expect(redact('ORRERY_PERSON_abcdefgh12345678')).toBe('ORRERY_PERSON_…')
+        expect(redact('cookie: orrery_login_9000=s3cr3tvalue; other=1')).toBe('cookie: orrery_login_9000=…; other=1')
+        expect(redact('GET https://o.example/login?t=abcd1234efgh&x=1')).toBe('GET https://o.example/login?t=…&x=1')
+        expect(redact('/join?invite=abc123def456')).toBe('/join?invite=…')
+        expect(redact('NUXT_API_TOKEN=deadbeefcafe0123 node')).toBe('NUXT_API_TOKEN=… node')
+        expect(redact('{"Orrery-Api-Token":"deadbeefcafe0123"}')).toBe('{"Orrery-Api-Token":"…"}')
+        const token = 'f00dfacef00dface0123456789'
+        const letIn = keepOutOfLog(token)
+        expect(redact(`fetch failed: ${token}`)).toBe('fetch failed: …')
+        letIn()
+        expect(redact(token)).toBe(token)
     })
 
     it('reads Advanced and the secrets once, and again only once told they changed', async () => {

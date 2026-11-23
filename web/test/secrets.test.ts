@@ -167,6 +167,14 @@ describe('egress', () => {
         expect(result.headers['set-cookie']).toBeUndefined()
     })
 
+    it('scrubs a value echoed in another case, or URL-encoded twice (ORR-1392)', async () => {
+        const odd = 'q"uo/te z+&1'
+        await secrets.set('ODD', {value: odd, hosts: ['api.stripe.com']}, me)
+        answer = () => new Response(`${VALUE.toUpperCase()} ${encodeURIComponent(encodeURIComponent(odd))}`)
+        const result = await secrets.egress({project: 'greenhouse', url: 'https://api.stripe.com/?k={{secret:STRIPE_KEY}}&o={{secret:ODD}}'}, agent)
+        expect(result.body).toBe('{{secret:STRIPE_KEY}} {{secret:ODD}}')
+    })
+
     it('needs the project the request is for, whatever the secret is for (ORR-1069)', async () => {
         const request = {url: 'https://api.stripe.com/v1/charges', headers: {Authorization: 'Bearer {{secret:STRIPE_KEY}}'}}
         for (const project of [undefined, '']) {

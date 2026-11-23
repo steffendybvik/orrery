@@ -3,7 +3,8 @@
 // Dead code until the swap: it runs only while the API does (NUXT_API_BIN or NUXT_API_URL, plugins/outbox.ts), and with
 // none set this server hears its own writes from the store's hooks, as ever. This server's own rows are skipped, as its
 // hooks heard those in-process; the rest go to the same hooks, inside `relaying`, so none gets a second row.
-import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs'
+import {createHash} from 'node:crypto'
+import {chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs'
 import {dirname, resolve} from 'node:path'
 import type {Actor, Store} from './store'
 import {projectEvents} from './events'
@@ -39,20 +40,28 @@ export function cursorFile(database: string, docker = inDocker()): string {
     return docker ? '/data/outbox-cursor.json' : resolve('.data/outbox-cursor.json')
 }
 
-/** The cursor saved for `database`; none when there's none, or it's for another one (the owner moved it). */
+/** The database as the cursor file names it: its setting hashed, as `databaseMark` tells the API, since a Postgres URL
+ * holds a password (ORR-1392). */
+const markOf = (database: string) => createHash('sha256').update(database).digest('hex')
+
+/** The cursor saved for `database`; none when there's none, or it's for another one (the owner moved it). A file from
+ * before ORR-1392 names the database in full, and still counts until the next save writes its mark instead. */
 export function readCursor(file: string, database: string): number | undefined {
     if (!existsSync(file)) return undefined
     try {
-        const saved = JSON.parse(readFileSync(file, 'utf8')) as {database?: string, after?: number}
-        return saved.database === database && Number.isInteger(saved.after) ? saved.after : undefined
+        const saved = JSON.parse(readFileSync(file, 'utf8')) as {mark?: string, database?: string, after?: number}
+        const ours = saved.mark === markOf(database) || saved.database === database
+        return ours && Number.isInteger(saved.after) ? saved.after : undefined
     } catch {
         return undefined
     }
 }
 
+/** Saves where the follower is, with the database's mark rather than its setting, in a file its owner alone reads. */
 export function saveCursor(file: string, database: string, after: number) {
     mkdirSync(dirname(file), {recursive: true})
-    writeFileSync(file, JSON.stringify({database, after}))
+    writeFileSync(file, JSON.stringify({mark: markOf(database), after}), {mode: 0o600})
+    chmodSync(file, 0o600)
 }
 
 /** Whose a row is, as the store's hooks take an actor. */

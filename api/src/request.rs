@@ -241,7 +241,8 @@ pub(crate) async fn guard(State(app): Shared, mut request: Request, next: Next) 
         }
         say_who(request.headers_mut(), who.as_ref());
     }
-    let said = app.log.then(|| format!("{} {}", request.method(), request.uri()));
+    // The path alone: a query can carry an invite or a sign-in link's token (ORR-1392).
+    let said = app.log.then(|| format!("{} {}", request.method(), request.uri().path()));
     let response = too_large(next.run(request).await);
     if let Some(said) = said {
         eprintln!("[orrery-api] {said} {}", response.status().as_u16());

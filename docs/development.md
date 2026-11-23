@@ -131,7 +131,7 @@ later) once, and `pnpm dev` (`nuxt dev`) starts `api/target/debug/orrery-api` be
 fresh token, and stops it with itself; build again after a change in `api/`. `NUXT_API_BIN` names another binary (the
 image sets it to its own copy). Or run one yourself and point at it: `NUXT_API_TOKEN` (16 characters or more) and
 `NUXT_DATABASE` for both, `ORRERY_API_LISTEN` for the API (`127.0.0.1:9100` by default), `NUXT_API_URL` for Nuxt.
-`ORRERY_API_LOG=1` has the API say each request it answers. With none
+`ORRERY_API_LOG=1` has the API say each request it answers, its path without the query. With none
 of these and no build, the server says so as it starts, and the API's routes answer 503.
 
 Which server answered: every reply to an `/api/` request carries `X-Served-By: rust` or `X-Served-By: nuxt` (the
