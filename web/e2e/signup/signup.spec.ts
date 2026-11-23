@@ -172,8 +172,20 @@ test("signing out ends the provider's session too, so the next sign-in can be so
     const provider = await providerOf(baseURL!)
     await ownerPage.goto('/')
     expect(await whoIs(ownerPage)).toBe('ada_lovelace')
+    // What the browser keeps is Ada's (ORR-1391), and the API's answers aren't kept in its cache.
+    expect((await ownerPage.request.get('/api/auth/status')).headers()['cache-control']).toBe('no-store')
+    const kept = (key: string) => ownerPage.evaluate(k => localStorage.getItem(k), key)
+    expect(await kept('orrery-storage-person')).toBe('ada_lovelace')
+    await ownerPage.evaluate(() => {
+        localStorage.setItem('orrery-read-docs', '{"rockets/plan":"Ada\'s private doc"}')
+        localStorage.setItem('orrery-theme', 'dark')
+    })
     await ownerPage.getByRole('complementary').first().getByRole('button', {name: 'Sign out'}).click()
     await expect(ownerPage).toHaveURL(/\/login(\?state=.+)?$/)
+    // Signing out leaves nothing of hers in the browser but how it's laid out.
+    expect(await kept('orrery-read-docs')).toBeNull()
+    expect(await kept('orrery-storage-person')).toBeNull()
+    expect(await kept('orrery-theme')).toBe('dark')
     const {logout} = await (await fetch(`${provider}/seen`)).json() as {logout: Record<string, string>}
     expect(logout.post_logout_redirect_uri).toBe(`${baseURL}/login`)
     expect(logout.client_id).toBe('orrery-e2e')
@@ -183,10 +195,13 @@ test("signing out ends the provider's session too, so the next sign-in can be so
     await ownerPage.getByRole('link', {name: 'Sign in or sign up'}).click()
     await expect(ownerPage).not.toHaveURL(/\/login/)
     expect(await whoIs(ownerPage)).toBe('alan_turing')
+    await expect.poll(() => ownerPage.evaluate(() => localStorage.getItem('orrery-storage-person'))).toBe('alan_turing')
 })
 
 test("“Sign in as someone else” shows the provider's form, though it's still signed in there (ORR-1319)", async ({baseURL}) => {
     const provider = await providerOf(baseURL!)
+    // Alan's marks, which signing out of orrery alone (below) doesn't clear: Ada signing in next does (ORR-1391).
+    await ownerPage.evaluate(() => localStorage.setItem('orrery-seen', '{"alan/ALN-1":"2026-11-23"}'))
     // Out of orrery alone, as a session that ran out is: the provider still has Alan.
     expect((await ownerPage.request.post('/api/auth/logout', {headers: {'Orrery-Sent-Origin': baseURL!}})).ok()).toBe(true)
     await ownerPage.goto('/login')
@@ -199,4 +214,6 @@ test("“Sign in as someone else” shows the provider's form, though it's still
     await ownerPage.getByRole('link', {name: 'Continue as Ada Lovelace'}).click()
     await expect(ownerPage).not.toHaveURL(/\/login|\/authorize/)
     expect(await whoIs(ownerPage)).toBe('ada_lovelace')
+    await expect.poll(() => ownerPage.evaluate(() => localStorage.getItem('orrery-storage-person'))).toBe('ada_lovelace')
+    expect(await ownerPage.evaluate(() => localStorage.getItem('orrery-seen') ?? '')).not.toContain('ALN-1')
 })

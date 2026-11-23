@@ -6,6 +6,10 @@ export default defineNuxtPlugin(async () => {
     const {status, loggedOut} = useAuth()
     status.value = await apiFetch<AuthStatus>('/auth/status').catch(() => null)
     const onLogin = location.pathname === '/login'
+    // What the browser keeps is the person's who's signed in (ORR-1391), before any other plugin reads it.
+    if (status.value?.mode !== 'off' && status.value?.person) holdStorageTo(status.value.person)
+    // A page brought back from the back-forward cache shows what it held then, perhaps someone since logged out.
+    if (status.value && status.value.mode !== 'off') window.addEventListener('pageshow', e => e.persisted && location.reload())
     if (status.value && !loggedOut.value) await usePeople().load()
     // Where a browser sent to log in was going, such as a machine's Connect page (ORR-1192): back there once it's in.
     if (status.value && !loggedOut.value && !onLogin) {
