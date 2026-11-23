@@ -335,6 +335,10 @@ test("serves all of a launcher's projects on one stream, each counted and sent i
 })
 
 test('with a session listening, New session on this starts another on the issue', async ({page, request, baseURL}) => {
+    // Once a launcher is there, orrery starts a session for each Todo issue the earlier specs left (ORR-1399): room
+    // under the limit keeps those from filling it, which would take the button away.
+    const before = ((await (await request.get('/api/settings')).json()) as {starts: unknown}).starts
+    await request.patch('/api/settings', {data: {starts: {limit: 200}}, headers: OWNER})
     const issue = await api(request, 'post', '/issues', {title: 'Sweep the steps', status: 'todo'})
     await request.post('/api/sessions', {data: {id: 'e2e-n1', project: 'kitchen', event: 'SessionStart', name: 'e2e-n1'}})
     const stream = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-n1&name=e2e-n1&format=text')
@@ -355,6 +359,7 @@ test('with a session listening, New session on this starts another on the issue'
     } finally {
         launcher.stop()
         stream.stop()
+        await request.patch('/api/settings', {data: {starts: before}, headers: OWNER})
     }
 })
 

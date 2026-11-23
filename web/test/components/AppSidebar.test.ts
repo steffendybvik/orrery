@@ -65,7 +65,7 @@ describe('AppSidebar', () => {
         useAppSettings().settings.value.advanced = true
         const on = await mount()
         for (const to of ['/events', '/pulls']) expect(link(on, to)).toBeDefined()
-        // Context is under App settings → Advanced instead (ORR-1398).
+        // Context is reached from App settings → Advanced, a running session's card and ⌘K instead (#1389).
         expect(link(on, '/context')).toBeUndefined()
         // No row folds them away (ORR-973 took ORR-967's back out).
         expect(on.findAll('button').some(b => b.text() === 'Advanced')).toBe(false)
