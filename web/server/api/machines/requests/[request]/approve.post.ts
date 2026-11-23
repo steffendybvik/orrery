@@ -5,7 +5,9 @@ import {approveConnectRequest} from '../../../../utils/machine-connect'
 // asked gets an agent key of theirs, reaching every workspace they're in, the next time its launcher asks. Only from a
 // person's own page: a session never connects a machine as its person. 404 once it's run out.
 export default defineEventHandler(async event => {
-    await authorize(event, 'machines.approve')
+    // A member in person is let through by the table's `member` cell (`checkBoards`): `authorize` alone would class
+    // them as a session (ORR-1348). Anyone else, an agent of theirs included, goes on to it and is refused.
+    if (!await memberAsking(event)) await authorize(event, 'machines.approve')
     if (await authMode(event) === 'off') throw conflict('Login is off here, so a machine needs no key to connect')
     const who = event.context?.who as Who | undefined
     const person = who?.via === 'browser' ? who.person : undefined

@@ -5,7 +5,9 @@ import {makeConnectCode} from '../../utils/machine-connect'
 // (ORR-1192), so pasting it connects the machine with nothing else to do. A person's own, from their page: never a
 // session, which would hand its person's key to whoever it gave the code. With login off the line needs none: 409.
 export default defineEventHandler(async event => {
-    await authorize(event, 'machines.approve')
+    // A member in person is let through by the table's `member` cell (`checkBoards`): `authorize` alone would class
+    // them as a session (ORR-1348). Anyone else, an agent of theirs included, goes on to it and is refused.
+    if (!await memberAsking(event)) await authorize(event, 'machines.approve')
     if (await authMode(event) === 'off') throw conflict('Login is off here, so the install line needs no code')
     const who = event.context?.who as Who | undefined
     if (who?.via !== 'browser') throw createError({statusCode: 403, statusMessage: 'Forbidden', message: 'A code for the install line is made from your own page, signed in'})
