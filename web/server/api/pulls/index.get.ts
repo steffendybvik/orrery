@@ -5,12 +5,12 @@
 // once a minute (five without a GITHUB_TOKEN secret, and then only the lists: every PR not a draft is `checking`).
 // Anyone but the owner gets each PR without what an outsider may have written (ORR-532). `q` keeps only those with
 // every word of it, in what the asker is sent, and `matched` counts them (ORR-941).
-// A member who isn't the owner gets the pull requests on the repos of the projects they can see alone (ORR-1195).
+// Anyone signed in, the owner too, gets the pull requests on the repos of the projects they can see alone (ORR-1195,
+// ORR-1347), so none from another person's workspace.
 export default defineEventHandler(async event => {
     const all = await usePulls().all()
-    const who = event.context?.who as Who | undefined
-    if (!who || who.owner) return pullsPage(await pullsForAsker(event, all), getQuery(event))
-    const repos = new Set((await readAsAsker<{repo?: string | null}[]>(event, '/api/projects?every=1') ?? []).flatMap(p => p.repo ? [p.repo.toLowerCase()] : []))
+    const repos = await reposSeen(event)
+    if (!repos) return pullsPage(await pullsForAsker(event, all), getQuery(event))
     const mine = {...all, pulls: all.pulls.filter(p => repos.has(p.repo.toLowerCase())), repos: all.repos.filter(r => repos.has(r.repo.toLowerCase()))}
     return pullsPage(await pullsForAsker(event, mine), getQuery(event))
 })

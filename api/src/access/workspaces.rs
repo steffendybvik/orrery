@@ -5,6 +5,7 @@ use crate::board::statuses::{TINT, TINTS};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
 use crate::text::slugify;
+use crate::work::presets::Presets;
 use crate::write::stamp;
 use serde_json::{json, Map, Value};
 use sqlx::{AnyConnection, Row};
@@ -77,6 +78,8 @@ impl<'c> Workspaces<'c> {
             .bind(&at)
             .execute(&mut *self.conn)
             .await?;
+        // Its own copy of the presets orrery ships (ORR-1350), as `default` has had since it began.
+        Presets::of(&mut *self.conn, id.clone()).seed_workspace(&id).await?;
         self.one(&id, person).await
     }
 

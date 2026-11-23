@@ -154,3 +154,39 @@ async fn each_workspace_has_its_own_statuses() {
     let ana = api.signed(api.get("/api/statuses").header("orrery-workspace", "acme"), "ana").await.send().await;
     assert_eq!(ana.status, 404, "{}", ana.body);
 }
+
+/// A status id one workspace has never blocks another's (ORR-1350): `default` naming one `Acme review` takes
+/// `acme-review`, and Acme's own Review then gets `acme-review-2`, as default's Acme testing does after Acme's Testing.
+#[tokio::test]
+async fn a_status_id_another_workspace_has_is_given_a_suffix_both_ways() {
+    let api = TestApi::new().await;
+    api.owner().await;
+    api.acme(&["sam"]).await;
+    let ours = api.post("/api/statuses", serde_json::json!({"name": "Acme review", "kind": "started"})).send().await;
+    assert_eq!((ours.status.as_u16(), ours.body["id"].as_str()), (201, Some("acme-review")), "{}", ours.body);
+    let theirs = api.post("/api/statuses", serde_json::json!({"name": "Review", "kind": "started"})).header("orrery-workspace", "acme").send().await;
+    assert_eq!((theirs.status.as_u16(), theirs.body["id"].as_str()), (201, Some("acme-review-2")), "{}", theirs.body);
+
+    let theirs = api.post("/api/statuses", serde_json::json!({"name": "Testing", "kind": "started"})).header("orrery-workspace", "acme").send().await;
+    assert_eq!(theirs.body["id"], "acme-testing", "{}", theirs.body);
+    let ours = api.post("/api/statuses", serde_json::json!({"name": "Acme testing", "kind": "started"})).send().await;
+    assert_eq!((ours.status.as_u16(), ours.body["id"].as_str()), (201, Some("acme-testing-2")), "{}", ours.body);
+
+    let again = api.post("/api/statuses", serde_json::json!({"name": "Testing", "kind": "started"})).header("orrery-workspace", "acme").send().await;
+    assert_eq!(again.status, 409, "{}", again.body);
+    assert!(ids(&api.get("/api/statuses").send().await.body).iter().all(|id| id != "acme-review-2" && id != "acme-testing"));
+}
+
+/// A workspace whose id starts one of `default`'s still gets every status of its own (ORR-1350): `in` asks for
+/// `in-progress`, which is default's, and is given `in-progress-2` rather than going without.
+#[tokio::test]
+async fn a_workspace_named_like_a_default_status_still_gets_its_own() {
+    let api = TestApi::new().await;
+    api.owner().await;
+    api.run("INSERT INTO workspaces (id, name, created_at) VALUES ('in', 'In', '2026-11-01T00:00:00.000Z')", &[]).await;
+    api.run("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('in', 'sam', 'owner', '2026-11-01T00:00:00.000Z')", &[]).await;
+    let listed = api.get("/api/statuses").header("orrery-workspace", "in").send().await;
+    assert_eq!(listed.status, 200, "{}", listed.body);
+    assert_eq!(ids(&listed.body), ["in-backlog", "in-todo", "in-progress-2", "in-review-2", "in-done", "in-canceled"], "{}", listed.body);
+    assert_eq!(api.count("SELECT count(*) FROM statuses WHERE id = 'in-progress' AND workspace = 'default'").await, 1);
+}

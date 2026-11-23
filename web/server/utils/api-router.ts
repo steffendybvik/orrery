@@ -751,13 +751,15 @@ async function forwardMcp(event: H3Event, api: {url: string, token: string}): Pr
     return text
 }
 
-/** A read from the API as the request's own asker (their login or key, and the workspace they name), not as this
- * server: what they themselves may see (ORR-1195). Undefined with no API in front, or when it says no. */
-export async function readAsAsker<T>(event: H3Event, path: string): Promise<T | undefined> {
+/** A read from the API as the request's own asker (their login or key, and the workspace they name, or `workspace`
+ * in its place), not as this server: what they themselves may see (ORR-1195). Undefined with no API in front, or when
+ * it says no. */
+export async function readAsAsker<T>(event: H3Event, path: string, {workspace}: {workspace?: string} = {}): Promise<T | undefined> {
     const api = apiTarget(configHere())
     if (!api) return undefined
     try {
-        const response = await fetch(`${api.url.replace(/\/+$/, '')}${path}`, {headers: headersFor(event, api, await actorOf(event)), redirect: 'manual'})
+        const headers = {...headersFor(event, api, await actorOf(event)), ...workspaceHeader(workspace)}
+        const response = await fetch(`${api.url.replace(/\/+$/, '')}${path}`, {headers, redirect: 'manual'})
         return response.ok ? await response.json() as T : undefined
     } catch {
         return undefined

@@ -140,6 +140,26 @@ impl<'c> Statuses<'c> {
         }
     }
 
+    /// The id a new status asking for `id` gets here (ORR-1350): a 409 when this workspace has it already, and `-2`,
+    /// `-3`… when only another workspace has it, so another's statuses never block or show through. `default` making
+    /// `acme-review`, or a workspace `in` asking for `in-progress`, is no clash for either.
+    async fn free_id(&mut self, id: &str) -> Result<String> {
+        let row = sqlx::query(&sql("SELECT workspace FROM statuses WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
+        match row.map(|r| r.get::<String, _>("workspace")) {
+            None => return Ok(id.to_string()),
+            Some(here) if here == self.workspace => return Err(ApiError::conflict(format!("There is already a status \"{id}\""))),
+            Some(_) => {}
+        }
+        let mut n = 1;
+        loop {
+            n += 1;
+            let next = format!("{id}-{n}");
+            if sqlx::query(&sql("SELECT 1 FROM statuses WHERE id = ?")).bind(&next).fetch_optional(&mut *self.conn).await?.is_none() {
+                return Ok(next);
+            }
+        }
+    }
+
     /// Gives a workspace with no statuses yet the set orrery ships (ORR-1107), its ids its own (`acme-todo`), so a new
     /// workspace's boards can be drawn however it was made. `default` has had them since step 020.
     async fn seed(&mut self) -> Result<()> {
@@ -151,8 +171,10 @@ impl<'c> Statuses<'c> {
             return Ok(());
         }
         for (position, (id, name, kind, color)) in SHIPPED.iter().enumerate() {
-            sqlx::query(&sql("INSERT INTO statuses (id, name, kind, color, position, workspace) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING"))
-                .bind(self.id_here(id))
+            let id = self.id_here(id);
+            let id = self.free_id(&id).await?;
+            sqlx::query(&sql("INSERT INTO statuses (id, name, kind, color, position, workspace) VALUES (?, ?, ?, ?, ?, ?)"))
+                .bind(&id)
                 .bind(*name)
                 .bind(*kind)
                 .bind(*color)
@@ -218,9 +240,7 @@ impl<'c> Statuses<'c> {
         if id == "proposed" {
             return Err(ApiError::bad_request("\"proposed\" is where proposals sit; give the status another id"));
         }
-        if sqlx::query(&sql("SELECT 1 FROM statuses WHERE id = ?")).bind(&id).fetch_optional(&mut *self.conn).await?.is_some() {
-            return Err(ApiError::conflict(format!("There is already a status \"{id}\"")));
-        }
+        let id = self.free_id(&id).await?;
         let position = match input.get("position").and_then(Value::as_f64) {
             Some(position) => position,
             None => {

@@ -2018,7 +2018,7 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             }
 
             // Without a provider set up, there's nothing to log in through.
-            for (const path of ['/api/auth/oidc/start', '/api/auth/oidc/callback']) {
+            for (const path of ['/api/auth/oidc/start', '/api/auth/oidc/callback', '/api/auth/oidc/logout']) {
                 const none = await get(url, path)
                 expect(none.status, path).toBe(404)
                 expect(await none.json(), path).toEqual({statusCode: 404, statusMessage: 'Not Found', message: 'This orrery has no login provider'})
@@ -2099,8 +2099,17 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             await store.addPerson({name: 'Per'})
             const other = await store.invite('per')
             await expect(store.identity(issuer, 'account-1', other.secret)).resolves.toBe('oda')
-            // Neither is the router's to send yet: the Nuxt server logs in for itself until the swap.
-            for (const path of ['/api/auth/oidc/start', '/api/auth/oidc/callback']) expect(servedByApi('GET', path), path).toBe(false)
+            // Signing out (ORR-1319): this provider has no end_session_endpoint, so straight to the login page, the kept
+            // ID token cleared; the way back above kept it.
+            expect(board.headers.get('set-cookie')).toMatch(/orrery_oidc_hint=[\w-]+\.[\w-]+\.[\w-]+; Max-Age=2592000; Path=\/api\/auth\/oidc; HttpOnly; SameSite=Lax/)
+            const out = await get(at, '/api/auth/oidc/logout', 'orrery_oidc_hint=a.b.c')
+            expect(out.status).toBe(302)
+            expect(out.headers.get('location')).toBe(`http://127.0.0.1:${port}/login`)
+            expect(out.headers.get('set-cookie')).toBe('orrery_oidc_hint=; Max-Age=0; Path=/api/auth/oidc')
+            // Someone else: the provider's login form, asked for.
+            expect((await started('?someone_else=1')).to.searchParams.get('prompt')).toBe('login')
+            // None is the router's to send yet: the Nuxt server logs in for itself until the swap.
+            for (const path of ['/api/auth/oidc/start', '/api/auth/oidc/callback', '/api/auth/oidc/logout']) expect(servedByApi('GET', path), path).toBe(false)
         } finally {
             withProvider.kill()
             provider.closeAllConnections()
@@ -3460,6 +3469,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
         const idOf = async (name: string) => (await store.presets('through-api')).concat(await store.presets('through-store')).find(p => p.name === name)?.id ?? 0
         const withoutIds = async (outcome: Promise<Outcome>) => {
             const ids = (await store.presets('through-api')).concat(await store.presets('through-store')).map(p => p.id)
+                // Longest first, so `preset 12` isn't read as `preset 1` and a 2.
+                .sort((a, b) => String(b).length - String(a).length)
             return JSON.parse(JSON.stringify(await outcome, (_key, value: unknown) => typeof value === 'string'
                 ? ids.reduce((text, id) => text.replaceAll(`preset ${id}`, 'preset <id>'), value) : value)) as Outcome
         }
@@ -4070,7 +4081,7 @@ describe('the contract (api/openapi.yaml)', () => {
     })
 
     it('sends none of the routes written ahead of the Rust API to it', () => {
-        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'DELETE /api/session-presence/{session}', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/auth/ways-in', 'GET /api/chats', 'GET /api/chats/{chat}', 'GET /api/database', 'GET /api/projects/{project}/comments/unanswered', 'GET /api/projects/{project}/issue-sessions', 'GET /api/projects/{project}/issues/{issue}/dependents', 'GET /api/projects/{project}/issues/{issue}/id', 'GET /api/projects/{project}/issues/{issue}/kept-pulls', 'GET /api/projects/{project}/issues/{issue}/row', 'GET /api/projects/{project}/issues/{issue}/workers', 'GET /api/projects/{project}/milestones/{milestone}/id', 'GET /api/projects/{project}/milestones/{milestone}/row', 'GET /api/projects/{project}/release-peers', 'GET /api/projects/{project}/releases/{release}/row', 'GET /api/projects/{project}/row', 'GET /api/projects/{project}/session-work', 'GET /api/projects/{project}/signals/last', 'GET /api/pulls/named', 'GET /api/pulls/repos', 'GET /api/pulls/{owner}/{name}', 'POST /api/auth/identity', 'POST /api/auth/link', 'POST /api/boards', 'POST /api/chats/{chat}/doc-requests', 'POST /api/chats/{chat}/issue-requests', 'POST /api/chats/{chat}/lines', 'POST /api/chats/{chat}/move-requests', 'POST /api/chats/{chat}/release-requests', 'POST /api/chats/{chat}/replies', 'POST /api/chats/{chat}/schedule-requests', 'POST /api/chats/{chat}/setting-requests', 'POST /api/database/compact', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/presets/seed', 'POST /api/projects/{project}/issue-sessions/rename', 'POST /api/projects/{project}/issues/{issue}/worked-by', 'POST /api/projects/{project}/signals', 'POST /api/projects/{project}/signals/retarget', 'POST /api/projects/{project}/signals/{signal}/receipts', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'POST /api/signals/prune', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/session-presence/{session}', 'PUT /api/session-records/{session}', 'PUT /api/usage'])
+        expect(contract(true)).toEqual(['DELETE /api/chats/{chat}', 'DELETE /api/secrets/{name}/sealed', 'DELETE /api/session-presence/{session}', 'GET /api/auth/oidc/callback', 'GET /api/auth/oidc/logout', 'GET /api/auth/oidc/start', 'GET /api/auth/status', 'GET /api/auth/ways-in', 'GET /api/chats', 'GET /api/chats/{chat}', 'GET /api/database', 'GET /api/projects/{project}/comments/unanswered', 'GET /api/projects/{project}/issue-sessions', 'GET /api/projects/{project}/issues/{issue}/dependents', 'GET /api/projects/{project}/issues/{issue}/id', 'GET /api/projects/{project}/issues/{issue}/kept-pulls', 'GET /api/projects/{project}/issues/{issue}/row', 'GET /api/projects/{project}/issues/{issue}/workers', 'GET /api/projects/{project}/milestones/{milestone}/id', 'GET /api/projects/{project}/milestones/{milestone}/row', 'GET /api/projects/{project}/release-peers', 'GET /api/projects/{project}/releases/{release}/row', 'GET /api/projects/{project}/row', 'GET /api/projects/{project}/session-work', 'GET /api/projects/{project}/signals/last', 'GET /api/pulls/named', 'GET /api/pulls/repos', 'GET /api/pulls/{owner}/{name}', 'POST /api/auth/identity', 'POST /api/auth/link', 'POST /api/boards', 'POST /api/chats/{chat}/doc-requests', 'POST /api/chats/{chat}/issue-requests', 'POST /api/chats/{chat}/lines', 'POST /api/chats/{chat}/move-requests', 'POST /api/chats/{chat}/release-requests', 'POST /api/chats/{chat}/replies', 'POST /api/chats/{chat}/schedule-requests', 'POST /api/chats/{chat}/setting-requests', 'POST /api/database/compact', 'POST /api/events/log/prune', 'POST /api/phone/link', 'POST /api/presets/seed', 'POST /api/projects/{project}/issue-sessions/rename', 'POST /api/projects/{project}/issues/{issue}/worked-by', 'POST /api/projects/{project}/signals', 'POST /api/projects/{project}/signals/retarget', 'POST /api/projects/{project}/signals/{signal}/receipts', 'POST /api/pulls/forget', 'POST /api/secrets/{name}/uses', 'POST /api/signals/prune', 'PUT /api/chats/{chat}', 'PUT /api/chats/{chat}/lines/{message}', 'PUT /api/events/log/lines', 'PUT /api/pulls/{owner}/{name}', 'PUT /api/pulls/{owner}/{name}/error', 'PUT /api/pulls/{owner}/{name}/history', 'PUT /api/pulls/{owner}/{name}/{number}', 'PUT /api/secrets/{name}/sealed', 'PUT /api/session-presence/{session}', 'PUT /api/session-records/{session}', 'PUT /api/usage'])
         expect(contract(true).filter(operation => routes().includes(operation))).toEqual([])
     })
 })

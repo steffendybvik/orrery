@@ -660,3 +660,46 @@ async fn no_project_takes_its_releases_from_a_board_marked_as_moved() {
     assert_eq!(reply.status, 409, "{}", reply.body);
     assert_eq!(reply.body["data"]["moved_to"], "https://orrery.example.com");
 }
+
+/// One workspace's project ids never block or show through to another's (ORR-1350): an id only another workspace has
+/// is quietly given `-2`, both ways, and one the workspace has itself is still a 409.
+#[tokio::test]
+async fn a_project_id_another_workspace_has_is_given_a_suffix_both_ways() {
+    let api = TestApi::new().await;
+    api.owner().await;
+    let primes = api.project("Primes").await;
+    let rockets = api.acme(&["sam"]).await;
+    assert_eq!((primes.as_str(), rockets.as_str()), ("primes", "rockets"));
+
+    let here = api.post("/api/projects", json!({"name": "Rockets"})).send().await;
+    assert_eq!((here.status.as_u16(), here.body["id"].as_str()), (201, Some("rockets-2")), "{}", here.body);
+    assert!(!here.body.to_string().contains("acme"), "it says nothing of the other workspace: {}", here.body);
+    let there = api.post("/api/projects", json!({"name": "Primes", "id": "primes"})).header("orrery-workspace", "acme").send().await;
+    assert_eq!((there.status.as_u16(), there.body["id"].as_str()), (201, Some("primes-2")), "{}", there.body);
+
+    let again = api.post("/api/projects", json!({"name": "Primes"})).send().await;
+    assert_eq!(again.status, 409, "{}", again.body);
+    let again = api.post("/api/projects", json!({"name": "Rockets", "id": "rockets"})).header("orrery-workspace", "acme").send().await;
+    assert_eq!(again.status, 409, "{}", again.body);
+
+    // Each workspace keeps what it had, and lists only its own.
+    assert_eq!(api.count("SELECT count(*) FROM projects WHERE id = 'primes' AND workspace = 'default'").await, 1);
+    assert_eq!(api.count("SELECT count(*) FROM projects WHERE id = 'rockets' AND workspace = 'acme'").await, 1);
+    let listed = api.signed(api.get("/api/projects").header("orrery-workspace", "default"), "sam").await.send().await;
+    assert_eq!(ids(&listed.body), ["primes", "rockets-2"], "{}", listed.body);
+    let listed = api.signed(api.get("/api/projects").header("orrery-workspace", "acme"), "sam").await.send().await;
+    assert_eq!(ids(&listed.body), ["primes-2", "rockets"], "{}", listed.body);
+}
+
+/// A project takes its releases only from one in its own workspace: another's is as if it weren't here (ORR-1350).
+#[tokio::test]
+async fn releases_come_only_from_a_project_in_the_same_workspace() {
+    let api = TestApi::new().await;
+    api.owner().await;
+    let rockets = api.acme(&["sam"]).await;
+    let own = api.patch(&format!("/api/projects/{rockets}"), json!({"release_mode": "own"})).header("orrery-workspace", "acme").send().await;
+    assert_eq!(own.status, 200, "{}", own.body);
+    let made = api.post("/api/projects", json!({"name": "Probe", "release_mode": "shared", "releases_from": rockets})).send().await;
+    assert_eq!(made.status, 400, "{}", made.body);
+    assert_eq!(made.body["message"], format!("No project \"{rockets}\" to take releases from"));
+}
