@@ -117,3 +117,42 @@ test("each workspace's sidebar and Projects page list its own projects alone", a
     await expect(page.getByRole('link', {name: 'Lanterns'})).toHaveCount(0)
     await expect(sidebar.getByText('Lanterns')).toHaveCount(0)
 })
+
+// Following a link into another workspace without a page load (a pull request's issue on /pulls, an old `/p/…` link)
+// loads that workspace's page in full (ORR-1396, ORR-1390), so none of the last one's rows stay on it.
+test('an in-app move into another workspace loads a fresh page', async ({page, request}) => {
+    const suffix = Date.now().toString(36)
+    const made = await request.post('/api/workspaces', {data: {name: `Pier ${suffix}`}, headers: {'Orrery-Actor': 'owner'}})
+    expect(made.ok(), await made.text()).toBeTruthy()
+    const pier = (await made.json()).id as string
+    const boat = await request.post('/api/projects', {data: {name: `Tugs ${suffix}`}, headers: {'Orrery-Actor': 'claude', 'Orrery-Workspace': pier}})
+    expect(boat.ok(), await boat.text()).toBeTruthy()
+    const {id, name} = await boat.json() as {id: string, name: string}
+
+    const push = (to: string) => page.evaluate(to => {
+        const app = (document.querySelector('#__nuxt') as unknown as {__vue_app__: {config: {globalProperties: {$router: {push(to: string): Promise<unknown>}}}}}).__vue_app__
+        ;(window as unknown as {stayed: boolean}).stayed = true
+        void app.config.globalProperties.$router.push(to)
+    }, to)
+    const stayed = () => page.evaluate(() => (window as unknown as {stayed?: boolean}).stayed === true)
+
+    await page.goto('/w/default/projects')
+    await expect(page.getByRole('link', {name: 'Lanterns'}).first()).toBeVisible()
+
+    // Within the workspace it's an in-app move, as before.
+    await push('/w/default/epics')
+    await expect(page).toHaveURL(/\/w\/default\/epics$/)
+    expect(await stayed()).toBe(true)
+
+    // Into another, by its address or by an old link to one of its projects, it's a page of its own.
+    await push(`/p/${id}`)
+    await expect(page).toHaveURL(new RegExp(`/w/${pier}/${id}$`))
+    await expect(page.getByRole('heading', {name}).first()).toBeVisible()
+    expect(await stayed()).toBe(false)
+    await expect(page.locator('aside').first().getByText('Lanterns')).toHaveCount(0)
+
+    await push('/w/default/projects')
+    await expect(page).toHaveURL(/\/w\/default\/projects$/)
+    await expect(page.getByRole('link', {name: 'Lanterns'}).first()).toBeVisible()
+    expect(await stayed()).toBe(false)
+})
