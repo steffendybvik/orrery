@@ -817,6 +817,7 @@ impl IssueWrites<'_> {
     ) -> Result<String> {
         let issue = self.issue_id(from, sent).await?;
         self.issue_there(from, &issue).await?;
+        self.reaches(from, to).await?;
         let rails = self.rails_for(actor).await?;
         if let Some(rails) = &rails {
             self.railed_assignee(rails.as_deref(), &issue, assignee).await?;
@@ -1150,6 +1151,9 @@ impl IssueWrites<'_> {
             };
             if on_project.is_empty() || on_id.is_empty() {
                 return Err(ApiError::bad_request(format!("\"{sent}\" in \"depends_on\" isn't an issue: use its id, or project/ID for another project's")));
+            }
+            if on_project != project {
+                self.reaches(project, &on_project).await?;
             }
             let on_id = self.issue_id(&on_project, &on_id).await?;
             self.issue_there(&on_project, &on_id).await?;

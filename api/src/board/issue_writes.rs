@@ -4,6 +4,8 @@
 // it (`claimIssue`, `releaseIssue`, `deleteIssue` in web/server/store). Its other writes are in comments.rs (comments),
 // issue_edits.rs (creating and changing an issue) and decisions.rs (deciding a proposal).
 use crate::access::people::Who;
+use crate::access::scope::Workspace;
+use crate::access::seen::Seen;
 use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
@@ -26,11 +28,30 @@ pub struct IssueWrites<'c> {
     /// The session an edit is for, by the id it goes by now (`Orrery-Worked-By`): starting the issue takes its lock
     /// (`lockFor`, ORR-1130). None for the owner, their chat and what orrery does itself.
     pub session: Option<String>,
+    /// What the request asking may see (ORR-1379, ORR-1383), set by the routes: another project an edit reaches (a move,
+    /// a dependency) must be one of these. With none set, it must be in the asking project's workspace.
+    pub seen: Option<Seen>,
 }
 
 impl<'c> IssueWrites<'c> {
     pub fn new(conn: &'c mut AnyConnection) -> Self {
-        IssueWrites { conn, effects: Effects::default(), outbox: None, session: None }
+        IssueWrites { conn, effects: Effects::default(), outbox: None, session: None, seen: None }
+    }
+
+    /// 404 for project `to`, reached from `from` by a move or a dependency, when the asker doesn't see it: answered as
+    /// for a project that isn't here, so the reply doesn't tell another workspace's from a missing one.
+    pub(crate) async fn reaches(&mut self, from: &str, to: &str) -> Result<()> {
+        let missing = || ApiError::not_found(format!("No project \"{to}\""));
+        let Some(there) = Workspace::of_project_or_none(&mut *self.conn, to).await? else { return Err(missing()) };
+        let seen = match &self.seen {
+            Some(seen) => seen.sees_in(there.id(), to),
+            None => Workspace::of_project_or_none(&mut *self.conn, from).await?.as_ref() == Some(&there),
+        };
+        if seen {
+            Ok(())
+        } else {
+            Err(missing())
+        }
     }
 
     /// Notes that `session` is working an issue it just made (`workedBy`), so the owner's comments on it go to that

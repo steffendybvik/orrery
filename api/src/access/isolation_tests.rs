@@ -243,11 +243,6 @@ fn targets(ids: &BTreeMap<&'static str, String>, mine: &BTreeMap<&'static str, S
 /// and its issue. A leak not listed fails the test, and so does a line here that no leak matches any more, so a fix
 /// takes its line off.
 const KNOWN: &[(&str, &str)] = &[
-    ("body login: PATCH /api/projects/{project}/issues/{issue} project:", "ORR-1379"),
-    ("body login: POST /api/projects/{project}/issues epic:", "ORR-1380"),
-    ("body key: POST /api/projects/{project}/issues epic:", "ORR-1380"),
-    ("body login: POST /api/projects/{project}/issues depends_on:", "ORR-1383"),
-    ("body key: POST /api/projects/{project}/issues depends_on:", "ORR-1383"),
     ("body login: PUT /api/chats/{chat} project:", "ORR-1388"),
     ("body key: PUT /api/chats/{chat} project:", "ORR-1388"),
     ("member: GET /api/epics shows", "ORR-1381"),
