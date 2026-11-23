@@ -2,6 +2,7 @@ import {beforeEach, describe, expect, it} from 'vitest'
 import {registerEndpoint} from '@nuxt/test-utils/runtime'
 import {getQuery, readBody, setResponseStatus} from 'h3'
 import type {Notice} from '#shared/roadmap'
+import {workspaceIn} from '~/utils/api'
 
 // The bell and the notifications page (useInbox): what's new since the owner last looked, what waits on them, the
 // page's lists a page at a time, and clearing (ORR-586).
@@ -44,6 +45,7 @@ beforeEach(() => {
     cleared.length = 0
     marked.length = 0
     localStorage.setItem('orrery-notices-seen', SEEN)
+    for (const key of Object.keys(localStorage)) if (key.startsWith('orrery-notices-seen:')) localStorage.removeItem(key)
     clearNuxtState(['notices', 'notice-lists', 'notices-hidden', 'notices-seen', 'owner'])
 })
 
@@ -59,7 +61,9 @@ describe('useInbox', () => {
         expect(inbox.waiting.value.map(n => n.id)).toEqual([2])
         expect(inbox.read.value).toBe(1)
         inbox.seen()
-        expect(localStorage.getItem('orrery-notices-seen')).toBe('2026-10-29T11:00:00.000Z')
+        // Kept for this page's workspace alone (ORR-1364): another's, and the mark from before, stay as they were.
+        expect(localStorage.getItem(`orrery-notices-seen:${workspaceIn(location.pathname) ?? 'default'}`)).toBe('2026-10-29T11:00:00.000Z')
+        expect(localStorage.getItem('orrery-notices-seen')).toBe(SEEN)
         // Still waiting, so still counted.
         expect(inbox.unread.value).toBe(1)
         expect(isWaiting(notice(4, SEEN, {asks: 'feedback', answered: true}))).toBe(false)
