@@ -335,3 +335,25 @@ async fn a_workspaces_settings_are_its_own() {
     let ana = api.signed(api.get("/api/settings").header("orrery-workspace", "acme"), "ana").await.send().await;
     assert_eq!(ana.status, 404, "ana isn't in Acme, so naming it is a 404, not default's (ORR-1195): {}", ana.body);
 }
+
+/// The owner's own settings are kept once for the server, so a member signed in gets the defaults, not the owner's
+/// starred and hidden projects, handle, terminal or agent (ORR-1387).
+#[tokio::test]
+async fn a_member_gets_the_defaults_of_the_owners_own_settings() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let primes = api.project("Primes").await;
+    let set = api
+        .patch("/api/settings", json!({"starred": [primes.clone()], "hidden": ["quarry"], "handle": "sam", "terminal": "warp", "agent": "other"}))
+        .send()
+        .await;
+    assert_eq!(set.status, 200, "{}", set.body);
+    let sams = api.signed(api.get("/api/settings"), "sam").await.send().await;
+    assert_eq!((sams.body["handle"].clone(), sams.body["terminal"].clone()), (json!("sam"), json!("warp")), "{}", sams.body);
+    for person in ["ana", "bo"] {
+        let theirs = api.signed(api.get("/api/settings"), person).await.send().await;
+        assert_eq!(theirs.status, 200, "{}", theirs.body);
+        let own: Vec<&Value> = ["starred", "hidden", "handle", "terminal", "agent"].iter().map(|k| &theirs.body[*k]).collect();
+        assert_eq!(own, [&json!([]), &json!([]), &Value::Null, &json!("terminal"), &json!("claude")], "{person}");
+    }
+}
