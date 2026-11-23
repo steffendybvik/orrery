@@ -57,7 +57,7 @@ async fn ask_schedule(
     let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let actor = actor_of(&headers);
-    let asked = ScheduleRequests::new(&mut conn).ask(&project, &issue, &body_of(&body), &actor).await?;
+    let asked = ScheduleRequests::new(&mut conn).ask(&scoped, &issue, &body_of(&body), &actor).await?;
     let mut response = reply(StatusCode::CREATED, Some(asked.comment.clone()), asked.effects);
     for (header, said) in handoff_headers(&asked.handoff) {
         response.headers_mut().insert(header, HeaderValue::from_str(&said).unwrap());
@@ -336,7 +336,7 @@ async fn answer_schedule(
     };
     let mut conn = app.pool.acquire().await?;
     let actor = actor_of(&headers);
-    let answered = ScheduleRequests::new(&mut conn).answer(&app.database, &project, &issue, comment, allow, &actor).await?;
+    let answered = ScheduleRequests::new(&mut conn).answer(&app.database, &scoped, &issue, comment, allow, &actor).await?;
     let mut response = reply(StatusCode::OK, Some(answered.comment.clone()), answered.effects);
     for (header, said) in handoff_headers(&answered.handoff) {
         response.headers_mut().insert(header, HeaderValue::from_str(&said).unwrap());
