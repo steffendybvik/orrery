@@ -61,7 +61,7 @@ export abstract class ProjectStore extends KeyStore {
         const name = String(input.name).trim()
         const id = input.id ? String(input.id) : slugify(name)
         if (!SLUG.test(id)) throw badRequest(`"${name}" doesn't make an id; give one in "id"`)
-        if (await this.get('SELECT 1 FROM projects WHERE id = ?', id)) throw conflict(`There is already a project "${id}"`)
+        if (await this.get('SELECT 1 FROM projects WHERE id = ?', id)) throw conflict(`There is already a project "${id}": choose another id`)
         const key = input.key ? String(input.key) : keyFor(name)
         if (FULL_ID_KEYS.includes(key)) throw badRequest(`"${key}" is how a milestone's, an epic's, a doc's, a preset's or a schedule's id starts; give another in "key"`)
         const {mode, from} = releaseModeOf(input, 'none', null)

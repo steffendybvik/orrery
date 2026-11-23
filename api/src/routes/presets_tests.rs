@@ -305,3 +305,22 @@ async fn a_preset_is_its_workspaces() {
     let ours = ours["id"].as_i64().unwrap();
     assert_eq!(api.patch(&format!("/api/presets/{ours}"), json!({"name": "Slow"})).header("orrery-workspace", "acme").send().await.status, 404);
 }
+
+/// Each workspace has its own presets orrery ships, noted apart (ORR-1350): a workspace made later gets them, removing
+/// one there leaves `default`'s, and seeding never brings it back there or adds to `default` again.
+#[tokio::test]
+async fn each_workspace_is_seeded_with_its_own_shipped_presets() {
+    let api = TestApi::new().await;
+    api.owner().await;
+    assert_eq!(seeded(&api).await, 4);
+    api.acme(&["sam"]).await;
+    assert_eq!(seeded(&api).await, 4, "acme, made after default was seeded, gets its own");
+    let theirs = api.get("/api/presets").header("orrery-workspace", "acme").send().await.body;
+    assert_eq!(theirs.as_array().unwrap().len(), 4, "{theirs}");
+    let review = shipped(&theirs, "review")["id"].as_i64().unwrap();
+    assert_eq!(api.delete(&format!("/api/presets/{review}")).header("orrery-workspace", "acme").send().await.status, 204);
+    assert_eq!(seeded(&api).await, 0);
+    assert_eq!(api.get("/api/presets").header("orrery-workspace", "acme").send().await.body.as_array().unwrap().len(), 3);
+    assert_eq!(api.get("/api/presets").send().await.body.as_array().unwrap().len(), 4, "default keeps its own");
+    assert_eq!(api.count("SELECT COUNT(*) FROM preset_defaults WHERE workspace = 'acme'").await, 4);
+}
