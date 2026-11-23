@@ -1,6 +1,6 @@
 import type {H3Event} from 'h3'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
-import {listedSees, memberSees, needsSeen, projectsListedTo, reposSeen} from '../server/utils/member-sees'
+import {listedSees, memberSees, needsSeen, projectsListedTo, reposSeen, workspaceAsked} from '../server/utils/member-sees'
 
 // What anyone signed in can read on the routes this server answers itself (ORR-1195, ORR-1347): the projects the API
 // lists for them, asked as them, the server's owner too; with login off, every one.
@@ -108,5 +108,27 @@ describe('listedSees', () => {
     it('holds nobody back when the API gives no answer', async () => {
         asked.mockResolvedValueOnce(undefined as never)
         expect(await listedSees(eventOf({person: 'nobody-answers', owner: true, via: 'browser'}))).toBeUndefined()
+    })
+})
+
+// A route that writes as this server passes on the workspace a page names (ORR-1369): only one the asker is in.
+describe('workspaceAsked', () => {
+    it("passes on one of the asker's workspaces, and 404s another person's", async () => {
+        asked.mockResolvedValue([{id: 'default'}, {id: 'mine'}] as never)
+        const sam = (workspace?: string) => eventOf({person: 'sam-ws', owner: true, via: 'browser'}, workspace)
+        expect(await workspaceAsked(sam('mine'))).toBe('mine')
+        expect(asked).toHaveBeenCalledWith(expect.anything(), '/api/workspaces')
+        await expect(workspaceAsked(sam('bob'))).rejects.toMatchObject({statusCode: 404, message: 'No workspace bob'})
+    })
+
+    it('names none when none is asked, and holds nobody back with login off', async () => {
+        expect(await workspaceAsked(eventOf({person: 'sam-ws', owner: true, via: 'browser'}))).toBeUndefined()
+        expect(await workspaceAsked(eventOf(undefined, 'any'))).toBe('any')
+        expect(asked).not.toHaveBeenCalled()
+    })
+
+    it('refuses when the API gives no answer', async () => {
+        asked.mockResolvedValue(undefined as never)
+        await expect(workspaceAsked(eventOf({person: 'sam-ws', owner: true, via: 'browser'}, 'mine'))).rejects.toMatchObject({statusCode: 404})
     })
 })

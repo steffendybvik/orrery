@@ -21,9 +21,14 @@ export default defineEventHandler(async event => {
     const states = list(body?.states, 'states')
     const unknown = states?.find(s => !(SESSION_STATES as readonly string[]).includes(s))
     if (unknown) throw badRequest(`No session state ${unknown}: use ${SESSION_STATES.join(', ')}`)
+    // Only sessions on the projects listed to the asker in the page's workspace (ORR-1370): another person's, or another
+    // workspace's, are as if not here.
+    const sees = await listedSees(event)
+    const hidden = sees && projects?.find(p => !sees.has(p))
+    if (hidden) throw notFound(`No project ${hidden}`)
     const store = useStore()
     const sent = []
-    for (const session of recipients(projects, states as SessionState[] | undefined)) {
+    for (const session of recipients(projects, states as SessionState[] | undefined).filter(s => !sees || sees.has(s.project))) {
         sent.push({project: session.project, session: session.id, name: session.name, signal: await store.messageSession(session.project, session.id, text, actor)})
         messaged(actor, session.project, session.name)
     }

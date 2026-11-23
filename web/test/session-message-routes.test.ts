@@ -8,6 +8,8 @@ let sessions: typeof import('../server/utils/sessions')
 let sent: {project: string, session: string, text: unknown, preset?: unknown}[]
 let receipts: {project: string, signal: number, name: string}[]
 let logged: string[]
+/** The projects listed to the asker, as `listedSees` gives them: every one with login off. */
+let seen: Set<string> | undefined
 
 type Event = {params?: Record<string, string>, body?: unknown, query?: Record<string, string>, status?: number}
 const httpError = (statusCode: number) => (message: string) => Object.assign(new Error(message), {statusCode})
@@ -17,6 +19,7 @@ beforeEach(async () => {
     sent = []
     receipts = []
     logged = []
+    seen = undefined
     vi.stubGlobal('projectEvents', new EventEmitter())
     const store = {
         workedBy: async () => {},
@@ -43,6 +46,7 @@ beforeEach(async () => {
     vi.stubGlobal('readBody', async (event: Event) => event.body)
     vi.stubGlobal('getQuery', (event: Event) => event.query ?? {})
     vi.stubGlobal('authorize', async () => owner)
+    vi.stubGlobal('listedSees', async () => seen)
     vi.stubGlobal('created', (event: Event, value: unknown) => {
         event.status = 201
         return value
@@ -140,6 +144,17 @@ describe('a message to every listening session', () => {
         expect((await toAll({text: 'Tea break.'}) as {sent: unknown[]}).sent).toEqual([])
         expect((await toAll({text: 'Tea break.', states: ['working']}) as {sent: unknown[]}).sent).toHaveLength(1)
         expect((await toAll({text: 'Tea break.', states: ['working'], projects: ['pantry']}) as {sent: unknown[]}).sent).toEqual([])
+    })
+
+    // Another person's or another workspace's sessions are never reached, nor named (ORR-1370).
+    it("reaches only sessions on the projects listed to the asker, and 404s one that isn't", async () => {
+        session('mine')
+        session('theirs', {project: 'bobs'})
+        for (const [id, project] of [['mine', 'greenhouse'], ['theirs', 'bobs']]) sessions.report({id: id!, project: project!, event: 'Stop'})
+        seen = new Set(['greenhouse'])
+        expect((await toAll({text: 'Tea break.'}) as {sent: {session: string}[]}).sent.map(s => s.session)).toEqual(['mine'])
+        await expect(toAll({text: 'Tea break.', projects: ['bobs']})).rejects.toMatchObject({statusCode: 404})
+        expect(sent.map(s => s.session)).toEqual(['mine'])
     })
 
     it('refuses no text, lists that aren\'t lists of strings, and a state there isn\'t', async () => {
