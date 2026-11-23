@@ -283,12 +283,7 @@ impl<'c, 'i> Plans<'c, 'i> {
         let mut out = Vec::new();
         for (id, _, _) in shipping.iter().filter(|(_, mode, _)| mode == "own") {
             let projects: Vec<String> = std::iter::once(id.clone())
-                .chain(
-                    shipping
-                        .iter()
-                        .filter(|(p, _, from)| from.as_deref() == Some(id.as_str()) && !self.hidden.contains(p))
-                        .map(|(p, _, _)| p.clone()),
-                )
+                .chain(shipping.iter().filter(|(p, _, from)| from.as_deref() == Some(id.as_str()) && !self.hidden.contains(p)).map(|(p, _, _)| p.clone()))
                 .collect();
             let rows = self.release_rows(id).await?;
             let versions: Vec<String> = rows.iter().map(|r| r.get("version")).collect();

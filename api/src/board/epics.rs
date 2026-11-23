@@ -173,13 +173,15 @@ impl<'c> Epics<'c> {
     /// (`projectsIn`).
     async fn projects_in(&mut self, epic: Option<i64>) -> Result<Vec<String>> {
         let rows = match epic {
-            Some(epic) => sqlx::query(&sql(
-                "SELECT DISTINCT i.project FROM issues i JOIN projects p ON p.id = i.project WHERE i.epic = ? AND p.workspace = ? ORDER BY i.project",
-            ))
-            .bind(epic)
-            .bind(self.workspace.id())
-            .fetch_all(&mut *self.conn)
-            .await?,
+            Some(epic) => {
+                sqlx::query(&sql(
+                    "SELECT DISTINCT i.project FROM issues i JOIN projects p ON p.id = i.project WHERE i.epic = ? AND p.workspace = ? ORDER BY i.project",
+                ))
+                .bind(epic)
+                .bind(self.workspace.id())
+                .fetch_all(&mut *self.conn)
+                .await?
+            }
             None => sqlx::query(&sql(
                 "SELECT DISTINCT i.project FROM issues i JOIN projects p ON p.id = i.project WHERE i.epic IS NOT NULL AND p.workspace = ? ORDER BY i.project",
             ))

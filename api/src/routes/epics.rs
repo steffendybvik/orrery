@@ -5,7 +5,6 @@ use crate::changes::Outbox;
 use crate::error::Result;
 use crate::reply::reply;
 use crate::request::{actor_of, body_of, header};
-use sqlx::AnyConnection;
 use crate::{App, Shared};
 use axum::body::Bytes;
 use axum::extract::{Path, State};
@@ -13,6 +12,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
+use sqlx::AnyConnection;
 use std::sync::Arc;
 
 pub(crate) fn routes() -> Router<Arc<App>> {

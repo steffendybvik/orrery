@@ -242,12 +242,8 @@ fn targets(ids: &BTreeMap<&'static str, String>, mine: &BTreeMap<&'static str, S
 /// What the sweeps find that has an issue open for it (the security audit, ORR-1358): each a part of a leak's line
 /// and its issue. A leak not listed fails the test, and so does a line here that no leak matches any more, so a fix
 /// takes its line off.
-const KNOWN: &[(&str, &str)] = &[
-    ("body login: PUT /api/chats/{chat} project:", "ORR-1388"),
-    ("body key: PUT /api/chats/{chat} project:", "ORR-1388"),
-    ("mcp work: create_schedule headed as bo's gives away", "ORR-1387"),
-    ("mcp work: update_schedule headed as bo's gives away", "ORR-1387"),
-];
+const KNOWN: &[(&str, &str)] =
+    &[("mcp work: create_schedule headed as bo's gives away", "ORR-1387"), ("mcp work: update_schedule headed as bo's gives away", "ORR-1387")];
 
 /// Fails with the leaks no line of KNOWN expects, and the lines of KNOWN no leak matched. Whether any known one was
 /// found: a known write that lands changes bo's workspace, so what he sees can't be held unchanged until it's fixed.
@@ -499,7 +495,8 @@ async fn a_member_off_a_board_sees_nothing_of_it_through_an_epic_or_a_release() 
         assert!(reply.status.is_success(), "dan reads {path}: {} {}", reply.status, reply.body);
         let said = reply.body.to_string();
         let counted = |v: &Value| v["releases"].as_array().or(v.as_array()).into_iter().flatten().any(|r| r["issues"].as_i64().unwrap_or(0) > 0);
-        if said.contains(&format!("Valve {MARK}")) || said.contains(&format!("\"{tanks}\"")) || said.contains(&format!("Tanks {MARK}")) || counted(&reply.body) {
+        if said.contains(&format!("Valve {MARK}")) || said.contains(&format!("\"{tanks}\"")) || said.contains(&format!("Tanks {MARK}")) || counted(&reply.body)
+        {
             leaks.push(format!("member: GET {path} shows dan Tanks: {} {said}", reply.status));
         }
     }
@@ -661,4 +658,22 @@ fn unchanged(before: &str, after: &str, what: &str) {
         })
         .collect();
     assert!(changed.is_empty(), "{what} changed bo's workspace:\n{}", changed.join("\n"));
+}
+
+/// ana keeping a chat under bo's chat's id, on her own project, is a 404 as for a chat that isn't hers, and bo's chat
+/// is as it was (ORR-1388): the rails hold a chat id to the board it's on.
+#[tokio::test]
+async fn a_chat_isnt_written_over_from_another_workspace() {
+    let api = TestApi::new().await;
+    let theirs = bos_world(&api).await;
+    let mine = anas_world(&api, &theirs).await;
+    let chat = &theirs.real["chat"];
+    let before = bos_view(&api, &theirs).await;
+    for actor in ["login", "key"] {
+        let body = json!({"id": chat, "project": mine["project"], "started_at": "2026-11-21T10:00:00.000Z", "title": "ana's"});
+        let reply = as_ana(&api, api.put(&format!("/api/chats/{chat}"), body), actor).await.send().await;
+        assert_eq!(reply.status, 404, "{actor}: {}", reply.body);
+        assert!(!reply.body.to_string().contains(&theirs.real["project"]), "{actor}: {}", reply.body);
+    }
+    unchanged(&before, &bos_view(&api, &theirs).await, "ana keeping bo's chat");
 }
