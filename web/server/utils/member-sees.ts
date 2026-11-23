@@ -13,7 +13,8 @@ const askerKey = (event: H3Event, who: Who) => `${who.person}\u0000${who.via}\u0
 /** The projects anyone signed in can see (ORR-1195), in every workspace they're in, not only the one the request acts
  * in (ORR-1251), asked of the API as them and kept a little while. The server's owner too: owning the server gives no
  * way into another person's workspace (decision 6 of decision-workspaces, ORR-1347). Undefined with login off, who is
- * the only person here, and for the owner with no API to ask. `fresh` asks again whatever is kept. */
+ * the only person here. With no answer from the API, none, the owner's too, and nothing kept (ORR-1368): a read that
+ * failed never widens what anyone sees. `fresh` asks again whatever is kept. */
 export async function memberSees(event: H3Event, {fresh = false} = {}): Promise<Set<string> | undefined> {
     const who = event.context?.who as Who | undefined
     if (!who) return undefined
@@ -22,8 +23,7 @@ export async function memberSees(event: H3Event, {fresh = false} = {}): Promise<
     const held = kept.get(key)
     if (held && !fresh && now - held.at < KEEP_MS) return held.projects
     const listed = await readAsAsker<{id: string}[]>(event, '/api/projects?every=1')
-    // With no API to ask, the owner goes on as before, and a member reaches nothing.
-    if (!listed) return who.owner ? undefined : new Set()
+    if (!listed) return new Set()
     const projects = new Set(listed.map(p => p.id))
     kept.set(key, {at: now, projects})
     return projects
@@ -33,7 +33,8 @@ const listedKept = new Map<string, {at: number, projects: Set<string>}>()
 
 /** The projects a list across projects shows the asker (ORR-1251): those `GET /api/projects` lists for them, in the
  * one workspace the request is in (`workspace`, else its `Orrery-Workspace`, else `default`), the owner included, so a
- * page doesn't mix workspaces. Undefined with nobody signed in or no API to ask, who see every one. `memberSees`
+ * page doesn't mix workspaces. Undefined with nobody signed in, who sees every one; none for anyone signed in when the
+ * API gives no answer (ORR-1368), as `undefined` means every workspace's rows to its callers. `memberSees`
  * stays the check for reaching one project, which isn't held to the tab's workspace. */
 export async function listedSees(event: H3Event, {workspace, fresh = false}: {workspace?: string, fresh?: boolean} = {}): Promise<Set<string> | undefined> {
     const who = event.context?.who as Who | undefined
@@ -44,7 +45,7 @@ export async function listedSees(event: H3Event, {workspace, fresh = false}: {wo
     const held = listedKept.get(key)
     if (held && !fresh && now - held.at < KEEP_MS) return held.projects
     const listed = await readAsAsker<{id: string}[]>(event, '/api/projects', workspace ? {workspace} : {})
-    if (!listed) return undefined
+    if (!listed) return new Set()
     const projects = new Set(listed.map(p => p.id))
     listedKept.set(key, {at: now, projects})
     return projects
@@ -68,13 +69,13 @@ export async function projectsListedTo<T>(event: H3Event, every: () => Promise<T
 }
 
 /** The GitHub repos (lowercased) of the projects the asker can see, in every workspace they're in (ORR-1347): what the
- * pull request and branch lists keep. Undefined with login off; with no API to ask, the owner's is undefined too, and
- * a member's empty. */
+ * pull request and branch lists keep. Undefined with login off; with no answer from the API, empty, the owner's too
+ * (ORR-1368). */
 export async function reposSeen(event: H3Event): Promise<Set<string> | undefined> {
     const who = event.context?.who as Who | undefined
     if (!who) return undefined
     const listed = await readAsAsker<{repo?: string | null}[]>(event, '/api/projects?every=1')
-    if (!listed) return who.owner ? undefined : new Set()
+    if (!listed) return new Set()
     return new Set(listed.flatMap(p => p.repo ? [p.repo.toLowerCase()] : []))
 }
 
