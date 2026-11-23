@@ -198,7 +198,8 @@ to `none` takes its issues out of the releases they were set for.
 
 A `shared` project takes its releases from another (`releases_from`, which sending alone makes it
 `shared`), so a monorepo's apps go out in one shared release: its issues are set for that project's
-releases, and it has none of its own. The source must have its own. Its `releases` list
+releases, and it has none of its own. The source must have its own, and be in the same workspace (another
+workspace's project is refused as one that isn't there). Its `releases` list
 the source's, each counting its own issues; the source's count every project drawing on it. One level
 only: a source can't take its releases from another, and a project with releases of its own can't take
 another's until they're deleted (a 409; nothing merges). Moving an issue between projects sharing
@@ -246,7 +247,7 @@ until the release ships.
 One piece of work across projects (ORR-895), such as a feature with a part in each repo: an epic holds issues from any
 project, apart from each project's milestones. It has a number of its own across the orrery, shown as `EPC-3` (`/epics/3` or `/epics/EPC-3` on the pages),
 a `title` and `notes`, and its progress is its issues', counted the way a release's are. An issue joins one with `epic`
-(its number); it's in one at most, and a sub-issue with none goes with its parent's. Moving an issue to another project
+(its number), an epic of its project's workspace (another workspace's is a 404, as one that isn't there); it's in one at most, and a sub-issue with none goes with its parent's. Moving an issue to another project
 keeps its epic.
 
 | | |

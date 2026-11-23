@@ -5,6 +5,7 @@
 // row, written here alone (`keepChatThrough` sends it, ORR-1135). A chat's messages are rows
 // of their own (`chat_messages`, ORR-1100), each added here, which gives it its id, and changed one at a time (a
 // request's answer, its drift), so the chat's requests can be asked and answered here too.
+use crate::access::scope::{Across, Workspace};
 use crate::board::issue_edits::resolve_status;
 use crate::board::issue_writes::IssueWrites;
 use crate::board::issues::Issues;
@@ -310,7 +311,10 @@ impl<'c> Chats<'c> {
                 to = json!(handle.to_lowercase());
             }
         }
-        let from = crate::work::settings::Settings::new(&mut *self.conn).get().await?.get(setting).cloned().unwrap_or(Value::Null);
+        // What it's set to in the chat's own workspace, not `default`'s (ORR-1355).
+        let workspace: Option<String> = sqlx::query_scalar(&sql("SELECT workspace FROM chats WHERE id = ?")).bind(chat).fetch_optional(&mut *self.conn).await?;
+        let workspace = workspace.map(|w| Workspace::across(Across::Stored, w)).unwrap_or_else(Workspace::installation);
+        let from = crate::work::settings::Settings::of(&mut *self.conn, workspace).get().await?.get(setting).cloned().unwrap_or(Value::Null);
         let why = body.get("why").and_then(Value::as_str).map(str::trim).unwrap_or_default().to_string();
         changes::begin(self.conn).await?;
         let done = self.ask_setting_in(chat, setting, from, to, why).await;
@@ -653,7 +657,8 @@ impl<'c> Chats<'c> {
     /// A line in the event log, as the local app's `useEventLog().note` writes one, and what it set off. One that can't
     /// be written isn't the request's failure: what it notes has happened.
     async fn note(&mut self, kind: &str, project: &str, message: &str, details: serde_json::Map<String, Value>) -> Effects {
-        let mut log = EventLog::new(&mut *self.conn);
+        let workspace = Workspace::of_project_or_none(&mut *self.conn, project).await.ok().flatten().unwrap_or_else(Workspace::installation);
+        let mut log = EventLog::of(&mut *self.conn, workspace);
         log.outbox = self.outbox.as_ref().map(|_| Outbox::new(Actor::default()));
         let line = json!({"level": "info", "kind": kind, "project": project, "message": message, "details": details});
         match log.write(&line).await {

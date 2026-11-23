@@ -1,6 +1,7 @@
 // A signed-in person's own account (ORR-1203): what it holds, as `GET /api/me` shows it on Settings → You, and deleting
 // it (`DELETE /api/me`), with every workspace they own and everything in those, in one transaction with its outbox row.
 use crate::access::people::People;
+use crate::access::scope::{Across, Workspace};
 use crate::board::projects::Projects;
 use crate::changes;
 use crate::db::sql;
@@ -266,7 +267,7 @@ impl People<'_> {
             sqlx::query(&sql("UPDATE projects SET releases_from = NULL WHERE releases_from = ?")).bind(project).execute(&mut *self.conn).await?;
         }
         for project in &projects {
-            let mut rows = Projects::new(&mut *self.conn);
+            let mut rows = Projects::of(&mut *self.conn, Workspace::across(Across::Deleting, workspace.to_string()));
             rows.delete_rows(project).await?;
             let effects = rows.effects;
             self.effects.changed.extend(effects.changed);

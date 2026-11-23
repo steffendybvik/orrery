@@ -175,7 +175,7 @@ async fn own_workspace(conn: &mut AnyConnection, project: &str) -> Result<Option
 /// of its own, its project's.
 pub(crate) async fn workspace_for(conn: &mut AnyConnection, seen: &Seen, named: Option<&str>) -> Result<String> {
     match (seen.pick(named), seen) {
-        (Ok(workspace), _) => Ok(workspace),
+        (Ok(workspace), _) => Ok(workspace.id().to_string()),
         (Err(error), Seen::Only { own: Some(own), .. }) => match own_workspace(conn, own).await? {
             Some(workspace) if named.is_none_or(|n| n == workspace) => Ok(workspace),
             _ => Err(error),
