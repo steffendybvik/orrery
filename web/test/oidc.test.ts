@@ -108,6 +108,7 @@ beforeEach(async () => {
     vi.stubGlobal('oidcOn', oidc.oidcOn)
     vi.stubGlobal('startOidc', oidc.startOidc)
     vi.stubGlobal('finishOidc', oidc.finishOidc)
+    vi.stubGlobal('endOidc', oidc.endOidc)
     vi.stubGlobal('logIn', (await import('../server/utils/auth')).logIn)
 })
 
@@ -306,5 +307,53 @@ describe('the routes', () => {
         await store.identity(provider.url, 'account-1', secret)
         provider.issued.token = {claims: {aud: 'another-client'}}
         expect((await failure(() => login())).status).toBe(401)
+    })
+})
+
+describe('signing out of the provider too (ORR-1319)', () => {
+    const logout = async (event: Event) => ((await import('../server/api/auth/oidc/logout.get')).default as (event: Event) => Promise<{redirect: string}>)(event)
+    const endOidc = async (event: Event, back?: string) => (await import('../server/utils/oidc')).endOidc(event as never, back)
+
+    it('keeps the ID token from the way back, http-only and for its own routes alone, as long as a login lasts', async () => {
+        const {state, cookie} = await started()
+        const event = request({state, code: 'a-code'}, {orrery_oidc: cookie.value})
+        await finishOidc(event as never)
+        expect(event.set.orrery_oidc_hint!.value.split('.')).toHaveLength(3)
+        expect(event.set.orrery_oidc_hint!.options).toEqual({httpOnly: true, sameSite: 'lax', path: '/api/auth/oidc', maxAge: 30 * 24 * 3600, secure: false})
+    })
+
+    it("asks for the provider's login form for someone else, and not otherwise", async () => {
+        const event = request()
+        expect(new URL(await startOidc(event as never, undefined, undefined, true)).searchParams.get('prompt')).toBe('login')
+        expect(new URL(await startOidc(event as never)).searchParams.has('prompt')).toBe(false)
+    })
+
+    it("goes through the provider's end_session_endpoint with the kept token, back to orrery's login page", async () => {
+        provider.discover({end_session_endpoint: `${provider.url}/logout?x=1`})
+        const event = request({}, {orrery_oidc_hint: 'a.b.c'})
+        const to = new URL((await logout(event)).redirect)
+        expect(`${to.origin}${to.pathname}`).toBe(`${provider.url}/logout`)
+        expect(Object.fromEntries(to.searchParams)).toMatchObject({client_id: CLIENT, id_token_hint: 'a.b.c', post_logout_redirect_uri: `${ORRERY}/login`})
+        expect(to.searchParams.get('state')).toBeTruthy()
+        expect(to.searchParams.has('x')).toBe(false)
+        expect(event.gone).toContain('orrery_oidc_hint')
+        // With no kept token, the provider is still asked to end its session, without a hint.
+        expect(new URL(await endOidc(request())).searchParams.has('id_token_hint')).toBe(false)
+    })
+
+    it('goes straight to the login page with a provider that has no end_session_endpoint, as before', async () => {
+        const event = request({}, {orrery_oidc_hint: 'a.b.c'})
+        expect((await logout(event)).redirect).toBe(`${ORRERY}/login`)
+        expect(event.gone).toContain('orrery_oidc_hint')
+    })
+
+    it('answers 404 with no provider set up', async () => {
+        config.oidc = {issuer: '', clientId: '', clientSecret: ''}
+        expect((await failure(() => logout(request()))).status).toBe(404)
+    })
+
+    it('refuses an end_session_endpoint on plain http off this machine', async () => {
+        provider.discover({end_session_endpoint: 'http://id.example/logout'})
+        expect((await failure(() => endOidc(request()))).status).toBe(500)
     })
 })

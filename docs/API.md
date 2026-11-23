@@ -81,7 +81,8 @@ person, with a label that's a person's name counting as `agent`. A session stays
 | `POST /machines/claim` | open: `{request, secret}` → 202 `{waiting: true}` until approved, then 201 `{key, person}`, once; 410 once it's gone or the secret is wrong |
 | `POST /auth/login` | open: `{key}`, a person key → `{person}` and the login's cookie; 401 for anything else, an agent key included |
 | `POST /auth/logout` | open: 204, ending this browser's login |
-| `GET /auth/oidc/start?invite=` | open: a redirect to the login provider; 404 with none set up |
+| `GET /auth/oidc/start?invite=&someone_else=1` | open: a redirect to the login provider; `someone_else` asks it for its login form even with a session of its own (`prompt=login`); 404 with none set up |
+| `GET /auth/oidc/logout?back=` | open: where the page goes after `POST /auth/logout` with a provider. A redirect to the provider's `end_session_endpoint` with the login's ID token as `id_token_hint` and `<origin>/login` as `post_logout_redirect_uri`, or straight to the login page when its discovery has none; 404 with none set up |
 | `GET /auth/oidc/callback` | open: the way back from it, a redirect to the board, logged in. 403 for an account with no invite, 409 for an invite used or run out, 401 for a login that ran out or doesn't match |
 | `GET /usage` | the owner's: `{on, allowed, features: [{feature, label, last, days30, days90}]}`, how often each counted feature was used, coldest first (ORR-881). `on` is the owner's switch (`count_use` in `GET /settings`, off by default), `allowed` false with `ORRERY_USAGE=off`. `feature` is a listed one, `page:<route>`, `tool:<name>` or `dialog:<name>` (ORR-1011); `last` is a day, or none. Anyone else: 403 |
 | `POST /usage` | `{feature}` → 204: one use, counted only when it's the owner's own (their page, their sessions) and counting is on; anyone else's is taken and ignored |
