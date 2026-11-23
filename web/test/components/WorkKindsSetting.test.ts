@@ -10,6 +10,12 @@ async function nextSave<T>(before: number): Promise<T> {
     return sent.at(-1) as T
 }
 
+/** Waits for `button` to take a click: the page holds its buttons while a save is on its way back, which the
+ * server having it (`nextSave`) doesn't wait for. */
+async function enabled(button: {attributes: (name: string) => string | undefined}) {
+    await vi.waitFor(() => expect(button.attributes('disabled')).toBeUndefined())
+}
+
 // What the page sent as work_kinds, each change in turn (ORR-869).
 const sent: unknown[] = []
 registerEndpoint('/api/owner', () => ({name: 'skoll', display: 'Sköll', named: true}))
@@ -29,11 +35,13 @@ describe('WorkKindsSetting (ORR-869)', () => {
         await docs.find('input[aria-label="Docs\'s model"]').trigger('change')
         expect((await nextSave<{id: string, model: string}[]>(0)).find(k => k.id === 'docs')?.model).toBe('haiku')
         let count = sent.length
+        await enabled(page.find('button[aria-label="Move Docs up"]'))
         await page.find('button[aria-label="Move Docs up"]').trigger('click')
         const order = (await nextSave<{id: string}[]>(count)).map(k => k.id)
         expect(order.indexOf('docs')).toBeLessThan(order.indexOf('maintenance'))
         await page.find('input[aria-label="A new kind\'s name"]').setValue('Design')
         count = sent.length
+        await enabled(page.find('form button[type="submit"]'))
         await page.find('form').trigger('submit')
         const added = await nextSave<{id: string, labels: string[]}[]>(count)
         expect(added[added.findIndex(k => k.id === 'other') - 1]).toMatchObject({id: 'design', labels: ['design'], model: 'best'})
@@ -52,6 +60,7 @@ describe('WorkKindsSetting (ORR-869)', () => {
         await nextSave(0)
         const reset = page.findAll('button').find(b => b.text() === "Reset to orrery's defaults")
         const before = sent.length
+        await enabled(reset!)
         await reset!.trigger('click')
         expect(await nextSave(before)).toBeNull()
     })

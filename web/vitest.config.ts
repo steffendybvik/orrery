@@ -7,15 +7,15 @@ export default defineConfig({
         projects: [
             {
                 resolve: {alias: {'#shared': fileURLToPath(new URL('./shared', import.meta.url)), '#channel': fileURLToPath(new URL('../channel', import.meta.url))}},
-                // On Postgres (TEST_POSTGRES_URL) each test lays down a schema of its own, every file at once, so a
-                // test can take longer than the 5s default without anything being wrong.
+                // A test that drives the Rust API, or one on Postgres (TEST_POSTGRES_URL) laying down a schema of its own
+                // with every file at once, can take longer than the 5s default on a busy machine with nothing wrong.
                 // `globalSetup` builds the Rust API that a test of what goes through it runs (`test/api.ts`, ORR-1163).
-                test: {name: 'unit', include: ['test/**/*.test.ts'], exclude: ['test/components/**'], globalSetup: ['test/global-setup.ts'], testTimeout: process.env.TEST_POSTGRES_URL ? 15000 : undefined},
+                test: {name: 'unit', include: ['test/**/*.test.ts'], exclude: ['test/components/**'], globalSetup: ['test/global-setup.ts'], testTimeout: 15000},
             },
             // The components, mounted in a Nuxt app in happy-dom (auto-imports, `#shared` and all). Mounting is slow
             // under coverage on CI, so a test gets longer than the 5s its own waits may take.
             await defineVitestProject({
-                test: {name: 'components', include: ['test/components/**/*.test.ts'], environment: 'nuxt', environmentOptions: {nuxt: {domEnvironment: 'happy-dom'}}, testTimeout: 15000},
+                test: {name: 'components', include: ['test/components/**/*.test.ts'], environment: 'nuxt', environmentOptions: {nuxt: {domEnvironment: 'happy-dom'}}, setupFiles: ['test/components/wait-longer.ts'], testTimeout: 15000},
             }),
         ],
         // `pnpm test:coverage`: the server's logic, its store, its routes and middleware, what it shares with the page, the
