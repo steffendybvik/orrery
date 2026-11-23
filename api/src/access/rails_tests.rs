@@ -78,7 +78,7 @@ async fn a_member_off_the_board_is_told_theres_no_such_project() {
     let project = api.project("Primes").await;
     let reply = agent(api.post(&format!("/api/projects/{project}/issues"), json!({"title": "Sieve"})), Some("ana")).send().await;
     assert_eq!(reply.status, 404, "{}", reply.body);
-    assert_eq!(reply.body["message"], json!(format!("No project {project}")));
+    assert_eq!(reply.body["message"], json!(format!("No project \"{project}\"")));
     on_board(&api, &project, "ana").await;
     let reply = agent(api.post(&format!("/api/projects/{project}/issues"), json!({"title": "Sieve"})), Some("ana")).send().await;
     assert_eq!(reply.status, 201, "{}", reply.body);

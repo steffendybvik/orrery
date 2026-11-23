@@ -494,7 +494,10 @@ async fn the_projects_sharing_releases_are_those_drawing_on_it_and_its_source() 
     assert_eq!(peers("alone").await.body, json!([]));
     assert_eq!(peers("nowhere").await.body, json!([]));
     let door = TestApi::at_the_door().await;
-    assert_eq!(door.get("/api/projects/x/release-peers").send().await.status, 403, "only the local app asks");
+    let x = door.project("x").await;
+    assert_eq!(door.get(&format!("/api/projects/{x}/release-peers")).send().await.status, 403, "only the local app asks");
+    // One there isn't is a 404 first, as one in another workspace is (ORR-1352).
+    assert_eq!(door.get("/api/projects/nowhere/release-peers").send().await.status, 404);
 }
 
 /// A project's row and an issue's, as they're stored, for the local app's store (ORR-1174): numbers as numbers, texts
