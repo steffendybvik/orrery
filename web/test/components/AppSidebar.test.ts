@@ -57,14 +57,16 @@ describe('AppSidebar', () => {
         expect(link(wrapper, '/releases')!.text()).toBe('Releases1')
     })
 
-    it('shows Events, Context and Pull requests only with Advanced on, each on its own row', async () => {
+    it('shows Events and Pull requests only with Advanced on, each on its own row, and never Context', async () => {
         const off = await mount()
         for (const to of ['/events', '/context', '/pulls']) expect(link(off, to)).toBeUndefined()
         off.unmount()
 
         useAppSettings().settings.value.advanced = true
         const on = await mount()
-        for (const to of ['/events', '/context', '/pulls']) expect(link(on, to)).toBeDefined()
+        for (const to of ['/events', '/pulls']) expect(link(on, to)).toBeDefined()
+        // Context is reached from App settings → Advanced, a running session's card and ⌘K instead (#1389).
+        expect(link(on, '/context')).toBeUndefined()
         // No row folds them away (ORR-973 took ORR-967's back out).
         expect(on.findAll('button').some(b => b.text() === 'Advanced')).toBe(false)
     })
