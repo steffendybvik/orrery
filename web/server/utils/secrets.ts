@@ -512,8 +512,9 @@ function fillUrl(template: string, fill: (part: string, escape?: (value: string)
 
 const inPath = (value: string) => encodeURIComponent(value).replaceAll('%2F', '/')
 
-/** `scrub` puts the placeholder back wherever a value shows: as it is, URL- or form-encoded, JSON-escaped,
- * or inside base64 (as Basic auth sends it, a user name and all). `cut` drops what's left of one at the end
+/** `scrub` puts the placeholder back wherever a value shows: as it is, URL-encoded (once or twice) or form-encoded,
+ * JSON-escaped, in any case (an answer that upper-cases what it echoes: ORR-1392), or inside base64 (as Basic auth
+ * sends it, a user name and all). `cut` drops what's left of one at the end
  * of an answer cut short. It stops a value echoed back; the hosts are what stop one being sent away on purpose. */
 function scrubber(secrets: Map<string, {value: string}>): {scrub: (text: string) => string, cut: (text: string) => string} {
     const json = (value: string) => JSON.stringify(value).slice(1, -1)
@@ -521,7 +522,8 @@ function scrubber(secrets: Map<string, {value: string}>): {scrub: (text: string)
         // The URL's own escaping of a query adds `%27` for `'`, which encodeURIComponent leaves.
         value, encodeURIComponent(value), encodeURIComponent(value).replaceAll("'", '%27'), inPath(value),
         new URLSearchParams({v: value}).toString().slice(2), json(value), json(value).replaceAll('/', '\\/'),
-    ].map(form => ({form, name})))
+        encodeURIComponent(encodeURIComponent(value)),
+    ].map(form => ({form, name, any: new RegExp(form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')})))
         .sort((a, b) => b.form.length - a.form.length)
     // In base64 the value's characters depend on where it starts, so each of the three starts has its own run
     // of characters that only the value decides; one found takes the whole base64 word it's in.
@@ -530,15 +532,18 @@ function scrubber(secrets: Map<string, {value: string}>): {scrub: (text: string)
         const [from, to] = [Math.ceil(start * 8 / 6), Math.floor(bytes.length * 8 / 6)]
         return [bytes.toString('base64').slice(from, to), bytes.toString('base64url').slice(from, to)]
     }).filter(core => core.length >= 4).map(core => ({core, name})))
-    const starts = [...forms.map(f => f.form), ...cores.map(c => c.core)]
+    // A value's forms end an answer in any case; a base64 run only as it is.
+    const starts = [...forms.map(f => ({form: f.form.toLowerCase(), folded: true})), ...cores.map(c => ({form: c.core, folded: false}))]
     return {
         scrub: text => {
-            const plain = forms.reduce((out, {form, name}) => out.replaceAll(form, `{{secret:${name}}}`), text)
+            const plain = forms.reduce((out, {any, name}) => out.replace(any, `{{secret:${name}}}`), text)
             return cores.reduce((out, {core, name}) => replaceWords(out, core, `{{secret:${name}}}`), plain)
         },
         cut: text => {
-            const left = Math.max(0, ...starts.map(form => {
-                for (let k = Math.min(form.length - 1, text.length); k > 0; k--) if (text.endsWith(form.slice(0, k))) return k
+            const lower = text.toLowerCase()
+            const left = Math.max(0, ...starts.map(({form, folded}) => {
+                const end = folded ? lower : text
+                for (let k = Math.min(form.length - 1, text.length); k > 0; k--) if (end.endsWith(form.slice(0, k))) return k
                 return 0
             }))
             return text.slice(0, text.length - left)

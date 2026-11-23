@@ -103,8 +103,11 @@ export async function finishOidc(event: H3Event): Promise<{issuer: string, subje
     const {token_endpoint, jwks_uri, issuer, token_endpoint_auth_methods_supported: methods} = await provider()
     const {clientId, clientSecret} = settings()
     const auth = clientAuth(methods, clientId, clientSecret)
+    // Never followed (ORR-1392): a 307 or 308 would send the client secret on to wherever it points, so a redirect fails
+    // the login, as the Rust API's exchange does (`Policy::none()`).
     const {id_token} = await $fetch<{id_token?: string}>(token_endpoint, {
         method: 'POST',
+        redirect: 'manual',
         headers: {'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json', ...auth.headers},
         body: new URLSearchParams({grant_type: 'authorization_code', code, redirect_uri: redirectUri(event), ...auth.form, code_verifier: asked.verifier}).toString(),
     })

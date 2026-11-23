@@ -1,6 +1,6 @@
 // The local app following the outbox (ORR-983): what the Rust API's writes set off reaches the store's hooks from the
 // feed, this server's own rows are skipped, the cursor is kept, and a gap reads the board again.
-import {mkdtempSync} from 'node:fs'
+import {mkdtempSync, readFileSync, statSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {beforeEach, describe, expect, it, vi} from 'vitest'
@@ -207,6 +207,20 @@ describe("the follower's cursor", () => {
         saveCursor(file, database, 42)
         expect(readCursor(file, database)).toBe(42)
         expect(readCursor(file, join(dir, 'moved.db'))).toBeUndefined()
+    })
+
+    it("keeps a Postgres URL's mark, not the URL and its password, in a file only its owner reads (ORR-1392)", () => {
+        const dir = mkdtempSync(join(tmpdir(), 'orrery-cursor-'))
+        const file = join(dir, 'outbox-cursor.json')
+        const url = 'postgres://orrery:hunter22@postgres:5432/orrery'
+        saveCursor(file, url, 7)
+        expect(readFileSync(file, 'utf8')).not.toContain('hunter22')
+        expect(statSync(file).mode & 0o777).toBe(0o600)
+        expect(readCursor(file, url)).toBe(7)
+        expect(readCursor(file, 'postgres://orrery:other@postgres:5432/orrery')).toBeUndefined()
+        // A file saved before still counts, until the next save.
+        writeFileSync(file, JSON.stringify({database: url, after: 5}))
+        expect(readCursor(file, url)).toBe(5)
     })
 
     it("is kept in Docker's data volume on Postgres, as the image starts in / where .data can't be made (ORR-1182)", () => {

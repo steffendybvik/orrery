@@ -25,6 +25,7 @@ import {startsNone} from './starts-none'
 import {untrustedProject} from './sessions'
 import {carriedInto} from './carried-over'
 import {forgetRoster} from './roster'
+import {keepOutOfLog} from './event-log'
 import type {Input} from './input'
 import {projectEvents, revLabel} from './events'
 import {scheduleRunning} from './schedules'
@@ -567,6 +568,7 @@ const whenStarted = new Set<() => void>()
 
 export function apiStarted(api: {url: string, token: string} | null) {
     started = api
+    keepOutOfLog(api?.token)
     if (api) apiStarting(false)
     if (api) for (const heard of [...whenStarted]) heard()
 }
@@ -613,7 +615,9 @@ export function apiListening(within = 5000): Promise<void> {
 /** Where the API is, and its token: the one this server started, or the one the settings name; none, no API. */
 export function apiTarget(config: {apiUrl?: unknown, apiToken?: unknown}): {url: string, token: string} | null {
     if (started) return started
-    return config.apiUrl && config.apiToken ? {url: String(config.apiUrl), token: String(config.apiToken)} : null
+    if (!config.apiUrl || !config.apiToken) return null
+    keepOutOfLog(String(config.apiToken))
+    return {url: String(config.apiUrl), token: String(config.apiToken)}
 }
 
 /** Whether the API at `url` answers its own `/health` within `within` ms, for `/healthz` (ORR-1188). */

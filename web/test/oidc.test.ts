@@ -27,6 +27,7 @@ async function standInProvider() {
     const posts: URLSearchParams[] = []
     const auths: (string | undefined)[] = []
     let discovery: Record<string, unknown> = {}
+    const moved = {to: ''}
     const server = createServer(async (req, res) => {
         const json = (body: unknown) => res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify(body))
         if (req.url === '/.well-known/openid-configuration') return json({issuer: url, authorization_endpoint: `${url}/authorize`, token_endpoint: `${url}/token`, jwks_uri: `${url}/jwks`, ...discovery})
@@ -35,6 +36,7 @@ async function standInProvider() {
         for await (const chunk of req) body += chunk
         posts.push(new URLSearchParams(body))
         auths.push(req.headers.authorization)
+        if (moved.to && req.url === '/token') return res.writeHead(307, {Location: moved.to}).end()
         if (issued.token?.none) return json({access_token: 'only-this'})
         const claims = {iss: url, aud: CLIENT, sub: 'account-1', nonce: issued.nonce, ...issued.token?.claims}
         const signing = new SignJWT({nonce: claims.nonce, ...claims.name ? {name: claims.name} : {}, ...claims.preferred_username ? {preferred_username: claims.preferred_username} : {}}).setProtectedHeader({alg: 'RS256', kid: 'one'}).setIssuedAt().setExpirationTime('5m').setIssuer(claims.iss).setAudience(claims.aud)
@@ -44,7 +46,7 @@ async function standInProvider() {
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
     return {
-        url, issued, posts, auths,
+        url, issued, posts, auths, moved,
         discover: (document: Record<string, unknown>) => discovery = document,
         close: () => {
             server.closeAllConnections()
@@ -164,6 +166,13 @@ describe('the way back', () => {
         const {headers, form} = clientAuth(['client_secret_basic', 'client_secret_post'], 'my app', 'a:b/c+d')
         expect(Buffer.from(headers.Authorization!.slice(6), 'base64').toString()).toBe('my+app:a%3Ab%2Fc%2Bd')
         expect(form).toEqual({client_id: 'my app'})
+    })
+
+    it("doesn't follow the token endpoint's redirect, which would send the secret on (ORR-1392)", async () => {
+        provider.moved.to = `${provider.url}/elsewhere`
+        await expect(back()).rejects.toThrow()
+        expect(provider.posts.length).toBe(1)
+        expect(provider.auths).toEqual([`Basic ${Buffer.from(`${CLIENT}:${SECRET}`).toString('base64')}`])
     })
 
     it('carries the invite through its cookie', async () => {
