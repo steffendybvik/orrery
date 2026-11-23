@@ -14,6 +14,7 @@ use std::sync::Arc;
 use tower::ServiceExt;
 
 mod issue;
+use issue::first_line;
 mod machine;
 mod schedules;
 
@@ -177,6 +178,13 @@ impl Api<'_> {
                 said
             })
             .collect();
+        // An empty milestone and one that isn't there both list nothing: say which (ORR-1397).
+        if let Some(milestone) = args.get("milestone").map(text).filter(|m| said.is_empty() && !m.is_empty() && m != "none") {
+            let project = self.project_of(args)?;
+            if self.call(Method::GET, &format!("{}/milestones/{}", self.at(&project), enc(&milestone)), None).await.is_err() {
+                return Ok(format!("No milestone \"{milestone}\" in {project}: the milestones tool lists them."));
+            }
+        }
         let mut parts = vec![if said.is_empty() { "No issues match.".to_string() } else { said.join("\n") }];
         if backlog > 0 {
             parts.push(format!("{backlog} in backlog not shown: status: backlog lists them"));
@@ -380,7 +388,8 @@ impl Api<'_> {
                         .map(String::from)
                         .unwrap_or_else(|| if truthy(&c["id"]) { text(&c["id"]) } else { "none".into() });
                 let priority = c["priority"].as_str().filter(|p| !p.is_empty()).map(|p| format!(", {p}")).unwrap_or_default();
-                format!("{id} [{}{priority}] {}: {}", text(&c["column"]), text(&c["title"]), done_of(&c["kinds"]))
+                let summary = c["summary"].as_str().filter(|s| !s.is_empty()).map(|s| format!("\n    {}", first_line(s))).unwrap_or_default();
+                format!("{id} [{}{priority}] {}: {}{summary}", text(&c["column"]), text(&c["title"]), done_of(&c["kinds"]))
             })
             .collect();
         if hidden > 0 {
@@ -445,15 +454,15 @@ impl Api<'_> {
     }
 
     async fn create_milestone(&self, args: &Value) -> Said {
-        let made =
-            self.call(Method::POST, &format!("{}/milestones", self.at(&self.project_of(args)?)), Some(pick(args, &["title", "summary", "priority"]))).await?;
-        Ok(format!("Made milestone {}: {}. Put issues in it with edit_issue (milestone: \"{}\").", text(&made["id"]), text(&made["title"]), text(&made["id"])))
+        let made = self.call(Method::POST, &format!("{}/milestones", self.at(&self.project_of(args)?)), Some(pick(args, &MILESTONE_FIELDS))).await?;
+        let tool = if crate::request::actor_of(self.headers).chat { "edit_issue" } else { "update_issue" };
+        Ok(format!("Made milestone {}: {}. Put issues in it with {tool} (milestone: \"{}\").", text(&made["id"]), text(&made["title"]), text(&made["id"])))
     }
 
     async fn update_milestone(&self, args: &Value) -> Said {
         let id = text(&args["id"]);
         let path = format!("{}/milestones/{}", self.at(&self.project_of(args)?), enc(&id));
-        let changed = self.call(Method::PATCH, &path, Some(pick(args, &["title", "summary", "priority"]))).await?;
+        let changed = self.call(Method::PATCH, &path, Some(pick(args, &MILESTONE_FIELDS))).await?;
         Ok(format!("Milestone {} is now: {}", text(&changed["id"]), text(&changed["title"])))
     }
 
@@ -595,6 +604,9 @@ fn pick(args: &Value, keys: &[&str]) -> Value {
     }
     Value::Object(picked)
 }
+
+/// What of a milestone the tools send, as the channel's `MILESTONE_KEYS`: the chat's fields, and a working session's position.
+const MILESTONE_FIELDS: [&str; 4] = ["title", "summary", "priority", "position"];
 
 /// What of a release a session sets, as the channel's `RELEASE_FIELDS`.
 const RELEASE_FIELDS: [&str; 5] = ["branch", "notes", "position", "frozen_on", "shipped_on"];
