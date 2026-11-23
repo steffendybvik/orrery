@@ -89,7 +89,8 @@ test('a session goes from its start to its stop through the real launcher, chann
         running.push(box.startLauncher())
 
         await test.step('a focus that asks for a session has the launcher start one in tmux', async () => {
-            const {id} = await api(request, 'post', '/issues', {title: 'Water the beds', status: 'todo'}, OWNER)
+            // In Backlog, so only this focus starts a session for it: in Todo, orrery would start one too (ORR-1399).
+            const {id} = await api(request, 'post', '/issues', {title: 'Water the beds', status: 'backlog'}, OWNER)
             expect(id).toBe('WHP-1')
             // Only once the launcher is connected can a session start.
             await expect.poll(async () => (await api(request, 'get', '/launches')).launchers, WAIT).toBeGreaterThan(0)
