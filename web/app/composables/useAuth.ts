@@ -20,6 +20,10 @@ export function useAuth() {
     // landing on the same account; the server sends the browser straight to the login page when the provider has none.
     async function logOut() {
         await apiFetch('/auth/logout', {method: 'POST', headers: {}})
+        // Nothing of theirs stays in the browser for the next person (ORR-1391): what they read and saw, nor where
+        // they were going.
+        forgetPerson()
+        sessionStorage.removeItem('orrery-after-login')
         if (!status.value?.oidc) return location.assign('/login')
         const back = apiCrossOrigin('/auth/oidc/logout') ? `?${new URLSearchParams({back: location.origin})}` : ''
         location.assign(apiUrl(`/auth/oidc/logout${back}`))

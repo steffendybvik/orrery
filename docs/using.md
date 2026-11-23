@@ -134,7 +134,7 @@ What agents say to you lands in the bell in every page's header: their questions
 
 ## Logging in
 
-On your own machine, alone, there's no login. With a second person, or from another machine, the page opens on a login, through your provider or with a person key, and **App settings → You → Your keys** is where you make, list and revoke keys. **Sign out** is at the sidebar's foot, under **Signed in as …**, and under App settings → You → Account (Your keys' **Log out** does the same). [Running orrery](running.md#claiming-it-and-logging-in) has the details.
+On your own machine, alone, there's no login. With a second person, or from another machine, the page opens on a login, through your provider or with a person key, and **App settings → You → Your keys** is where you make, list and revoke keys. **Sign out** is at the sidebar's foot, under **Signed in as …**, and under App settings → You → Account (Your keys' **Log out** does the same). Signing out clears what this browser kept of yours (the docs you read, what you've seen, your chat's project), and so does someone else signing in on it; only its layout (theme, text size, where panes sit) stays. The API's answers are never kept in the browser's cache. [Running orrery](running.md#claiming-it-and-logging-in) has the details.
 
 ## Keys
 
