@@ -310,3 +310,18 @@ async fn images_are_listed_and_swept_in_their_own_workspace_alone() {
     assert_eq!(swept.body["count"], 0, "default's sweep leaves Acme's");
     assert_eq!(api.delete(&format!("/api/uploads/{OLD}")).send().await.status, 404, "not default's");
 }
+
+#[tokio::test]
+async fn a_member_off_a_board_gets_the_counts_of_the_workspaces_images_but_not_the_images() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let quarry = four(&api).await;
+    api.on_board(&quarry, &["bo"]).await;
+    let ana = api.signed(api.get("/api/uploads"), "ana").await.send().await;
+    assert_eq!(ana.status, 200, "{}", ana.body);
+    assert_eq!((ana.body["count"].clone(), ana.body["uploads"].clone()), (json!(4), json!([])), "ana isn't on Lid: {}", ana.body);
+    for person in ["bo", "sam"] {
+        let listed = api.signed(api.get("/api/uploads"), person).await.send().await;
+        assert_eq!(listed.body["uploads"].as_array().unwrap().len(), 4, "{person}: {}", listed.body);
+    }
+}

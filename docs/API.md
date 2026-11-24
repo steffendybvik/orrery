@@ -417,7 +417,7 @@ that comes back in the text. orrery keeps it in its database, so a copy of the d
 |---|---|
 | `POST /uploads` | `{data, name?}`: `data` is a PNG, JPEG, GIF or WebP in base64 (a `data:` URL works too), 10 MB at most; no SVG. A PNG or JPEG of 16 KB or more is kept as WebP when that's smaller (quality 90 for a PNG, 82 for a JPEG; no wider than 2,560 px or taller than 16,383), and a JPEG WebP doesn't beat is written again as a JPEG at 82 when that's smaller. Either way it loses its metadata (EXIF, a photo's place), so `type` and `size` are what's kept. → `{id, type, size, url, markdown}`, where `url` is `/api/uploads/<id>` and `markdown` is `![name](url)`. A picture whose alt text starts with `Before`, followed by nothing but one starting with `After` (on the next line, or in the next paragraph), shows as a slider between the two. It's kept in the workspace the request acts in (`Orrery-Workspace`, else `default`) |
 | `GET /uploads/:id` | the image, to those in its workspace (an untrusted session also reaches its project's); 404 for anyone else |
-| `GET /uploads?unused=1` | `{count, size, uploads: [{id, type, name, size, created_by, created_at, used, unused, url}]}`: the workspace's images, newest first. `used`: some text in any workspace shows it (an issue's notes, a comment, a doc or an old revision of one, a setting…; the event log doesn't count). `unused`: nothing shows it and it's more than a day old. `?unused=1` lists only those; `count` and `size` add up what's listed |
+| `GET /uploads?unused=1` | `{count, size, uploads: [{id, type, name, size, created_by, created_at, used, unused, url}]}`: the workspace's images, newest first. `used`: some text in any workspace shows it (an issue's notes, a comment, a doc or an old revision of one, a setting…; the event log doesn't count). `unused`: nothing shows it and it's more than a day old. `?unused=1` lists only those; `count` and `size` add up what's listed. A member who isn't on every board of the workspace gets `count` and `size` with `uploads` empty, as an image may be a board's they aren't on |
 | `DELETE /uploads/:id` | removes one of the workspace's images; the owner's (403 otherwise), refused (409) while anything still shows it. → 204 |
 | `DELETE /uploads?unused=1` | removes every unused image of the workspace at once; the owner's. → `{count, size, compacted}`: `compacted` when the SQLite file was compacted after, as that much came free |
 
@@ -526,7 +526,7 @@ and keeps in `orrery.key` beside the database; only when it can't keep one there
 | | |
 |---|---|
 | `GET /secrets` | every secret by name: `{name, last4, hosts, projects, last_used}`, never a value |
-| `GET /secrets/:name` | the secret with its latest `uses` |
+| `GET /secrets/:name` | the secret with its latest `uses`. A member who isn't on a board gets neither its uses (here and as `last_used`) nor its id among `projects` |
 | `PUT /secrets/:name` | `{value, hosts, projects?}`, the owner only: sets it, new (201) or replacing. `name` is capitals, digits and `_` (`STRIPE_KEY`); `value` at least 8 characters; `hosts` the host names it may go to (`api.stripe.com`, with a port if not 443); `projects` the projects that may use it (none: every one) |
 | `PATCH /secrets/:name` | `{hosts?, projects?}`, the owner only: only narrows them. Letting it go somewhere new takes the value again (`PUT`), so whoever doesn't know it can't send it elsewhere |
 | `DELETE /secrets/:name` | the owner only; its uses go with it |

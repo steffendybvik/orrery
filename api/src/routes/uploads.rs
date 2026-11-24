@@ -66,10 +66,23 @@ fn unused(query: &HashMap<String, String>) -> bool {
 
 /// The workspace's images (ORR-1250), each with whether anything shows it; `?unused=1` lists only those nothing shows
 /// that are more than a day old, with their count and size, for App settings → Workspace → Storage.
+/// A member who isn't on every board of the workspace gets only the `count` and `size`: the images themselves, and
+/// their ids that open them, may be a board's they aren't on (ORR-1388).
 async fn list_uploads(State(app): Shared, headers: HeaderMap, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let workspace = workspace_of(&mut conn, &headers).await?;
-    Ok(reply(StatusCode::OK, Some(uploads::list_uploads(&mut conn, &workspace, unused(&query)).await?), Effects::default()))
+    let mut listed = uploads::list_uploads(&mut conn, &workspace, unused(&query)).await?;
+    if off_a_board(&mut conn, &headers, &workspace).await? {
+        listed["uploads"] = serde_json::json!([]);
+    }
+    Ok(reply(StatusCode::OK, Some(listed), Effects::default()))
+}
+
+/// Whether the asker doesn't see some board of `workspace`: a member who isn't on it (ORR-985).
+async fn off_a_board(conn: &mut sqlx::AnyConnection, headers: &HeaderMap, workspace: &str) -> Result<bool> {
+    let seen = Seen::of(conn, headers).await?;
+    let projects: Vec<String> = sqlx::query_scalar(crate::db::sql("SELECT id FROM projects WHERE workspace = ?")).bind(workspace).fetch_all(&mut *conn).await?;
+    Ok(projects.iter().any(|project| !seen.sees_in(workspace, project)))
 }
 
 /// Removing one image, the owner's: refused (409) while something still shows it.

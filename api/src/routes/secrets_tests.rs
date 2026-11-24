@@ -265,3 +265,31 @@ async fn each_workspace_keeps_its_own_secrets() {
     let refused = api.signed(put.header("orrery-sent-origin", "http://localhost"), "sam").await.send().await;
     assert_eq!(refused.status, 403, "only the local app keeps a sealed secret: {}", refused.body);
 }
+
+#[tokio::test]
+async fn a_member_off_a_board_sees_none_of_its_secrets_uses() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let primes = api.project("Primes").await;
+    let quarry = api.project("Quarry").await;
+    api.on_board(&primes, &["ana", "bo"]).await;
+    api.on_board(&quarry, &["bo"]).await;
+    let narrowed = format!(r#"["{primes}","{quarry}"]"#);
+    secret(&api, "STRIPE_KEY", r#"["api.stripe.com"]"#, Some(&narrowed)).await;
+    for (path, project) in [("/v1/first", &primes), ("/v1/quarry", &quarry)] {
+        api.run(
+            "INSERT INTO secret_uses (secret, method, host, path, project, issue, status, error, created_by, created_at) VALUES ('STRIPE_KEY', 'POST', 'api.stripe.com', ?, ?, NULL, 200, NULL, 'claude', ?)",
+            &[path, project, &crate::write::stamp()],
+        )
+        .await;
+    }
+    let listed = api.signed(api.get("/api/secrets"), "ana").await.send().await;
+    assert_eq!(listed.body[0]["last_used"]["path"], "/v1/first", "{}", listed.body);
+    assert_eq!(listed.body[0]["projects"], json!([primes]), "{}", listed.body);
+    let one = api.signed(api.get("/api/secrets/STRIPE_KEY"), "ana").await.send().await;
+    assert_eq!(one.body["uses"].as_array().unwrap().len(), 1, "{}", one.body);
+    assert!(!one.body.to_string().contains(&quarry), "{}", one.body);
+    let bos = api.signed(api.get("/api/secrets/STRIPE_KEY"), "bo").await.send().await;
+    assert_eq!(bos.body["uses"].as_array().unwrap().len(), 2, "{}", bos.body);
+    assert_eq!(bos.body["last_used"]["path"], "/v1/quarry");
+}
