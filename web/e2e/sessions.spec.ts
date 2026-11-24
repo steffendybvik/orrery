@@ -338,7 +338,7 @@ test('with a session listening, New session on this starts another on the issue'
     // Once a launcher is there, orrery starts a session for each Todo issue the earlier specs left (ORR-1399): room
     // under the limit keeps those from filling it, which would take the button away.
     const before = ((await (await request.get('/api/settings')).json()) as {starts: unknown}).starts
-    await request.patch('/api/settings', {data: {starts: {limit: 200}}, headers: OWNER})
+    expect((await request.patch('/api/settings', {data: {starts: {limit: 20}}, headers: OWNER})).ok()).toBe(true)
     const issue = await api(request, 'post', '/issues', {title: 'Sweep the steps', status: 'todo'})
     await request.post('/api/sessions', {data: {id: 'e2e-n1', project: 'kitchen', event: 'SessionStart', name: 'e2e-n1'}})
     const stream = hold(baseURL!, '/api/projects/kitchen/signals/stream?session=e2e-n1&name=e2e-n1&format=text')
@@ -693,6 +693,61 @@ test('removes a connected repo after asking: its launcher hears it, and the proj
     } finally {
         garden.stop()
         kitchen.stop()
+    }
+})
+
+test("Start session asks which folder for a project served from two, and only the launcher there can take it (ORR-1314)", async ({page, request, baseURL}) => {
+    // Room under the limit, as a launcher there starts sessions for the Todo issues earlier specs left (ORR-1399).
+    const before = ((await (await request.get('/api/settings')).json()) as {starts: unknown}).starts
+    expect((await request.patch('/api/settings', {data: {starts: {limit: 20}}, headers: OWNER})).ok()).toBe(true)
+    const at = (dir: string) => hold(baseURL!, `/api/projects/kitchen/launches/stream?dir=${encodeURIComponent(dir)}&version=e2e`)
+    const a = at('/code/a')
+    const b = at('/code/b')
+    const token = (stream: ReturnType<typeof hold>) => (JSON.parse(/event: ready\ndata: (.+)/.exec(stream.said.text)![1]!) as {token: string}).token
+    // The launch started in `dir`, as a stream heard it.
+    const launchIn = (stream: ReturnType<typeof hold>, dir: string) => [...stream.said.text.matchAll(/event: launch\ndata: (.+)/g)]
+        .map(m => JSON.parse(m[1]!) as {id: string, dir?: string}).find(l => l.dir === dir)
+    let started: string | undefined
+    try {
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(2)
+        await page.goto('/sessions')
+        await page.getByRole('button', {name: 'Start session'}).first().click()
+        const dialog = page.getByRole('dialog', {name: 'Start session'})
+        await dialog.getByRole('checkbox', {name: 'Kitchen'}).check()
+        // Both folders, and Any, the first launcher to take it, which it starts on until one's picked.
+        const folder = dialog.getByTestId('start-folder')
+        await expect(folder).toContainText('served from 2')
+        await expect(folder).toContainText('Any: the first launcher to take it')
+        await dialog.locator('[data-picker="Folder for Kitchen"]').click()
+        await expect(page.getByRole('option', {name: 'Any: the first launcher to take it'})).toBeVisible()
+        await expect(page.getByRole('option', {name: '/code/a'})).toBeVisible()
+        await page.getByRole('option', {name: '/code/b'}).click()
+        await expect(folder).toContainText('/code/b')
+        await dialog.getByRole('button', {name: /^Start session/}).click()
+        await expect(dialog).toBeHidden()
+
+        // Every launcher on the project hears it, carrying its folder; only the one in /code/b can claim it.
+        await expect.poll(() => launchIn(b, '/code/b')).toBeTruthy()
+        const launch = launchIn(b, '/code/b')!
+        started = launch.id
+        const claim = (stream: ReturnType<typeof hold>) => request.post(`/api/projects/kitchen/launches/${launch.id}/claim?untrusted=no-bash&chat=yes&model=yes&resume=yes`, {headers: {'Orrery-Launcher': token(stream)}}).then(r => r.json())
+        expect((await claim(a)).claimed).toBe(false)
+        expect((await claim(b)).claimed).toBe(true)
+
+        // Served from one folder, there's nothing to pick.
+        a.stop()
+        await expect.poll(async () => (await api(request, 'get', '/launches')).launchers).toBe(1)
+        await page.reload()
+        await page.getByRole('button', {name: 'Start session'}).first().click()
+        await dialog.getByRole('checkbox', {name: 'Kitchen'}).check()
+        await expect(dialog.getByRole('button', {name: /^Start session/})).toBeEnabled()
+        await expect(dialog.getByTestId('start-folder')).toHaveCount(0)
+        await page.keyboard.press('Escape')
+    } finally {
+        if (started) await request.post(`/api/projects/kitchen/launches/${started}/stop`, {headers: OWNER})
+        a.stop()
+        b.stop()
+        await request.patch('/api/settings', {data: {starts: before}, headers: OWNER})
     }
 })
 
