@@ -578,6 +578,15 @@ export const PERMISSIONS: Permission[] = [
         member: {level: 'limited', note: 'The board’s holder, and their agents', check: 'boardHolder'},
     },
     {
+        id: 'projects.move', area: 'Roadmap', action: 'Mark a project as moved to another orrery, or let its sessions pick from it',
+        why: 'Marking one moved makes every write to the board a 409, and letting an uploaded board be picked hands its work to sessions: the owner decides both, from the project’s page (ORR-1378).',
+        routes: ['PUT /api/projects/:project/moved', 'DELETE /api/projects/:project/moved', 'DELETE /api/projects/:project/picks-held'],
+        session: ownerAlone,
+        chat: refused,
+        untrusted: refused,
+        member: ownerAlone,
+    },
+    {
         id: 'members.write', area: 'Roadmap', action: 'Add or remove a board’s members',
         why: 'Holding a board means saying who’s on it, and agents can’t let themselves in.',
         routes: ['POST /api/projects/:project/members', 'DELETE /api/projects/:project/members/:person'],
@@ -603,6 +612,15 @@ export const PERMISSIONS: Permission[] = [
         chat: refused,
         untrusted: refused,
         member: onTheirBoards,
+    },
+    {
+        id: 'uploads.remove', area: 'Roadmap', action: 'Remove an image, or every unused one',
+        why: 'An image may still be linked from somewhere a session can’t see: removing them is the owner’s, from Settings (ORR-1378).',
+        routes: ['DELETE /api/uploads/:upload', 'DELETE /api/uploads'],
+        session: ownerAlone,
+        chat: refused,
+        untrusted: refused,
+        member: ownerAlone,
     },
     {
         id: 'sessions.report', area: 'Sessions', action: 'Say what a session is doing, from its hook, channel or launcher',

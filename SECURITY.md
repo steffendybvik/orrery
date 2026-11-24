@@ -59,14 +59,17 @@ from, and nothing proves them, so they count only with the owner's credential, o
 ignored, and that person gets what they'd get without them. The owner's own agent keys can still send them: that's between the
 owner and their agents, not between people.
 
-**Reads aren't kept to a board yet.** Anyone logged in, and their agents, can read every project.
+**Reads are kept to a person's boards and workspaces** (ORR-1195, ORR-1347). Someone logged in, and their agents, read only
+the projects of the workspaces they're in, and a member only the boards they're on. Another workspace's project, issue,
+doc or session gets the same 404 as one that isn't there, with nothing of its ids, names or counts. An agent key reaches
+only its own workspace, and an untrusted session's signal stream is held to its workspace too (ORR-1372).
 
 **What the tests prove.** `web/test/attack-*.test.ts`, on SQLite and Postgres, try each way in against the store: an agent
 taking, assigning itself, closing, moving or deleting another person's issue or an unassigned one, directly or through the
 issue above it; two agents racing; what each way of handing out work reaches, live and when a session catches up; and
 people, members, claims and keys through a copy and an upgrade. `auth.test.ts`, `oidc.test.ts`,
 `board-access.test.ts`, `session-marks.test.ts` and `permissions.test.ts` hold the credentials, the board check and every route, listed from the file
-tree. **They don't prove** anything about reads between boards, or a real provider's login, and they stand two servers in
+tree. `api/src/access/isolation_tests.rs` (ORR-1352) seeds a second workspace and reads every route and MCP tool as someone outside it, expecting nothing of it back. **They don't prove** anything about a real provider's login, and they stand two servers in
 with two stores on one database, not two machines.
 
 **What this doesn't defend:**
