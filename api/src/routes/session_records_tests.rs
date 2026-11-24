@@ -56,6 +56,8 @@ async fn only_the_local_app_records_a_session_and_only_as_untrusted_or_the_chat(
     assert_eq!(keep(&api, "s", json!({"kind": "owner"})).await.0, 400);
     assert_eq!(keep(&api, "s", json!({})).await.0, 400);
     assert_eq!(keep(&api, "s", json!({"kind": "untrusted", "project": 7})).await.0, 400);
+    assert_eq!(keep(&api, "s", json!({"kind": "untrusted", "person": 7})).await.0, 400);
+    assert_eq!(keep(&api, "s", json!({"kind": "untrusted", "person": ""})).await.0, 400);
 }
 
 #[tokio::test]
