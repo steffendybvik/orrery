@@ -156,7 +156,7 @@ test('groups the docs into sections, folds one, and moves a doc by right-click a
 })
 
 test('drags a section above another, and it stays there after a reload (ORR-767)', async ({page, request}) => {
-    await makeProject(request, {name: 'Shelves', key: 'SHE'})
+    await makeProject(request, {name: 'Shelves', key: 'SHV'})
     for (const name of ['Alpha', 'Beta', 'Gamma']) await request.post('/api/projects/shelves/doc-sections', {data: {name}, headers: AGENT})
     await request.put('/api/projects/shelves/docs/first', {data: {title: 'First', body: 'First.', section: 'Alpha'}, headers: AGENT})
     const order = async () => await (await request.get('/api/projects/shelves/doc-sections')).json()

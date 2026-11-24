@@ -735,3 +735,28 @@ async fn releases_come_only_from_a_project_in_the_same_workspace() {
     assert_eq!(made.status, 400, "{}", made.body);
     assert_eq!(made.body["message"], format!("No project \"{rockets}\" to take releases from"));
 }
+
+/// A project's key is its workspace's alone (ORR-1423): one sent that another project in the workspace has is a 409, on
+/// create and on a change, while one made from the name steps to `PRI2`. Another workspace's key is no clash.
+#[tokio::test]
+async fn a_key_the_workspace_has_is_refused_and_one_made_from_the_name_steps_on() {
+    let api = TestApi::new().await;
+    api.owner().await;
+    let primes = api.post("/api/projects", json!({"name": "Primes"})).send().await;
+    assert_eq!((primes.status.as_u16(), primes.body["key"].as_str()), (201, Some("PRI")), "{}", primes.body);
+
+    let prism = api.post("/api/projects", json!({"name": "Prism"})).send().await;
+    assert_eq!((prism.status.as_u16(), prism.body["key"].as_str()), (201, Some("PRI2")), "{}", prism.body);
+    let sent = api.post("/api/projects", json!({"name": "Prior art", "key": "PRI"})).send().await;
+    assert_eq!(sent.status, 409, "{}", sent.body);
+    assert!(sent.body.to_string().contains("key PRI"), "{}", sent.body);
+
+    let changed = api.patch("/api/projects/prism", json!({"key": "PRI"})).send().await;
+    assert_eq!(changed.status, 409, "{}", changed.body);
+    let own = api.patch("/api/projects/prism", json!({"key": "PRI2"})).send().await;
+    assert_eq!(own.status, 200, "its own key sent back is fine: {}", own.body);
+
+    api.acme(&["sam"]).await;
+    let there = api.post("/api/projects", json!({"name": "Primes", "key": "PRI"})).header("orrery-workspace", "acme").send().await;
+    assert_eq!((there.status.as_u16(), there.body["key"].as_str()), (201, Some("PRI")), "{}", there.body);
+}
