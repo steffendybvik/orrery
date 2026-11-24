@@ -10,7 +10,7 @@
 // by an API error (the network, a rate limit) lets go of what it had in progress (`letGo`), so none of it sits there
 // in progress with nobody on it.
 import type {Signal} from '#shared/roadmap'
-import {CARRY_FROM, CLOSED, byPriority, isBlocked, modelFor, sameScope} from '#shared/roadmap'
+import {CARRY_FROM, CLOSED, byPriority, isBlocked, modelFor, parked, sameScope} from '#shared/roadmap'
 import {heavyEnough} from './pool'
 import {writeToApi} from './api-router'
 import {heldFromPicks} from './pick'
@@ -166,6 +166,8 @@ export function considerClear(project: string, id: string) {
                 // Its issues in progress are all parked (waiting on the owner, or in review): it keeps them, uncleared, and
                 // is out of work, so it picks now rather than at the board's next change (ORR-1032).
                 if (!await store.engaged(now.project, ids)) await pickNext(now.project, id)
+                // An issue it still has in progress that it isn't on: nothing else would start its next turn (ORR-1421).
+                else await sendBack(now, id)
                 return
             }
             // Its next piece of work is related to the one it just did (a sibling of it): it keeps its context and is
@@ -281,6 +283,35 @@ async function sendOn(now: NonNullable<ReturnType<typeof sessionNow>>, id: strin
     carried.set(currentId(id), sent)
     const store = useStore()
     await store.focus(now.project, next.id, {session: currentId(id), note: CARRY_ON}, {name: (await store.ownerOf()).name, owner: true})
+    return true
+}
+
+/** The note on the focus that sends a session orrery started back to an issue it went idle on (ORR-1421). */
+export const STILL_YOURS = "This is still in progress with you, but your turn ended without finishing it. Carry on with it. If it's waiting on something outside you (CI, a review), say so on it and end your turn; if you won't finish it, move it back to Todo with a comment saying why."
+
+/** The issue each session was last sent back to, by its id now, with its status and last change. */
+const sentBack = new Map<string, string>()
+
+/** Sends the session orrery started, gone idle with an issue in progress that isn't parked and nothing waiting for it,
+ * back to the most urgent of them, alone and as the owner, as a focus with STILL_YOURS (ORR-1421). Without it, it would
+ * sit idle holding it: not cleared, handed no pick list, and kept from its stop until well past its time. One with a
+ * sub-issue to do is `carryOn`'s to send on. Not twice for an issue that hasn't changed since, so one waiting on CI
+ * isn't woken after every turn; its stop then comes once it's idle past its time (`stopDue`). Says whether it sent one. */
+async function sendBack(now: NonNullable<ReturnType<typeof sessionNow>>, id: string): Promise<boolean> {
+    if (!now.listening || untrustedSession(id) || chatSession(id)) return false
+    const store = useStore()
+    const ids = sessionIds(id)
+    if (await store.waiting(now.project, ids)) return false
+    const open = (await store.workingOn(now.project, ids)).filter(issue => !parked(issue)).sort(byPriority)
+    const issue = open[0]
+    if (!issue || await nextRelated(now, id)) return false
+    for (const session of sentBack.keys()) {
+        if (!sessionNow(session)) sentBack.delete(session)
+    }
+    const sent = `${issue.id} ${issue.status} ${issue.updated_at}`
+    if (sentBack.get(currentId(id)) === sent) return false
+    sentBack.set(currentId(id), sent)
+    await store.focus(now.project, issue.id, {session: currentId(id), note: STILL_YOURS}, {name: (await store.ownerOf()).name, owner: true})
     return true
 }
 

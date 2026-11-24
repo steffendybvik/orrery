@@ -722,7 +722,10 @@ export async function stopDue(now = Date.now()): Promise<string[]> {
         if (session.state !== 'idle' && stopsAt > now) continue
         if (!starts.has(session.project)) starts.set(session.project, await store.starts(session.project).catch(() => undefined))
         // An untrusted run's session is stopped on the dot, busy or not: its cap is a promise (ORR-422).
-        const overdue = now - stopsAt >= (started.untrusted ? 0 : overdueAfter(starts.get(session.project)?.minutes))
+        // One idle a while past its time, still holding an issue in progress it isn't working, is stopped too: what it
+        // holds goes back to Todo as it ends, and the minimum starts one in its place (ORR-1421).
+        const idleHolding = session.state === 'idle' && now - stopsAt >= IDLE_PAST_STOP && now - Date.parse(session.since) >= IDLE_HOLD
+        const overdue = idleHolding || now - stopsAt >= (started.untrusted ? 0 : overdueAfter(starts.get(session.project)?.minutes))
         if (session.state !== 'idle' && !overdue) continue
         const idleFor = started.untrusted ? UNTRUSTED_IDLE : starts.get(session.project)?.idle_minutes
         const timeUp = stopsAt <= now
@@ -787,6 +790,11 @@ async function fill(): Promise<Launch[]> {
     }
     return started
 }
+
+/** How long past its stop time an idle session that still holds an issue in progress is stopped (ORR-1421), once it
+ * has been idle `IDLE_HOLD`: it was sent on to that issue as it went idle, and didn't take it up. */
+export const IDLE_PAST_STOP = 10 * 60_000
+export const IDLE_HOLD = 5 * 60_000
 
 /** How long past its stop time a session that isn't done is stopped anyway: its minutes again, from 15 minutes
  * to an hour (half an hour without minutes, as when the owner gave it longer by hand). */
