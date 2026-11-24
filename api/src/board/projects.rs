@@ -282,6 +282,38 @@ pub(crate) async fn free_project_id(conn: &mut AnyConnection, workspace: &str, i
     }
 }
 
+/// Refuses `key` when another project in `workspace` has it (ORR-1423): a key is its workspace's alone, as a bare
+/// `ORR-12` is read in the workspace it's asked in. Another workspace's project with it is no clash (ORR-1350), and
+/// neither is `project` itself, for an update that sends its own key back.
+pub(crate) async fn key_is_free(conn: &mut AnyConnection, workspace: &str, key: &str, project: Option<&str>) -> Result<()> {
+    let taken = sqlx::query(sql("SELECT 1 FROM projects WHERE key = ? AND workspace = ? AND id <> ?"))
+        .bind(key)
+        .bind(workspace)
+        .bind(project.unwrap_or_default())
+        .fetch_optional(&mut *conn)
+        .await?
+        .is_some();
+    if taken {
+        return Err(ApiError::conflict(format!("There is already a project with the key {key}: choose another")));
+    }
+    Ok(())
+}
+
+/// `key`, or the first of `key2`, `key3`… no project in `workspace` has, for a key made from a project's name.
+async fn free_key(conn: &mut AnyConnection, workspace: &str, key: &str) -> Result<String> {
+    let mut next = key.to_string();
+    for n in 2.. {
+        let taken =
+            sqlx::query(sql("SELECT 1 FROM projects WHERE key = ? AND workspace = ?")).bind(&next).bind(workspace).fetch_optional(&mut *conn).await?.is_some();
+        if !taken {
+            break;
+        }
+        let tail = n.to_string();
+        next = format!("{}{tail}", key.chars().take(10 - tail.len()).collect::<String>());
+    }
+    Ok(next)
+}
+
 pub(crate) async fn not_moved(conn: &mut AnyConnection, project: &str) -> Result<()> {
     let moved: Option<String> = sqlx::query_scalar(sql("SELECT moved_to FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *conn).await?.flatten();
     match moved {
@@ -498,15 +530,17 @@ impl<'c> Projects<'c> {
             return Err(ApiError::bad_request(format!("\"{id}\" is one of a workspace's own pages; give another id in \"id\"")));
         }
         let id = free_project_id(&mut *self.conn, self.workspace.id(), &id).await?;
+        // A key sent that the workspace has is a 409 (below); one made from the name steps to `ORR2`, `ORR3`… instead.
         let key = match input.get("key").and_then(Value::as_str) {
             Some(key) => key.to_string(),
-            None => key_for(&name),
+            None => free_key(&mut *self.conn, self.workspace.id(), &key_for(&name)).await?,
         };
         if RESERVED_KEYS.contains(&key.as_str()) {
             return Err(ApiError::bad_request(format!(
                 "\"{key}\" is how a milestone's, an epic's, a doc's, a preset's or a schedule's id starts; give another in \"key\""
             )));
         }
+        key_is_free(&mut *self.conn, self.workspace.id(), &key, None).await?;
         let (mode, from) = release_mode_of(&input, "none", &None)?;
         if let Some(from) = &from {
             let workspace = self.workspace.id().to_string();
@@ -572,6 +606,10 @@ impl<'c> Projects<'c> {
         prompts_are_the_owners(&input, actor)?;
         if input.get("id").and_then(Value::as_str).is_some_and(|sent| sent != id) {
             return Err(ApiError::bad_request("A project's id can't change"));
+        }
+        if let Some(key) = input.get("key").and_then(Value::as_str) {
+            let workspace: String = sqlx::query_scalar(sql("SELECT workspace FROM projects WHERE id = ?")).bind(id).fetch_one(&mut *self.conn).await?;
+            key_is_free(&mut *self.conn, &workspace, key, Some(id)).await?;
         }
         let (mode, from) = release_mode_of(&input, &row.mode, &row.from)?;
         let moved = mode != row.mode || from != row.from;

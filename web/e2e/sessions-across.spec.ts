@@ -21,7 +21,7 @@ function hold(baseURL: string, path: string) {
 
 test('lists a session that hears several projects once, across them', async ({page, request, baseURL}) => {
     if (!(await api(request, 'get', '/owner')).named) await api(request, 'put', '/owner', {name: 'Ada Lovelace'})
-    for (const [name, key] of [['Attic', 'ATT'], ['Garage', 'GAR'], ['Loft', 'LFT']]) await api(request, 'post', '/projects', {name, key})
+    for (const [name, key] of [['Attic', 'ATT'], ['Garage', 'GRG'], ['Loft', 'LFT']]) await api(request, 'post', '/projects', {name, key})
     const stops = [
         hold(baseURL!, '/api/signals/stream?projects=attic,garage&session=e2e-span&name=tidy-up'),
         hold(baseURL!, '/api/projects/attic/signals/stream?session=e2e-attic&name=attic-one&format=text'),

@@ -2,9 +2,10 @@ import {expect, test} from './test'
 import {AGENT, OWNER, makeProject} from './support'
 
 // A full id over HTTP (ORR-674): found on its own board and server, a 404 anywhere else, and what the copy buttons give.
+// Two boards in one workspace can't share a key any more (ORR-1423), so the other board has a key of its own.
 test('a full id finds its own, and gets a 404 on any other board', async ({page, request}) => {
-    await makeProject(request, {name: 'Tamarind', key: 'ORC'})
-    await makeProject(request, {name: 'Loquat', key: 'ORC'})
+    await makeProject(request, {name: 'Tamarind', key: 'TAM'})
+    await makeProject(request, {name: 'Loquat', key: 'LOQ'})
     const made = await (await request.post('/api/projects/tamarind/issues', {data: {title: 'Prune'}, headers: AGENT})).json()
     await request.post('/api/projects/loquat/issues', {data: {title: 'Press'}, headers: AGENT})
     const issue = await (await request.get(`/api/projects/tamarind/issues/${made.id}`)).json()

@@ -889,7 +889,8 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             [name, p => viaStore(() => step(p)), () => viaStore(() => step('through-api'))]
         const steps: [string, (p: string) => Promise<Outcome>, () => Promise<Outcome>][] = [
             change('renamed, described, with an icon, a tint and a repo', () => ({name: ' Workbench ', description: 'Tools', icon: 'wrench', icon_color: 'teal', repo: 'https://github.com/ada/bench'})),
-            change('a hex tint, and the description cleared', () => ({icon_color: '#3B82f6', description: null, key: 'BENCH'})),
+            // Each side its own key: both are in one workspace, where a key is one project's alone (ORR-1423).
+            change('a hex tint, and the description cleared', p => ({icon_color: '#3B82f6', description: null, key: p === 'through-api' ? 'APIK' : 'STOK'})),
             change('nothing sent', () => ({})),
             change('its own id again', p => ({id: on(p)})),
             change('another id', () => ({id: 'elsewhere'})),
@@ -1002,10 +1003,12 @@ describe.skipIf(!existsSync(BIN))('the Rust API serves docs and the statuses, an
             make('its own, from another', p => ({name: 'T', id: `${p}-t`, release_mode: 'own', releases_from: `${p}-own`})),
             make('not an object', () => ['name']),
         ]
-        // Each project's uid differs, so it's left out of what's compared; its key is made the same way on both.
+        // Each project's uid differs, so it's left out of what's compared. Its key is made the same way on both, but the
+        // store's side goes first in one workspace, where a key is one project's alone (ORR-1423), so the API's steps on
+        // to `GRE2`: the number is left out too.
         const own = (outcome: Outcome): Outcome => {
             const body = outcome.body as Record<string, unknown> | null
-            return body && typeof body === 'object' && 'uid' in body ? {...outcome, body: {...body, uid: '<uid>'}} : outcome
+            return body && typeof body === 'object' && 'uid' in body ? {...outcome, body: {...body, uid: '<uid>', key: String(body.key).replace(/\d+$/, '')}} : outcome
         }
         const outcomes: Outcome[] = []
         for (const [name, ts, rs] of steps) outcomes.push(await both(name, async p => own(await ts(p)), async () => own(await rs())))

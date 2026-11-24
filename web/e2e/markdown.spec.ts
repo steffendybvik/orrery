@@ -22,7 +22,7 @@ const HOSTILE = [
 ].join('\n\n')
 
 test.beforeAll(async ({request}) => {
-    await makeProject(request, {name: 'Pantry notes', key: 'PAN'})
+    await makeProject(request, {name: 'Pantry notes', key: 'PNT'})
 })
 
 // Its comments hold images that don't exist, which the bell and the notifications would draw on the specs after it.
