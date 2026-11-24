@@ -837,7 +837,7 @@ one JSON-RPC message or a batch and answers as JSON (a notification alone: 202, 
 that loads its group, from a client that accepts `text/event-stream`: that one is answered as a stream, with
 `notifications/tools/list_changed` first and then the answer, so the client lists the tools again and can call them
 (`initialize` says `listChanged: true`, ORR-1323). `DELETE` with
-`Mcp-Session-Id` ends the client's session, and `GET` is a 405, as it streams nothing. It's for agents: a browser's
+`Mcp-Session-Id` ends the client's session, and `GET` is a 405, as it streams nothing. A session is kept for the person who began it with `initialize`: its id said by anyone else is one orrery doesn't know, with nothing loaded, and their `DELETE` gets a 404 (ORR-1388). It's for agents: a browser's
 login gets a 403, so with login on a session sends its agent key as the bearer. `Orrery-Session` ties its writes to the
 Claude session, as the channel's do; the launcher and the install line set it (see Connecting a repo). The notification
 `notifications/orrery/chose` `{id, url, environment?}`, with `Orrery-Session`, says that Claude session chose another orrery with

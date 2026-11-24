@@ -121,6 +121,24 @@ async fn more_tools_adds_a_group_to_that_session_alone() {
 }
 
 #[tokio::test]
+async fn a_session_is_its_holders_so_another_person_with_its_id_gets_none_of_it() {
+    // ORR-1388: an MCP session is kept for the person who began it, as the router found them.
+    let api = TestApi::new().await;
+    let as_who = |req: Req, person: &str| req.header("orrery-who", "agent").header("orrery-who-person", person);
+    let begun =
+        as_who(rpc(&api, "initialize", json!({"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "1"}})), "sam")
+            .send()
+            .await;
+    assert_eq!(begun.status, 200, "{}", begun.body);
+    let id = begun.header("mcp-session-id").expect("a session id").to_string();
+    let call = |person: &str, method: &str, params: Value| as_who(rpc(&api, method, params), person).header("mcp-session-id", &id);
+    assert_eq!(said(&call("bo", "tools/call", json!({"name": "more_tools", "arguments": {"group": "secrets"}})).send().await), "Added secrets to your tools.");
+    assert!(!names(&call("sam", "tools/list", json!({})).send().await).contains(&"secrets".into()), "bo's load reached sam's session");
+    assert_eq!(as_who(api.delete("/mcp"), "bo").header("mcp-session-id", &id).send().await.status, 404, "bo ended sam's session");
+    assert_eq!(as_who(api.delete("/mcp"), "sam").header("mcp-session-id", &id).send().await.status, 204);
+}
+
+#[tokio::test]
 async fn guide_gives_its_contents_or_one_section() {
     let api = TestApi::new().await;
     let call = |args: Value| rpc(&api, "tools/call", json!({"name": "guide", "arguments": args}));
