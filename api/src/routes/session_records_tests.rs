@@ -98,3 +98,57 @@ async fn an_untrusted_request_stays_untrusted_and_not_the_chat_when_its_record_s
     let (held, _) = crate::access::session_records::as_recorded(&mut conn, &headers, &trusted).await.unwrap();
     assert!(held.chat, "a trusted one is the chat, as its record says");
 }
+
+/// A request naming `session`, from `person`'s credential (`Orrery-Who`), or with login off when there's none.
+fn naming(session: &str, person: Option<&str>) -> axum::http::HeaderMap {
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("orrery-session", session.parse().unwrap());
+    if let Some(person) = person {
+        headers.insert("orrery-who", "agent".parse().unwrap());
+        headers.insert("orrery-who-person", person.parse().unwrap());
+    }
+    headers
+}
+
+#[tokio::test]
+async fn a_record_counts_only_for_its_person() {
+    let api = TestApi::new().await;
+    let own = api.project("Primes").await;
+    assert_eq!(keep(&api, "ana-run", json!({"kind": "untrusted", "project": own, "person": "ana"})).await.0, 200);
+    assert_eq!(keep(&api, "ana-chat", json!({"kind": "chat", "person": "ana"})).await.0, 200);
+    assert_eq!(keep(&api, "old-run", json!({"kind": "untrusted", "project": own})).await.0, 200);
+    let mut conn = api.app.pool.acquire().await.unwrap();
+    let plain = crate::write::Actor { name: "claude".into(), ..Default::default() };
+
+    let (headers, actor) = (naming("ana-run", Some("ana")), plain.clone());
+    let (as_ana, own_ana) = crate::access::session_records::as_recorded(&mut conn, &headers, &actor).await.unwrap();
+    assert_eq!((as_ana.untrusted, own_ana.as_deref()), (true, Some(own.as_str())), "ana gets her own session's project");
+
+    let (headers, actor) = (naming("ana-run", Some("bo")), plain.clone());
+    let (as_bo, own_bo) = crate::access::session_records::as_recorded(&mut conn, &headers, &actor).await.unwrap();
+    assert_eq!((as_bo.untrusted, own_bo), (true, None), "bo naming ana's session is held untrusted, and gets nothing of it");
+
+    let (headers, actor) = (naming("ana-chat", Some("bo")), plain.clone());
+    let (as_bo, _) = crate::access::session_records::as_recorded(&mut conn, &headers, &actor).await.unwrap();
+    assert!(!as_bo.chat, "nor is bo ana's chat");
+
+    let (headers, actor) = (naming("old-run", Some("bo")), plain.clone());
+    let (_, own_old) = crate::access::session_records::as_recorded(&mut conn, &headers, &actor).await.unwrap();
+    assert_eq!(own_old, None, "a record kept for nobody counts for nobody with login on");
+
+    let (headers, actor) = (naming("old-run", None), plain.clone());
+    let (_, own_off) = crate::access::session_records::as_recorded(&mut conn, &headers, &actor).await.unwrap();
+    assert_eq!(own_off.as_deref(), Some(own.as_str()), "and as before with login off");
+}
+
+#[tokio::test]
+async fn a_record_is_never_given_to_someone_else() {
+    let api = TestApi::new().await;
+    assert_eq!(keep(&api, "ana-chat", json!({"kind": "chat", "person": "ana"})).await.0, 200);
+    assert_eq!(keep(&api, "ana-chat", json!({"kind": "untrusted", "person": "bo"})).await.0, 409, "another person's");
+    assert_eq!(keep(&api, "ana-chat", json!({"kind": "chat"})).await.0, 409, "nobody's");
+    assert_eq!(keep(&api, "old", json!({"kind": "chat"})).await.0, 200);
+    assert_eq!(keep(&api, "old", json!({"kind": "chat", "person": "bo"})).await.0, 409, "one kept for nobody stays so");
+    let (status, record) = keep(&api, "ana-chat", json!({"kind": "untrusted", "person": "ana"})).await;
+    assert_eq!((status, record["kind"].as_str(), record["person"].as_str()), (200, Some("untrusted"), Some("ana")));
+}

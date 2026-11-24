@@ -18,8 +18,9 @@ pub(crate) fn routes() -> Router<Arc<App>> {
     Router::new().route("/api/session-records/{session}", put(keep))
 }
 
-/// `{kind, project?}`: the session is `untrusted` (held to `project`) or `chat`. Gives back the record as it stands; a
-/// write that would loosen it is a 409.
+/// `{kind, project?, person?}`: the session is `untrusted` (held to `project`) or `chat`, and `person`'s: the person of
+/// the credential it came with (ORR-1402), none with login off. Gives back the record as it stands; a write that would
+/// loosen it, or give it to someone else, is a 409.
 async fn keep(State(app): Shared, Path(session): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
     if !came_of(&headers).server {
         return Err(ApiError::forbidden("Only the local app records what a session is"));
@@ -31,8 +32,13 @@ async fn keep(State(app): Shared, Path(session): Path<String>, headers: HeaderMa
         Some(Value::String(project)) => Some(project.as_str()),
         Some(_) => return Err(ApiError::bad_request("\"project\" is a project's id")),
     };
+    let person = match body.get("person") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(person)) if !person.is_empty() => Some(person.as_str()),
+        Some(_) => return Err(ApiError::bad_request("\"person\" is a person's id")),
+    };
     let mut conn = app.pool.acquire().await?;
-    let record = SessionRecords::new(&mut conn).keep(&session, kind, project).await?;
+    let record = SessionRecords::new(&mut conn).keep(&session, kind, project, person).await?;
     Ok(Json(record).into_response())
 }
 
