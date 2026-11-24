@@ -79,15 +79,17 @@ impl<'a> SessionRecords<'a> {
                 None => None,
             }
             .unwrap_or_else(|| "default".into());
-            sqlx::query(sql("INSERT INTO session_records (session, kind, project, workspace, person, at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (session) DO NOTHING"))
-                .bind(session)
-                .bind(kind)
-                .bind(project)
-                .bind(&workspace)
-                .bind(person)
-                .bind(stamp())
-                .execute(&mut *self.conn)
-                .await?;
+            sqlx::query(sql(
+                "INSERT INTO session_records (session, kind, project, workspace, person, at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (session) DO NOTHING",
+            ))
+            .bind(session)
+            .bind(kind)
+            .bind(project)
+            .bind(&workspace)
+            .bind(person)
+            .bind(stamp())
+            .execute(&mut *self.conn)
+            .await?;
             // Another write may have got there first: what's kept is what holds.
             return Box::pin(self.keep(session, kind, project, person)).await;
         };
