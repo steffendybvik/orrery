@@ -1,5 +1,6 @@
 // The MCP sessions `/mcp` has begun, and the tool groups each loaded with `more_tools` (ORR-1167). Kept in memory on
 // `App`, as the phone's links are: a restart forgets them, and a session then lists its groups behind `more_tools` again.
+// Each is kept under its holder, the person who began it (ORR-1388), so its id said by anyone else is one this doesn't know.
 // And the Claude sessions that chose another orrery with `choose_app` (ORR-1147), whose tool calls here are refused.
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
@@ -19,16 +20,21 @@ struct Inner {
     chosen: VecDeque<String>,
 }
 
+/// How a session is kept: its id under the person who began it (`""` with nobody signed in, as with login off).
+pub(crate) fn held(holder: &str, id: &str) -> String {
+    format!("{holder}\n{id}")
+}
+
 #[derive(Default)]
 pub struct Sessions(Mutex<Inner>);
 
 impl Sessions {
-    /// A new session's id, given on `initialize`.
-    pub(crate) fn begin(&self) -> String {
-        self.begin_within(KEPT)
+    /// A new session's id, given on `initialize`, kept for `holder`: the rest of its calls name it by `held(holder, id)`.
+    pub(crate) fn begin(&self, holder: &str) -> String {
+        self.begin_within(holder, KEPT)
     }
 
-    fn begin_within(&self, kept: usize) -> String {
+    fn begin_within(&self, holder: &str, kept: usize) -> String {
         let mut bytes = [0u8; 16];
         getrandom::getrandom(&mut bytes).expect("the system's randomness");
         let id: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
@@ -37,8 +43,9 @@ impl Sessions {
             let Some(oldest) = inner.began.pop_front() else { break };
             inner.loaded.remove(&oldest);
         }
-        inner.loaded.insert(id.clone(), Vec::new());
-        inner.began.push_back(id.clone());
+        let key = held(holder, &id);
+        inner.loaded.insert(key.clone(), Vec::new());
+        inner.began.push_back(key);
         id
     }
 
