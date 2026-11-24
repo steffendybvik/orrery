@@ -10,7 +10,7 @@ use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -64,17 +64,47 @@ fn bell_keeper(headers: &HeaderMap) -> Result<Option<String>> {
     Err(ApiError::refused_for("notices.clear", message))
 }
 
+/// The body with its comment `ids` kept to those on a project the asker sees (ORR-1388): one of another workspace's, or
+/// of a board they aren't on, counts as one that isn't here, so the count says nothing of it and it's left as it is.
+async fn seen_ids(conn: &mut sqlx::AnyConnection, headers: &HeaderMap, mut body: Value) -> Result<Value> {
+    let Some(Value::Array(ids)) = body.get("ids") else { return Ok(body) };
+    let hidden = Seen::of(conn, headers).await?.hidden(conn).await?;
+    if hidden.is_empty() || ids.is_empty() {
+        return Ok(body);
+    }
+    let mut kept = Vec::new();
+    for id in ids.clone() {
+        let Some(n) = id.as_i64().or_else(|| id.as_str().and_then(|s| s.parse().ok())) else {
+            kept.push(id);
+            continue;
+        };
+        let project: Option<String> =
+            sqlx::query_scalar(crate::db::sql("SELECT project FROM comments WHERE id = ?")).bind(n).fetch_optional(&mut *conn).await?;
+        if project.is_some_and(|p| !hidden.contains(&p)) {
+            kept.push(id);
+        }
+    }
+    // Nothing seen left: an id that's nobody's, which changes nothing, rather than an empty list, which is a 400.
+    if kept.is_empty() {
+        kept.push(Value::from(-1));
+    }
+    body["ids"] = Value::Array(kept);
+    Ok(body)
+}
+
 async fn clear_notices(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let person = bell_keeper(&headers)?;
     let mut conn = app.pool.acquire().await?;
-    let cleared = Notices::new(&mut conn).clear(&body_of(&body), person.as_deref()).await?;
+    let body = seen_ids(&mut conn, &headers, body_of(&body)).await?;
+    let cleared = Notices::new(&mut conn).clear(&body, person.as_deref()).await?;
     Ok(Json(json!({"cleared": cleared})).into_response())
 }
 
 async fn read_notices(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let person = bell_keeper(&headers)?;
     let mut conn = app.pool.acquire().await?;
-    let read = Notices::new(&mut conn).read(&body_of(&body), person.as_deref()).await?;
+    let body = seen_ids(&mut conn, &headers, body_of(&body)).await?;
+    let read = Notices::new(&mut conn).read(&body, person.as_deref()).await?;
     Ok(Json(json!({"read": read})).into_response())
 }
 

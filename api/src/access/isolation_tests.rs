@@ -677,6 +677,30 @@ async fn a_chat_isnt_written_over_from_another_workspace() {
     unchanged(&before, &bos_view(&api, &theirs).await, "ana keeping bo's chat");
 }
 
+/// Clearing the bell or marking it read by another workspace's comment id (ORR-1388) counts nothing and changes
+/// nothing: not for ana, a member, nor for sam, the server's owner, who isn't in Acme.
+#[tokio::test]
+async fn the_bell_counts_and_changes_nothing_of_another_workspaces_comments() {
+    let api = TestApi::new().await;
+    let theirs = bos_world(&api).await;
+    let comment: i64 = theirs.real["comment"].parse().unwrap();
+    let body = json!({"ids": [comment]});
+    for route in ["/api/notices/read", "/api/notices/clear"] {
+        for actor in ["login", "key"] {
+            let reply = as_ana(&api, api.post(route, body.clone()), actor).await.send().await;
+            assert_eq!(reply.body.as_object().and_then(|o| o.values().next()).and_then(Value::as_i64), Some(0), "ana {actor} {route}: {}", reply.body);
+        }
+        let req = api.post(route, body.clone()).header("orrery-came", "loopback").header("orrery-login-ways", "on").header("orrery-sent-origin", "http://localhost");
+        let reply = api.signed(req, "sam").await.send().await;
+        assert_eq!(reply.status, 200, "sam {route}: {}", reply.body);
+        assert_eq!(reply.body.as_object().and_then(|o| o.values().next()).and_then(Value::as_i64), Some(0), "sam {route}: {}", reply.body);
+    }
+    let id = comment.to_string();
+    assert_eq!(api.count(&format!("SELECT count(*) FROM comments WHERE id = {id} AND (cleared = 1 OR was_read = 1)")).await, 0);
+    assert_eq!(api.count(&format!("SELECT count(*) FROM notice_reads WHERE comment = {id}")).await, 0);
+    assert_eq!(api.count(&format!("SELECT count(*) FROM notice_clears WHERE comment = {id}")).await, 0);
+}
+
 /// dan is in Acme and on Boosters, not on Rockets: moving his issue there, or tying it to Rockets' issue, answers as a
 /// project that isn't here (ORR-1379, ORR-1383), and Rockets is as it was.
 #[tokio::test]
