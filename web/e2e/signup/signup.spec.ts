@@ -202,7 +202,9 @@ test("“Sign in as someone else” shows the provider's form, though it's still
     const provider = await providerOf(baseURL!)
     // Alan's marks, which signing out of orrery alone (below) doesn't clear: Ada signing in next does (ORR-1391).
     await ownerPage.evaluate(() => localStorage.setItem('orrery-seen', '{"alan/ALN-1":"2026-11-23"}'))
-    // Out of orrery alone, as a session that ran out is: the provider still has Alan.
+    // Out of orrery alone, as a session that ran out is: the provider still has Alan. Off the app first, as its own
+    // next fetch would meet the 401 and send it to /login itself, aborting the goto below (ORR-1419).
+    await ownerPage.goto('about:blank')
     expect((await ownerPage.request.post('/api/auth/logout', {headers: {'Orrery-Sent-Origin': baseURL!}})).ok()).toBe(true)
     await ownerPage.goto('/login')
     const forms = (await (await fetch(`${provider}/seen`)).json() as {forms: number}).forms
