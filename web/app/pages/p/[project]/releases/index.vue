@@ -130,7 +130,7 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · orr
         </UiButton>
       </header>
 
-      <form v-if="making" class="flex flex-col gap-3 rounded-xl border border-line p-4 dark:bg-panel" @submit.prevent="make" @keydown.esc="cancel">
+      <form v-if="making" class="flex flex-col gap-3 rounded-xl card p-4" @submit.prevent="make" @keydown.esc="cancel">
         <div class="flex flex-wrap items-end gap-3">
           <label class="flex flex-col gap-1 text-xs text-muted">
             Version
@@ -169,7 +169,7 @@ useHead(() => ({title: project.value ? `Releases · ${project.value.name} · orr
               @dragend="onDragEnd"
               @keydown.alt.up.prevent="arranges && nudge(release.version, -1, $event)"
               @keydown.alt.down.prevent="arranges && nudge(release.version, 1, $event)"
-              class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-line px-4 py-3 hover:tint dark:bg-panel">
+              class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl card px-4 py-3 hover:tint">
             <span class="font-mono text-[14px] font-medium text-fg">{{ release.version }}</span>
             <ReleaseStateChip :release="release" />
             <span v-if="release.branch" class="font-mono text-xs text-faint">{{ release.branch }}</span>

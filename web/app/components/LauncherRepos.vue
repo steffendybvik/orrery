@@ -52,7 +52,7 @@ async function remove(repo: ServedRepo) {
 <template>
   <section id="connected-repos" ref="section" class="flex scroll-mt-4 flex-col gap-2">
     <h3 class="text-[15px] font-semibold">Connected repos</h3>
-    <ul v-if="repos.length" class="overflow-hidden rounded-xl border border-line text-xs dark:bg-panel" aria-label="Connected repos">
+    <ul v-if="repos.length" class="overflow-hidden rounded-xl card text-xs" aria-label="Connected repos">
       <li v-for="repo in repos" :key="repo.dir" class="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line px-3 py-2 last:border-b-0">
         <span class="min-w-0 truncate font-mono text-fg" :title="repo.dir">{{ repo.dir }}</span>
         <span class="text-muted">{{ repo.projects.join(', ') }}</span>

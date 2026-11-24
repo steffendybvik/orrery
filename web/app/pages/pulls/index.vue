@@ -121,7 +121,7 @@ const cards = computed(() => inProjectOrder(pulls.value?.repos ?? [], ordered.va
       </p>
       <ul v-else-if="pulls" class="flex flex-col gap-4" aria-label="Repos">
         <!-- Not overflow-hidden, so Focus on this's popover can reach past the card; a tinted last row rounds its own corners. -->
-        <li v-for="card in cards" :key="card.repo" class="rounded-xl border border-line dark:bg-panel">
+        <li v-for="card in cards" :key="card.repo" class="rounded-xl card">
           <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 py-2" :class="{'border-b border-line': card.pulls.length || card.error}">
             <a :href="`https://github.com/${card.repo}/pulls`" target="_blank" rel="noopener" class="font-mono text-[13px] text-fg hover:underline">{{ card.repo }}</a>
             <CopyButton class="self-center" :text="card.repo" :name="`the repo name ${card.repo}`" compact />

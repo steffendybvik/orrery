@@ -267,7 +267,7 @@ useHead(() => ({title: epic.value ? `${epic.value.title} · Epics · orrery` : '
             <ProgressRing :kinds="part.kinds" :size="13" />
             <span class="font-mono normal-case">{{ part.kinds.done }}/{{ part.issues }}</span>
           </h2>
-          <div v-for="group in part.groups" :key="group[0]?.issue.id" class="overflow-hidden rounded-xl border border-line dark:bg-panel" data-group>
+          <div v-for="group in part.groups" :key="group[0]?.issue.id" class="overflow-hidden rounded-xl card" data-group>
             <IssueRow
                 v-for="{issue, milestone} in group"
                 :key="issue.id"

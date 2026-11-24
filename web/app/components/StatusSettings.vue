@@ -75,7 +75,7 @@ const field = 'h-7 rounded-md bg-transparent px-1.5 text-[13px] text-fg hover:bg
 
 <template>
   <div class="flex flex-col gap-3">
-    <div v-for="{kind, statuses: list} in groups" :key="kind" class="flex flex-col rounded-xl bg-well/50 p-2 ring-1 ring-line">
+    <div v-for="{kind, statuses: list} in groups" :key="kind" class="flex flex-col rounded-xl card p-2">
       <div class="flex items-center gap-2 px-1.5 pb-1">
         <span class="text-xs font-medium text-fg">{{ KIND_LABEL[kind].label }}</span>
         <span class="text-xs text-faint">{{ KIND_LABEL[kind].hint }}</span>

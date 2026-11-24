@@ -91,7 +91,7 @@ async function placeProject(id: string, as: ProjectPlace) {
     <EmptyProjects v-if="ready && !projects.length" />
     <UiLoading v-else-if="!ready" />
     <div v-else class="mx-auto flex max-w-4xl flex-col gap-3 px-4 py-6">
-      <ul v-if="rows.length" class="flex flex-col divide-y divide-line rounded-xl ring-1 ring-line dark:bg-panel" aria-label="Projects" data-testid="projects-list">
+      <ul v-if="rows.length" class="flex flex-col divide-y divide-line rounded-xl card" aria-label="Projects" data-testid="projects-list">
         <li v-for="project in rows" :key="project.id" class="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5">
           <NuxtLink :to="`/p/${project.id}`" class="flex min-w-0 flex-1 basis-56 flex-col gap-0.5">
             <span class="flex min-w-0 items-center gap-2 text-[13px] font-medium hover:underline" :class="isHidden(project.id) ? 'text-muted' : 'text-fg'">

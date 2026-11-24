@@ -334,7 +334,7 @@ useHead(() => ({title: issue.value ? `${issue.value.id} ${issue.value.title} · 
 
         <section v-if="issue.tasks.length" class="flex flex-col gap-2">
           <h2 class="label flex items-center gap-2">Sub-issues <span class="font-mono normal-case">{{ issue.kinds.done }}/{{ total(issue.kinds) }}</span></h2>
-          <div class="overflow-hidden rounded-xl border border-line dark:bg-panel">
+          <div class="overflow-hidden rounded-xl card">
             <IssueRow v-for="sub in issue.tasks" :key="sub.id" :issue="sub" :project="project.id" nested />
           </div>
         </section>

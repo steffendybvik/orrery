@@ -75,7 +75,7 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
 
 <template>
   <div class="flex flex-col gap-3">
-    <div class="flex flex-col rounded-xl bg-well/50 p-2 ring-1 ring-line">
+    <div class="flex flex-col rounded-xl card p-2">
       <div v-for="secret in secrets" :key="secret.name" class="flex flex-col">
         <div class="group flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-1.5 py-1 hover:bg-hover/60">
           <span class="font-mono text-[13px] text-fg">{{ secret.name }}</span>
@@ -128,7 +128,7 @@ const input = 'h-7 rounded-md bg-well px-2 text-[13px] text-fg ring-1 ring-line 
       </div>
     </div>
 
-    <form v-if="editing !== null" class="flex flex-col gap-2 rounded-xl bg-panel p-3 ring-1 ring-line" @submit.prevent="save">
+    <form v-if="editing !== null" class="flex flex-col gap-2 rounded-xl card p-3" @submit.prevent="save">
       <div class="flex flex-wrap items-center gap-2">
         <input
             v-model="form.name"

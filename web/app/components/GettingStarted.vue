@@ -50,7 +50,7 @@ async function tryDemo() {
 </script>
 
 <template>
-  <section v-if="card" class="rounded-xl border border-line bg-panel" aria-label="Getting started">
+  <section v-if="card" class="rounded-xl card" aria-label="Getting started">
     <div class="flex items-center gap-3 px-4 py-3">
       <button type="button" class="flex min-w-0 flex-1 items-center gap-3 text-left" :aria-expanded="open" @click="open = !open">
         <ProgressRing :kinds="{proposed: 0, backlog: 0, todo: steps.length - done, started: 0, done, canceled: 0}" bare :size="18" />

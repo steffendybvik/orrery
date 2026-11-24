@@ -49,7 +49,7 @@ const rows = (card: typeof cards.value[number]): TrackedRelease[] => [...card.tr
     <UiLoading v-else-if="!read" :failed="failed" what="the releases" @retry="load" />
     <div v-else-if="read" class="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-6">
       <ul v-if="cards.length" class="flex flex-col gap-4" aria-label="Projects with releases">
-        <li v-for="card in cards" :key="card.project" class="overflow-hidden rounded-xl border border-line dark:bg-panel">
+        <li v-for="card in cards" :key="card.project" class="overflow-hidden rounded-xl card">
           <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 py-2" :class="{'border-b border-line': card.releases.length}">
             <NuxtLink :to="`/p/${encodeURIComponent(card.project)}/releases`" class="text-[13px] font-medium text-fg hover:underline">{{ name(card.project) }}</NuxtLink>
             <span v-if="card.projects.length > 1" class="text-xs text-muted">shared with {{ card.projects.slice(1).map(name).join(', ') }}</span>
