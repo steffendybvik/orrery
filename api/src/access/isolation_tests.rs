@@ -684,13 +684,16 @@ async fn the_bell_counts_and_changes_nothing_of_another_workspaces_comments() {
     let api = TestApi::new().await;
     let theirs = bos_world(&api).await;
     let comment: i64 = theirs.real["comment"].parse().unwrap();
+    // Not bo's own: the bell only ever counts and changes a comment someone else made (`owned = 0`).
+    api.run(&format!("UPDATE comments SET owned = 0, created_by = 'claude' WHERE id = {comment}"), &[]).await;
     let body = json!({"ids": [comment]});
     for route in ["/api/notices/read", "/api/notices/clear"] {
         for actor in ["login", "key"] {
             let reply = as_ana(&api, api.post(route, body.clone()), actor).await.send().await;
             assert_eq!(reply.body.as_object().and_then(|o| o.values().next()).and_then(Value::as_i64), Some(0), "ana {actor} {route}: {}", reply.body);
         }
-        let req = api.post(route, body.clone()).header("orrery-came", "loopback").header("orrery-login-ways", "on").header("orrery-sent-origin", "http://localhost");
+        let req =
+            api.post(route, body.clone()).header("orrery-came", "loopback").header("orrery-login-ways", "on").header("orrery-sent-origin", "http://localhost");
         let reply = api.signed(req, "sam").await.send().await;
         assert_eq!(reply.status, 200, "sam {route}: {}", reply.body);
         assert_eq!(reply.body.as_object().and_then(|o| o.values().next()).and_then(Value::as_i64), Some(0), "sam {route}: {}", reply.body);
