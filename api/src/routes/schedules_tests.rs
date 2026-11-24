@@ -30,11 +30,11 @@ async fn schedule(api: &TestApi, project: &str, title: &str, next_run: Option<&s
         }
     }
     let query = format!("INSERT INTO schedules ({}) VALUES ({}) RETURNING id", columns.join(", "), values.join(", "));
-    sqlx::query_scalar::<_, i64>(&query).fetch_one(&api.app.pool).await.unwrap()
+    sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(query)).fetch_one(&api.app.pool).await.unwrap()
 }
 
 async fn run(api: &TestApi, schedule: i64, at: &str, outcome: &str, issue: Option<&str>) {
-    sqlx::query(&crate::db::sql("INSERT INTO schedule_runs (schedule, at, outcome, issue) VALUES (?, ?, ?, ?)"))
+    sqlx::query(crate::db::sql("INSERT INTO schedule_runs (schedule, at, outcome, issue) VALUES (?, ?, ?, ?)"))
         .bind(schedule)
         .bind(at)
         .bind(outcome)
@@ -134,7 +134,7 @@ async fn a_schedule_comes_with_its_latest_ten_runs_newest_first_and_what_it_hold
     for day in 1..=12 {
         run(&api, id, &format!("2026-10-{day:02}T09:00:00.000Z"), "made", Some(&format!("PRI-{day}"))).await;
     }
-    sqlx::query(&crate::db::sql(
+    sqlx::query(crate::db::sql(
         "INSERT INTO schedule_held (schedule, subject, event, at) VALUES (?, 'PRI-1', '{}', '2026-11-01'), (?, 'PRI-2', '{}', '2026-11-01')",
     ))
     .bind(id)
@@ -212,9 +212,9 @@ async fn a_schedule_across_projects_says_which_its_made_on() {
     .fetch_one(&api.app.pool)
     .await
     .unwrap();
-    let listed: i64 = sqlx::query_scalar(&format!(
+    let listed: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "INSERT INTO schedules_across (projects, body, created_by, created_at, updated_at) VALUES ('[\"{primes}\"]', '{{\"title\":\"Listed\"}}', 'owner', '2026-11-03', '2026-11-03') RETURNING id"
-    ))
+    )))
     .fetch_one(&api.app.pool)
     .await
     .unwrap();
@@ -251,7 +251,7 @@ async fn outbox(api: &TestApi) -> Vec<(String, Option<String>)> {
 }
 
 async fn count(api: &TestApi, query: &str) -> i64 {
-    sqlx::query_scalar::<_, i64>(query).fetch_one(&api.app.pool).await.unwrap()
+    sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(query)).fetch_one(&api.app.pool).await.unwrap()
 }
 
 #[tokio::test]
@@ -289,7 +289,7 @@ async fn deleting_a_schedule_keeps_its_issues() {
     let project = api.project("Primes").await;
     let id = schedule(&api, &project, "Weekly review", None, &[]).await;
     let issue = api.issue(&project, json!({"title": "Review week 45"})).await;
-    sqlx::query(&crate::db::sql("UPDATE issues SET schedule = ? WHERE project = ?")).bind(id).bind(&project).execute(&api.app.pool).await.unwrap();
+    sqlx::query(crate::db::sql("UPDATE issues SET schedule = ? WHERE project = ?")).bind(id).bind(&project).execute(&api.app.pool).await.unwrap();
     run(&api, id, "2026-11-03T08:00:00.000Z", "made", Some(&issue)).await;
     let reply = api.delete(&format!("/api/projects/{project}/schedules/{id}")).send().await;
     assert_eq!(reply.status, 204, "{}", reply.body);
@@ -323,19 +323,18 @@ async fn deleting_one_made_across_projects_leaves_its_project_out() {
         format!("INSERT INTO schedules_across (projects, skip, body, created_by, created_at, updated_at) VALUES ('{projects}', '{skip}', '{{\"title\":\"Standup\"}}', 'owner', '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z') RETURNING id")
     };
     // One for every project skips this one from then on.
-    let every = sqlx::query_scalar::<_, i64>(&across("*", "[]")).fetch_one(&api.app.pool).await.unwrap();
+    let every = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(across("*", "[]"))).fetch_one(&api.app.pool).await.unwrap();
     let copy = schedule(&api, &primes, "Standup", None, &[("across", &every.to_string())]).await;
     assert_eq!(api.delete(&format!("/api/projects/{primes}/schedules/{copy}")).send().await.status, 204);
-    let skip: String =
-        sqlx::query_scalar(&crate::db::sql("SELECT skip FROM schedules_across WHERE id = ?")).bind(every).fetch_one(&api.app.pool).await.unwrap();
+    let skip: String = sqlx::query_scalar(crate::db::sql("SELECT skip FROM schedules_across WHERE id = ?")).bind(every).fetch_one(&api.app.pool).await.unwrap();
     assert_eq!(serde_json::from_str::<Value>(&skip).unwrap(), json!([primes]));
     // One naming projects names it no more; the last one out takes it with it.
-    let named = sqlx::query_scalar::<_, i64>(&across(&json!([primes, shop]).to_string(), "[]")).fetch_one(&api.app.pool).await.unwrap();
+    let named = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(across(&json!([primes, shop]).to_string(), "[]"))).fetch_one(&api.app.pool).await.unwrap();
     let on_primes = schedule(&api, &primes, "Standup", None, &[("across", &named.to_string())]).await;
     let on_shop = schedule(&api, &shop, "Standup", None, &[("across", &named.to_string())]).await;
     assert_eq!(api.delete(&format!("/api/projects/{primes}/schedules/{on_primes}")).send().await.status, 204);
     let projects: String =
-        sqlx::query_scalar(&crate::db::sql("SELECT projects FROM schedules_across WHERE id = ?")).bind(named).fetch_one(&api.app.pool).await.unwrap();
+        sqlx::query_scalar(crate::db::sql("SELECT projects FROM schedules_across WHERE id = ?")).bind(named).fetch_one(&api.app.pool).await.unwrap();
     assert_eq!(serde_json::from_str::<Value>(&projects).unwrap(), json!([shop]));
     assert_eq!(api.delete(&format!("/api/projects/{shop}/schedules/{on_shop}")).send().await.status, 204);
     assert_eq!(count(&api, &format!("SELECT CAST(count(*) AS BIGINT) FROM schedules_across WHERE id = {named}")).await, 0);

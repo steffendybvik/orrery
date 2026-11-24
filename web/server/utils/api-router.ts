@@ -25,6 +25,8 @@ import {startsNone} from './starts-none'
 import {untrustedProject} from './sessions'
 import {carriedInto} from './carried-over'
 import {forgetRoster} from './roster'
+import {keepOutOfLog} from './event-log'
+import {askerWorkspace} from './member-sees'
 import type {Input} from './input'
 import {projectEvents, revLabel} from './events'
 import {scheduleRunning} from './schedules'
@@ -398,7 +400,7 @@ export function databaseMark(setting: string): string {
  * came from a request (`asked`). */
 /** The schedule whose run makes this write (ORR-1183): the API keeps it on its outbox rows, so the follower hears them as
  * that run's and they set no schedule off. */
-export function causeHeaders(): Record<string, string> {
+function causeHeaders(): Record<string, string> {
     const cause = scheduleRunning.getStore()
     return cause === undefined ? {} : {'Orrery-Cause': String(cause)}
 }
@@ -567,6 +569,7 @@ const whenStarted = new Set<() => void>()
 
 export function apiStarted(api: {url: string, token: string} | null) {
     started = api
+    keepOutOfLog(api?.token)
     if (api) apiStarting(false)
     if (api) for (const heard of [...whenStarted]) heard()
 }
@@ -613,7 +616,9 @@ export function apiListening(within = 5000): Promise<void> {
 /** Where the API is, and its token: the one this server started, or the one the settings name; none, no API. */
 export function apiTarget(config: {apiUrl?: unknown, apiToken?: unknown}): {url: string, token: string} | null {
     if (started) return started
-    return config.apiUrl && config.apiToken ? {url: String(config.apiUrl), token: String(config.apiToken)} : null
+    if (!config.apiUrl || !config.apiToken) return null
+    keepOutOfLog(String(config.apiToken))
+    return {url: String(config.apiUrl), token: String(config.apiToken)}
 }
 
 /** Whether the API at `url` answers its own `/health` within `within` ms, for `/healthz` (ORR-1188). */
@@ -741,7 +746,7 @@ async function forwardMcp(event: H3Event, api: {url: string, token: string}): Pr
     answered()
     setResponseHeader(event, SERVED_BY, 'rust')
     const text = await response.text()
-    if (response.ok) await relayed(response, actor, event.method)
+    if (response.ok) await relayed(response, actor, event.method, {event})
     setResponseStatus(event, response.status)
     for (const name of MCP_ANSWERED) {
         const value = response.headers.get(name)
@@ -751,13 +756,15 @@ async function forwardMcp(event: H3Event, api: {url: string, token: string}): Pr
     return text
 }
 
-/** A read from the API as the request's own asker (their login or key, and the workspace they name), not as this
- * server: what they themselves may see (ORR-1195). Undefined with no API in front, or when it says no. */
-export async function readAsAsker<T>(event: H3Event, path: string): Promise<T | undefined> {
+/** A read from the API as the request's own asker (their login or key, and the workspace they name, or `workspace`
+ * in its place), not as this server: what they themselves may see (ORR-1195). Undefined with no API in front, or when
+ * it says no. */
+export async function readAsAsker<T>(event: H3Event, path: string, {workspace}: {workspace?: string} = {}): Promise<T | undefined> {
     const api = apiTarget(configHere())
     if (!api) return undefined
     try {
-        const response = await fetch(`${api.url.replace(/\/+$/, '')}${path}`, {headers: headersFor(event, api, await actorOf(event)), redirect: 'manual'})
+        const headers = {...headersFor(event, api, await actorOf(event)), ...workspaceHeader(workspace)}
+        const response = await fetch(`${api.url.replace(/\/+$/, '')}${path}`, {headers, redirect: 'manual'})
         return response.ok ? await response.json() as T : undefined
     } catch {
         return undefined
@@ -798,7 +805,7 @@ export async function forwardToApi(event: H3Event, api: {url: string, token: str
     if (response.status >= 400) throw refusal(response.status, json)
     // A login's cookie, set or cleared (ORR-1137): only the API's auth routes set one.
     for (const cookie of response.headers.getSetCookie()) appendResponseHeader(event, 'Set-Cookie', cookie)
-    await relayed(response, actor, event.method)
+    await relayed(response, actor, event.method, {event})
     const counted = countedOf(event.method, pathOf(event))
     if (counted) countOwnUse(event, counted)
     setResponseStatus(event, response.status)
@@ -817,7 +824,7 @@ function refusal(status: number, json: Record<string, unknown> | null) {
 
 /** Tells what a reply from the API says it set off, as the store would have: open pages read the project again, and the
  * event log, schedules and sessions hear it. `noteKeys` off: the caller notes a change of the settings itself. */
-async function relayed(response: Response, actor: Actor, method: string, {noteKeys = true, urgent = true} = {}) {
+async function relayed(response: Response, actor: Actor, method: string, {noteKeys = true, urgent = true, event}: {noteKeys?: boolean, urgent?: boolean, event?: H3Event} = {}) {
     // The owner, the people and the boards' members the checks here keep a moment may have changed (ORR-1138).
     if (WRITES.has(method)) forgetRoster()
     const store = useStore()
@@ -833,7 +840,10 @@ async function relayed(response: Response, actor: Actor, method: string, {noteKe
         // The scheduler reads the event listeners again, and open pages the schedules (ORR-950).
         if (relayHeaders) for (const project of changedOf(response.headers.get('orrery-schedules'))) useScheduler().changedElsewhere(project)
         const keys = changedOf(response.headers.get('orrery-settings-keys'))
-        if (noteKeys && keys.length) useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings: ${keys.join(', ')}`, details: {by: actor.name, keys}})
+        // In the workspace whose settings they are, the asker's (ORR-1377), not `default`'s.
+        const workspace = noteKeys && keys.length && event ? await askerWorkspace(event).catch(() => null) : undefined
+        if (noteKeys && keys.length && workspace !== null) useEventLog().note({level: 'info', kind: 'settings.changed', message: `${actor.name} changed the settings: ${keys.join(', ')}`,
+            details: {by: actor.name, keys}, ...workspace ? {workspace} : {}})
         // A session's ask for a schedule (ORR-1100), noted as the route here noted it.
         const asked = askedOf(response.headers.get('orrery-asked'))
         if (asked) useEventLog().note({level: 'info', kind: 'schedule.asked', project: asked.project, message: `${actor.session ?? actor.name} asked on ${asked.issue} to ${asked.line}`,

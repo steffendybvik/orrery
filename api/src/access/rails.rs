@@ -12,6 +12,7 @@
 // write to a board marked as moved 409 (`moved_check`, ORR-1225).
 use crate::access::people::Who;
 use crate::access::presence::Presence;
+use crate::access::scope::ScopedProject;
 use crate::access::seen::Seen;
 use crate::access::session_records::{as_recorded, named_ids};
 use crate::board::issue_writes::IssueWrites;
@@ -115,7 +116,7 @@ async fn on_board(conn: &mut AnyConnection, project: &str, person: &str, owner: 
     if person == owner {
         return Ok(true);
     }
-    let row = sqlx::query(&sql("SELECT 1 FROM project_members WHERE project = ? AND person = ?")).bind(project).bind(person).fetch_optional(&mut *conn).await?;
+    let row = sqlx::query(sql("SELECT 1 FROM project_members WHERE project = ? AND person = ?")).bind(project).bind(person).fetch_optional(&mut *conn).await?;
     Ok(row.is_some())
 }
 
@@ -128,11 +129,8 @@ async fn check(conn: &mut AnyConnection, check: &str, params: &HashMap<String, S
             let Some(issue) = params.get("issue").filter(|_| !project.is_empty()) else { return Ok(false) };
             let mut issues = IssueWrites::new(conn);
             let Ok(id) = issues.issue_id(project, issue).await else { return Ok(false) };
-            let row = sqlx::query(&sql("SELECT proposal, labels FROM issues WHERE project = ? AND id = ?"))
-                .bind(project)
-                .bind(&id)
-                .fetch_optional(&mut *conn)
-                .await?;
+            let row =
+                sqlx::query(sql("SELECT proposal, labels FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&id).fetch_optional(&mut *conn).await?;
             Ok(row.is_some_and(|r| {
                 let labels: Vec<String> = serde_json::from_str(&r.get::<Option<String>, _>("labels").unwrap_or_default()).unwrap_or_default();
                 r.get::<Option<String>, _>("proposal").as_deref() == Some("pending") && labels.iter().any(|l| l == "external")
@@ -141,7 +139,7 @@ async fn check(conn: &mut AnyConnection, check: &str, params: &HashMap<String, S
         // Only the person holding the board the route names (ORR-654).
         "boardHolder" => {
             let Some(person) = person.filter(|_| !project.is_empty()) else { return Ok(false) };
-            let row = sqlx::query(&sql("SELECT 1 FROM project_members WHERE project = ? AND person = ? AND role = 'owner'"))
+            let row = sqlx::query(sql("SELECT 1 FROM project_members WHERE project = ? AND person = ? AND role = 'owner'"))
                 .bind(project)
                 .bind(person)
                 .fetch_optional(&mut *conn)
@@ -228,7 +226,7 @@ async fn board_check(conn: &mut AnyConnection, who: Option<&Who>, actor: &Actor,
     };
     if let Some(project) = params.get("project") {
         if !on_board(conn, project, &person, &owner).await? {
-            return Err(ApiError::not_found(format!("No project {project}")));
+            return Err(ApiError::not_found(format!("No project \"{project}\"")));
         }
     }
     for (row, _, _) in &matches {
@@ -267,20 +265,67 @@ fn project_named(path: &str) -> Option<String> {
 /// (ORR-1106, decision 6 of decision-workspaces; who sees what is `Seen::asking`). A session works in one workspace,
 /// the one its calls name (`held_to`, ORR-1109): one it can see in another is refused, saying which it's in. The Nuxt
 /// server's own work (`Orrery-Came: server`) isn't a request, so nothing holds it here.
-async fn workspace_check(conn: &mut AnyConnection, who: Option<&Who>, actor: &Actor, own: Option<&str>, held_to: Option<&str>, path: &str) -> Result<()> {
-    let Some(project) = project_named(path) else { return Ok(()) };
-    let row = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?;
-    // A project that isn't here is the route's to say so.
-    let Some(workspace) = row.map(|r| r.get::<String, _>("workspace")) else { return Ok(()) };
+/// Passed, the project as the request may act on it (`ScopedProject`), for its handler: none for a path naming none.
+async fn workspace_check(
+    conn: &mut AnyConnection,
+    who: Option<&Who>,
+    actor: &Actor,
+    own: Option<&str>,
+    held_to: Option<&str>,
+    path: &str,
+) -> Result<Option<ScopedProject>> {
+    let Some(project) = project_named(path) else { return Ok(None) };
+    let row = sqlx::query(sql("SELECT workspace FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?;
+    // One that isn't here is answered as one in another workspace is, and before any other refusal, so neither tells
+    // that a project of someone else's is there (ORR-1352).
+    let Some(workspace) = row.map(|r| r.get::<String, _>("workspace")) else {
+        return Err(ApiError::not_found(format!("No project \"{project}\"")));
+    };
     if !Seen::asking(conn, who, actor, own).await?.sees_in(&workspace, &project) {
-        return Err(ApiError::not_found(format!("No project {project}")));
+        return Err(ApiError::not_found(format!("No project \"{project}\"")));
     }
     match held_to {
         Some(held_to) if held_to != workspace => {
             Err(ApiError::forbidden(format!("This session works in workspace {held_to}, and {project} is in {workspace}: start a session there to work on it")))
         }
-        _ => Ok(()),
+        _ => Ok(Some(ScopedProject::checked(project, workspace))),
     }
+}
+
+/// The project the Nuxt server's own work names in its path, which nothing holds (`Across::Server`): none when there's
+/// no such project, which its handler answers as it always has.
+async fn servers_project(conn: &mut AnyConnection, path: &str) -> Result<Option<ScopedProject>> {
+    let Some(project) = project_named(path) else { return Ok(None) };
+    let row = sqlx::query(sql("SELECT workspace FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?;
+    Ok(row.map(|r| ScopedProject::checked(project, r.get::<String, _>("workspace"))))
+}
+
+/// Whether a chat a path names (`/api/chats/:chat/…`) is on a project the asker can't see (ORR-1352): the routes take
+/// the chat's id alone, so the project it's on holds it here, as the workspace check holds a project's routes.
+async fn chat_hidden(conn: &mut AnyConnection, who: Option<&Who>, actor: &Actor, own: Option<&str>, path: &str) -> Result<bool> {
+    let Some(chat) = path.strip_prefix("/api/chats/").and_then(|rest| rest.split('/').next()).filter(|c| !c.is_empty()) else { return Ok(false) };
+    let chat = percent_decode_str(chat).decode_utf8_lossy();
+    let row = sqlx::query(sql("SELECT p.id, p.workspace FROM chats c JOIN projects p ON p.id = c.project WHERE c.id = ?"))
+        .bind(chat.as_ref())
+        .fetch_optional(&mut *conn)
+        .await?;
+    let Some(row) = row else { return Ok(false) };
+    let (project, workspace): (String, String) = (row.get("id"), row.get("workspace"));
+    Ok(!Seen::asking(conn, who, actor, own).await?.sees_in(&workspace, &project))
+}
+
+/// What each chat route answers for a chat that isn't kept, given for one that's hidden: the same words, so neither
+/// tells that it's there. None for forgetting it, which answers 204 and does nothing.
+fn chat_absent(method: &Method, path: &str) -> Option<ApiError> {
+    let rest = path.strip_prefix("/api/chats/").unwrap_or_default();
+    let (chat, below) = rest.split_once('/').unwrap_or((rest, ""));
+    let chat = percent_decode_str(chat).decode_utf8_lossy();
+    Some(match (method, below) {
+        (&Method::DELETE, "") => return None,
+        (_, "") => ApiError::not_found(format!("No chat {chat}")),
+        (_, below) if below.starts_with("lines/") => ApiError::not_found(format!("No message {} in chat {chat}", &below["lines/".len()..])),
+        _ => ApiError::not_found(format!("No chat {chat}: it has ended")),
+    })
 }
 
 /// A write to a board marked as moved to another orrery (ORR-1225), refused with where it went, so a session still
@@ -294,7 +339,7 @@ async fn moved_check(conn: &mut AnyConnection, method: &Method, path: &str) -> R
     if marking || deleting {
         return Ok(());
     }
-    let row = sqlx::query(&sql("SELECT moved_to FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?;
+    let row = sqlx::query(sql("SELECT moved_to FROM projects WHERE id = ?")).bind(&project).fetch_optional(&mut *conn).await?;
     match row.and_then(|r| r.get::<Option<String>, _>("moved_to")) {
         Some(to) => Err(ApiError::moved(&project, &to)),
         None => Ok(()),
@@ -347,7 +392,7 @@ async fn claim_check(conn: &mut AnyConnection, headers: &axum::http::HeaderMap, 
 
 /// Holds each request to its project's workspace, and each write to its rails, before its route runs; a route this API
 /// doesn't have is left to say so.
-pub(crate) async fn rails(State(app): Shared, request: Request, next: Next) -> Response {
+pub(crate) async fn rails(State(app): Shared, mut request: Request, next: Next) -> Response {
     let method = request.method().clone();
     if !request.uri().path().starts_with("/api/") {
         return next.run(request).await;
@@ -362,11 +407,21 @@ pub(crate) async fn rails(State(app): Shared, request: Request, next: Next) -> R
         // The session's record holds it as tight as the router says, or tighter (ORR-1171).
         let (actor, own) = as_recorded(&mut conn, headers, &actor_of(headers)).await?;
         let held_to = session_workspace(headers, &actor);
+        let mut scoped = None;
         if !server && method != Method::OPTIONS {
-            workspace_check(&mut conn, who.as_ref(), &actor, own.as_deref(), held_to.as_deref(), &path).await?;
+            scoped = workspace_check(&mut conn, who.as_ref(), &actor, own.as_deref(), held_to.as_deref(), &path).await?;
+            if chat_hidden(&mut conn, who.as_ref(), &actor, own.as_deref(), &path).await? {
+                // Forgetting a chat that isn't kept does nothing, and so does forgetting one that's hidden.
+                return match chat_absent(&method, &path) {
+                    Some(refused) => Err(refused),
+                    None => Ok((true, None)),
+                };
+            }
+        } else if server {
+            scoped = servers_project(&mut conn, &path).await?;
         }
         if read {
-            return Ok(());
+            return Ok((false, scoped));
         }
         // A request's write, or one the Nuxt server makes for it (`asked`); not the server's own work.
         if !server || actor.asked {
@@ -380,10 +435,17 @@ pub(crate) async fn rails(State(app): Shared, request: Request, next: Next) -> R
             }
             _ => board_check(&mut conn, who.as_ref(), &actor, method.as_str(), &path).await?,
         }
-        claim_check(&mut conn, headers, &actor, &method, &path).await
+        claim_check(&mut conn, headers, &actor, &method, &path).await.map(|()| (false, scoped))
     };
     match held.await {
-        Ok(()) => next.run(request).await,
+        Ok((false, scoped)) => {
+            // The project as checked, for the handler to take (`ScopedProject`, ORR-1395).
+            if let Some(scoped) = scoped {
+                request.extensions_mut().insert(scoped);
+            }
+            next.run(request).await
+        }
+        Ok((true, _)) => axum::http::StatusCode::NO_CONTENT.into_response(),
         Err(refused) => refused.into_response(),
     }
 }

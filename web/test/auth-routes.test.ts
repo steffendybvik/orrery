@@ -167,3 +167,32 @@ describe("POST /api/projects/upload (a board's file)", () => {
         expect(sent).toEqual([])
     })
 })
+
+describe('connecting a machine (`machines.approve`, ORR-1348)', () => {
+    const code = (headers: Record<string, string>) => ask(() => import('../server/api/machines/code.post'), '/api/machines/code', {method: 'POST', headers})
+    const approve = (request: string, headers: Record<string, string>) =>
+        ask(() => import('../server/api/machines/requests/[request]/approve.post'), `/api/machines/requests/${request}/approve`, {method: 'POST', headers, key: request})
+
+    beforeEach(() => {
+        vi.stubGlobal('authMode', async () => config.auth)
+        vi.stubGlobal('notFound', (message: string) => Object.assign(new Error(message), {statusCode: 404}))
+        vi.stubGlobal('getRouterParam', (event: Event) => event.params?.key)
+    })
+
+    it("lets a member make their install line's code and approve a Connect from their own page, not as a session", async () => {
+        const {makeConnectRequest} = await import('../server/utils/machine-connect')
+        const made = await code(await browser('hati'))
+        expect(made.status).toBe(201)
+        expect(made.data).toMatchObject({code: expect.any(String)})
+        const {request} = makeConnectRequest('WINDOWS-94IS1LT')
+        expect((await approve(request, await browser('hati'))).status).toBe(204)
+    })
+
+    it("refuses a member's agent, with its key", async () => {
+        const {makeConnectRequest} = await import('../server/utils/machine-connect')
+        const {key} = await store.makeKey('hati', {kind: 'agent', name: 'a session'})
+        expect((await failure(() => code(bearer(key)))).status).toBe(403)
+        const {request} = makeConnectRequest('Rig')
+        expect((await failure(() => approve(request, bearer(key)))).status).toBe(403)
+    })
+})

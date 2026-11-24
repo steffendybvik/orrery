@@ -40,7 +40,7 @@ const COMPACT_FROM_SHARE: f64 = 0.25;
 
 /// A SQLite pragma that answers with a number.
 async fn pragma(conn: &mut sqlx::AnyConnection, name: &str) -> Result<i64> {
-    Ok(sqlx::query(&format!("PRAGMA {name}")).fetch_one(conn).await?.try_get::<i64, _>(0)?)
+    Ok(sqlx::query(sqlx::AssertSqlSafe(format!("PRAGMA {name}"))).fetch_one(conn).await?.try_get::<i64, _>(0)?)
 }
 
 /// `{always?}`: `{compacted}`, whether the SQLite file was compacted (`VACUUM`) and its `-wal` written through and cut

@@ -1,6 +1,7 @@
 // The workspaces a request reaches, and the projects in them (ORR-1106, decision 6 of decision-workspaces): what the
 // rails hold a project's routes to, and what the lists and feeds across projects keep.
 use crate::access::people::Who;
+use crate::access::scope::Workspace;
 use crate::access::session_records::as_recorded;
 use crate::board::issue_writes::IssueWrites;
 use crate::db::sql;
@@ -42,7 +43,7 @@ impl Seen {
     pub(crate) async fn listed(conn: &mut AnyConnection, headers: &HeaderMap) -> Result<Seen> {
         let seen = Seen::of(conn, headers).await?;
         let named = header(headers, "orrery-workspace").map(|w| w.trim().to_string()).filter(|w| !w.is_empty());
-        let one = seen.pick(named.as_deref()).or_else(|_| seen.pick(None)).ok();
+        let one = seen.pick(named.as_deref()).or_else(|_| seen.pick(None)).ok().map(|w| w.id().to_string());
         Ok(match seen {
             Seen::Only { own, off, .. } => Seen::Only { workspaces: one.into_iter().collect(), own, off },
             all => all,
@@ -57,7 +58,7 @@ impl Seen {
         let own = own.filter(|_| actor.untrusted).map(|own| percent_decode_str(own).decode_utf8_lossy().into_owned());
         let person = Seen::person(conn, who, actor).await?;
         let mut workspaces: Vec<String> = match &person {
-            Some(person) => sqlx::query(&sql("SELECT workspace FROM workspace_members WHERE person = ? ORDER BY workspace"))
+            Some(person) => sqlx::query(sql("SELECT workspace FROM workspace_members WHERE person = ? ORDER BY workspace"))
                 .bind(person)
                 .fetch_all(&mut *conn)
                 .await?
@@ -74,6 +75,17 @@ impl Seen {
             Some(person) => Seen::off_boards(conn, person).await?,
             None => HashSet::new(),
         };
+        // A session's record is named by an id, not held by a credential, so a request with a credential (a login, a
+        // key) has its project counted only in a workspace that credential is in already: naming another workspace's
+        // session doesn't reach that workspace (ORR-1387). One with none, as with login off, is held by the record alone.
+        let own = match own {
+            Some(own) if who.is_some() => {
+                let there: Option<String> =
+                    sqlx::query_scalar(sql("SELECT workspace FROM projects WHERE id = ?")).bind(&own).fetch_optional(&mut *conn).await?;
+                there.filter(|w| workspaces.contains(w)).map(|_| own)
+            }
+            own => own,
+        };
         Ok(Seen::Only { workspaces, own, off })
     }
 
@@ -81,15 +93,15 @@ impl Seen {
     /// web/server/utils/roster.ts holds a member to them: the design's "a board you're not on is a 404, in lists and
     /// streams too". None with one person here, for the server's owner, or in a workspace they own: those see it all.
     pub(crate) async fn off_boards(conn: &mut AnyConnection, person: &str) -> Result<HashSet<String>> {
-        let present: i64 = sqlx::query_scalar(&sql("SELECT CAST(count(*) AS BIGINT) FROM people WHERE removed_at IS NULL")).fetch_one(&mut *conn).await?;
-        let owner: Option<String> = sqlx::query_scalar(&sql("SELECT id FROM people WHERE role = 'owner' AND removed_at IS NULL ORDER BY created_at LIMIT 1"))
+        let present: i64 = sqlx::query_scalar(sql("SELECT CAST(count(*) AS BIGINT) FROM people WHERE removed_at IS NULL")).fetch_one(&mut *conn).await?;
+        let owner: Option<String> = sqlx::query_scalar(sql("SELECT id FROM people WHERE role = 'owner' AND removed_at IS NULL ORDER BY created_at LIMIT 1"))
             .fetch_optional(&mut *conn)
             .await?;
         if present < 2 || owner.as_deref() == Some(person) {
             return Ok(HashSet::new());
         }
         let rows =
-            sqlx::query(&sql("SELECT p.id FROM projects p JOIN workspace_members w ON w.workspace = p.workspace AND w.person = ? AND w.role = 'member' \
+            sqlx::query(sql("SELECT p.id FROM projects p JOIN workspace_members w ON w.workspace = p.workspace AND w.person = ? AND w.role = 'member' \
              WHERE NOT EXISTS (SELECT 1 FROM project_members m WHERE m.project = p.id AND m.person = ?)"))
             .bind(person)
             .bind(person)
@@ -109,7 +121,7 @@ impl Seen {
             (None, None) => issues.person_asking(None, actor).await?,
         };
         let Some(person) = person else { return Ok(None) };
-        let here = sqlx::query(&sql("SELECT 1 FROM people WHERE id = ? AND removed_at IS NULL")).bind(&person).fetch_optional(&mut *conn).await?.is_some();
+        let here = sqlx::query(sql("SELECT 1 FROM people WHERE id = ? AND removed_at IS NULL")).bind(&person).fetch_optional(&mut *conn).await?.is_some();
         Ok(here.then_some(person))
     }
 
@@ -117,14 +129,14 @@ impl Seen {
     /// (ORR-1107): the one it names in `Orrery-Workspace`, else `default` when it's seen, else the first one seen. Naming
     /// one it doesn't see is a 404, as if it weren't here; seeing none at all is one too. The Nuxt server's own work acts
     /// in the one named, or `default`.
-    pub(crate) async fn workspace(conn: &mut AnyConnection, headers: &HeaderMap) -> Result<String> {
+    pub(crate) async fn workspace(conn: &mut AnyConnection, headers: &HeaderMap) -> Result<Workspace> {
         let named = header(headers, "orrery-workspace").map(|w| w.trim().to_string()).filter(|w| !w.is_empty());
         Seen::of(conn, headers).await?.pick(named.as_deref())
     }
 
     /// The workspace `named` (or the one to act in, with none named) among those seen; see `workspace`.
-    pub(crate) fn pick(&self, named: Option<&str>) -> Result<String> {
-        match (self, named) {
+    pub(crate) fn pick(&self, named: Option<&str>) -> Result<Workspace> {
+        let picked = match (self, named) {
             (Seen::All, Some(named)) => Ok(named.to_string()),
             (Seen::All, None) => Ok("default".to_string()),
             (Seen::Only { workspaces, .. }, Some(named)) if workspaces.iter().any(|w| w == named) => Ok(named.to_string()),
@@ -135,7 +147,8 @@ impl Seen {
                 .or_else(|| workspaces.first())
                 .cloned()
                 .ok_or_else(|| ApiError::not_found("You aren't in any workspace here")),
-        }
+        };
+        picked.map(Workspace::seen)
     }
 
     /// Whether a project in `workspace`, with id `project`, is seen.
@@ -151,7 +164,7 @@ impl Seen {
         if let Seen::All = self {
             return Ok(HashSet::new());
         }
-        let rows = sqlx::query(&sql("SELECT id, workspace FROM projects")).fetch_all(&mut *conn).await?;
+        let rows = sqlx::query(sql("SELECT id, workspace FROM projects")).fetch_all(&mut *conn).await?;
         Ok(rows
             .iter()
             .map(|r| (r.get::<String, _>("id"), r.get::<String, _>("workspace")))
@@ -181,3 +194,7 @@ pub(crate) fn keep_in(hidden: &HashSet<String>, list: &mut Value, key: &str) {
 #[cfg(test)]
 #[path = "seen_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "isolation_tests.rs"]
+mod isolation_tests;

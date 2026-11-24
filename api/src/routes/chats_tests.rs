@@ -317,7 +317,7 @@ async fn the_chat_asks_only_for_its_settings_as_the_settings_take_them_and_only_
 
 /// Schedule `title` on `project`, put there with SQL.
 async fn nightly(api: &TestApi, project: &str) -> i64 {
-    sqlx::query_scalar::<_, i64>(&crate::db::sql(
+    sqlx::query_scalar::<_, i64>(crate::db::sql(
         "INSERT INTO schedules (project, title, kind, notes, cron, timezone, created_by, created_at, updated_at) \
          VALUES (?, 'Nightly', 'message', 'Hi', '0 2 * * *', 'UTC', 'owner', '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z') RETURNING id",
     ))
@@ -864,4 +864,27 @@ async fn a_chat_or_message_kept_as_broken_json_is_a_server_error() {
     api.run("UPDATE chats SET chat = ?", &["{not json"]).await;
     let chat = api.get("/api/chats/c1").send().await;
     assert_eq!((chat.status.as_u16(), chat.body["message"].as_str()), (500, Some("Expected a chat kept as JSON")), "{}", chat.body);
+}
+
+/// A chat is held to its project's workspace (ORR-1352): ana, who isn't in Acme, isn't listed bo's chat there, can't
+/// keep one on its project, and forgetting it does nothing, as forgetting one that isn't kept does.
+#[tokio::test]
+async fn a_chat_is_held_to_the_workspace_of_its_project() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let rockets = api.acme(&["bo"]).await;
+    api.put("/api/chats/c1", chat("c1", &rockets, "2026-11-01T10:00:00.000Z")).send().await;
+    let as_ana = |req: crate::testing::Req| {
+        let api = &api;
+        async move { api.signed(req.header("orrery-sent-origin", "http://localhost"), "ana").await.send().await }
+    };
+    assert_eq!(as_ana(api.get("/api/chats")).await.body, json!([]));
+    let kept = as_ana(api.put("/api/chats/c2", chat("c2", &rockets, "2026-11-01T10:00:00.000Z"))).await;
+    assert_eq!((kept.status.as_u16(), kept.body["message"].as_str()), (404, Some(format!("No project \"{rockets}\"").as_str())));
+    assert_eq!(as_ana(api.delete("/api/chats/c1")).await.status, 204);
+    assert_eq!(as_ana(api.get("/api/chats/c1")).await.status, 404);
+    // bo, in Acme, still has it, and the Nuxt server's own read lists it.
+    let bos = api.signed(api.get("/api/chats/c1").header("orrery-workspace", "acme"), "bo").await.send().await;
+    assert_eq!(bos.status, 200, "{}", bos.body);
+    assert_eq!(api.get("/api/chats").send().await.body.as_array().map(Vec::len), Some(1));
 }

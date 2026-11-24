@@ -238,11 +238,15 @@ export function launchEventSent(sent: LaunchEvent): {id?: string, event: string,
 }
 
 /** The folders a project's launchers run in. */
+/** The projects a launcher is connected for: those orrery can start a session on. */
+export const launcherProjects = (): string[] => [...folders.keys()].filter(p => launchersOf(p))
+
 const foldersOf =(project: string): string[] => [...folders.get(project)?.keys() ?? []]
 /** The folders its launchers run in, each with when it was picked up or connected, if it was. */
 const reposOf = (project: string): LauncherRepo[] => foldersOf(project).map(dir => ({dir, ...added.get(project)?.get(dir)}))
 
-function pendingOn(project?: string): number {
+/** How many launches are on their way, to the project or to any. */
+export function pendingOn(project?: string): number {
     for (const [id, launch] of pending) {
         const waits = !told.has(id) ? PENDING_FOR : launch.chat ? Infinity : REFUSED_FOR
         if (Date.now() - launch.at > waits) {
@@ -377,8 +381,8 @@ export const launchTarget = (launch: string) => `launch-${launch}`
  * project's latest signal; given an `issue`, from a focus on it made for this session alone; given a scope
  * (`statuses`, `release`), from a focus on the project's issues in it, made the same way. Needs the
  * owner's opt-in and a launcher, and counts the sessions on their way against the limit, as it doesn't stand
- * in for them the way a signal's launch does. */
-export async function startLaunch(project: string, {issue, statuses, release: version, context, hears, model, effort, global, dir, actor}: {issue?: string, statuses?: string[], release?: string, context?: SessionContext, hears?: string[], model?: string, effort?: Effort, global?: boolean, dir?: string, actor?: Actor} = {}): Promise<Launch> {
+ * in for them the way a signal's launch does. `note` goes with the focus on `issue`. */
+export async function startLaunch(project: string, {issue, statuses, release: version, context, hears, model, effort, global, dir, actor, note}: {issue?: string, note?: string, statuses?: string[], release?: string, context?: SessionContext, hears?: string[], model?: string, effort?: Effort, global?: boolean, dir?: string, actor?: Actor} = {}): Promise<Launch> {
     // A global session hears every project already (ORR-1079).
     if (global && hears) throw badRequest('Send {global} or {hears}, not both: a global session hears every project')
     // A global session starts in the orrery's default folder, never a repo's.
@@ -399,7 +403,7 @@ export async function startLaunch(project: string, {issue, statuses, release: ve
     try {
         const session = launchTarget(held.id)
         held.after = issue
-            ? (await useStore().focus(project, issue, {session}, actor)).id - 1
+            ? (await useStore().focus(project, issue, {session, ...note ? {note} : {}}, actor)).id - 1
             : statuses?.length || version
                 ? (await useStore().focusMilestone(project, 'all', {session, status: (statuses?.length ? statuses : SCOPE_STATUSES).join(','), release: version ?? null}, actor)).id - 1
                 : await useStore().lastSignal(project)
@@ -856,14 +860,17 @@ const FRESH_FOR = 3000
 /** The most of a screen kept: a pane is far smaller, so more is something else. */
 const SCREEN_MAX = 64 * 1024
 
-/** The owner viewing a session orrery started, about once a second while it's open: its screen as its launcher
- * last sent it (none until the first comes in). Asks the launcher to send it, again when it's gone stale. A session's
- * screen is its own person's only (ORR-964): `viewer`, the person asking, sees another person's session run and can stop
- * it, but not read its terminal, the server's owner included. */
-export function viewLaunch(project: string, id: string, now = Date.now(), viewer?: string): {screen: string | null, at?: string} {
+/** The owner, or a member, viewing a session orrery started, about once a second while it's open: its screen as its
+ * launcher last sent it (none until the first comes in). Asks the launcher to send it, again when it's gone stale. A
+ * session's screen is its own person's only (ORR-964): `viewer`, the person asking, sees another person's session run and
+ * can stop it, but not read its terminal, the server's owner included. A `member` sees only a session naming them, so
+ * one naming nobody stays the owner's (ORR-1349). */
+export function viewLaunch(project: string, id: string, now = Date.now(), viewer?: string, member = false): {screen: string | null, at?: string} {
     const session = sessionOfLaunch(project, id)
     if (!session?.started) throw notFound(`No session started for launch ${id} in ${project}`)
     if (viewer && session.person && session.person !== viewer) throw forbidden(`${session.name ?? `Launch ${id}`} is ${session.person}'s, so only they can see its screen`)
+    // A member sees only their own (ORR-1349): a session naming nobody stays the owner's.
+    if (member && !session.person) throw forbidden(`${session.name ?? `Launch ${id}`} names nobody, so its screen is the owner's`)
     if (!launchersOf(project)) throw conflict(`No launcher is running for ${project} to show its screen; attach by hand with tmux attach -t ${session.started.tmux}`)
     viewed.set(id, now)
     const shot = screens.get(id)

@@ -13,6 +13,8 @@ interface Provider {
     jwks_uri: string
     issuer: string
     token_endpoint_auth_methods_supported?: string[]
+    /** Where the provider ends its own session (RP-Initiated Logout 1.0), when it offers that. */
+    end_session_endpoint?: string
 }
 
 /** How the client's secret goes to the token endpoint (ORR-1181): HTTP Basic, which every provider must take (RFC 6749
@@ -26,6 +28,10 @@ export function clientAuth(methods: string[] | undefined, clientId: string, clie
 
 const COOKIE = 'orrery_oidc'
 const COOKIE_PATH = '/api/auth/oidc'
+/** The ID token the last login came with, kept for signing out of the provider as `id_token_hint` (ORR-1319): http-only,
+ * read only under /api/auth/oidc, and as long as a login lasts. */
+const HINT = 'orrery_oidc_hint'
+const HINT_AGE = 30 * 24 * 3600
 const LOCAL = /^(localhost|127(\.\d{1,3}){3}|\[::1\])$/
 
 const settings = () => useRuntimeConfig().oidc as {issuer: string, clientId: string, clientSecret: string}
@@ -47,7 +53,7 @@ async function provider(): Promise<Provider> {
     if (found?.issuer === issuer && Date.now() - found.at < 3_600_000) return found.provider
     const document = await $fetch<Provider>(`${secure(issuer)}/.well-known/openid-configuration`)
     if (document.issuer.replace(/\/+$/, '') !== issuer) throw createError({statusCode: 502, statusMessage: 'The OIDC provider gives a different issuer from the one set'})
-    for (const url of [document.authorization_endpoint, document.token_endpoint, document.jwks_uri]) secure(url)
+    for (const url of [document.authorization_endpoint, document.token_endpoint, document.jwks_uri, ...document.end_session_endpoint ? [document.end_session_endpoint] : []]) secure(url)
     found = {issuer, provider: document, at: Date.now()}
     return document
 }
@@ -56,8 +62,10 @@ const redirectUri = (event: H3Event) => `${getRequestURL(event, {xForwardedHost:
 const random = () => randomBytes(32).toString('base64url')
 
 /** Where to send the browser to log in, with what the way back has to match kept in a short http-only cookie. `back` is
- * the page's own origin when it's hosted on another site, which the callback returns to (ORR-667): only a listed one. */
-export async function startOidc(event: H3Event, invite?: string, back?: string): Promise<string> {
+ * the page's own origin when it's hosted on another site, which the callback returns to (ORR-667): only a listed one.
+ * `someoneElse` asks the provider for its login form even with a session of its own (`prompt=login`, ORR-1319), so
+ * another account can be picked. */
+export async function startOidc(event: H3Event, invite?: string, back?: string, someoneElse = false): Promise<string> {
     const {authorization_endpoint} = await provider()
     const [state, nonce, verifier] = [random(), random(), random()]
     setCookie(event, COOKIE, Buffer.from(JSON.stringify({state, nonce, verifier, invite, ...back && originAllowed(back) ? {back} : {}})).toString('base64url'),
@@ -66,6 +74,7 @@ export async function startOidc(event: H3Event, invite?: string, back?: string):
     url.search = new URLSearchParams({
         response_type: 'code', scope: 'openid profile', client_id: settings().clientId, redirect_uri: redirectUri(event), state, nonce,
         code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256',
+        ...someoneElse ? {prompt: 'login'} : {},
     }).toString()
     return url.toString()
 }
@@ -94,8 +103,11 @@ export async function finishOidc(event: H3Event): Promise<{issuer: string, subje
     const {token_endpoint, jwks_uri, issuer, token_endpoint_auth_methods_supported: methods} = await provider()
     const {clientId, clientSecret} = settings()
     const auth = clientAuth(methods, clientId, clientSecret)
+    // Never followed (ORR-1392): a 307 or 308 would send the client secret on to wherever it points, so a redirect fails
+    // the login, as the Rust API's exchange does (`Policy::none()`).
     const {id_token} = await $fetch<{id_token?: string}>(token_endpoint, {
         method: 'POST',
+        redirect: 'manual',
         headers: {'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json', ...auth.headers},
         body: new URLSearchParams({grant_type: 'authorization_code', code, redirect_uri: redirectUri(event), ...auth.form, code_verifier: asked.verifier}).toString(),
     })
@@ -104,10 +116,36 @@ export async function finishOidc(event: H3Event): Promise<{issuer: string, subje
         throw refused("The provider's ID token doesn't check out")
     })
     if (payload.nonce !== asked.nonce || !payload.sub) throw refused("The provider's ID token doesn't check out")
+    keepHint(event, id_token)
     // With no trailing slash, as the setting's read, so a login is found the same way whichever the provider writes.
     // `back` is checked again, as the list may have changed since the login started.
     const back = asked.back && originAllowed(asked.back) ? asked.back : undefined
     // The name it gives, for the first person in becoming the owner (ORR-1185).
     const name = [payload.name, payload.preferred_username].find((said): said is string => typeof said === 'string' && !!said.trim())
     return {issuer: issuer.replace(/\/+$/, ''), subject: payload.sub, ...name ? {name} : {}, ...asked.invite ? {invite: asked.invite} : {}, ...back ? {back} : {}}
+}
+
+/** Keeps the ID token for signing out of the provider (`endOidc`). */
+function keepHint(event: H3Event, idToken: string) {
+    setCookie(event, HINT, idToken, {httpOnly: true, sameSite: 'lax', path: COOKIE_PATH, maxAge: HINT_AGE, secure: overHttps(event)})
+}
+
+/** Where to send the browser once orrery's own login has ended (ORR-1319): to the provider's `end_session_endpoint`
+ * (RP-Initiated Logout 1.0), with the kept ID token as `id_token_hint`, so its session ends too and the next sign-in asks
+ * who it is. It comes back to the login page on orrery's own address, the one the provider's way back already uses, or
+ * `back`'s when the page is hosted on a listed site: that address has to be registered with the provider as a
+ * post-logout redirect URI. A provider that offers no `end_session_endpoint` keeps its session, and the browser goes
+ * straight to the login page, as before. */
+export async function endOidc(event: H3Event, back?: string): Promise<string> {
+    const hint = getCookie(event, HINT)
+    deleteCookie(event, HINT, {path: COOKIE_PATH})
+    const origin = back && originAllowed(back) ? back : getRequestURL(event, {xForwardedHost: true, xForwardedProto: true}).origin
+    const login = `${origin}/login`
+    const {end_session_endpoint} = await provider()
+    if (!end_session_endpoint) return login
+    const url = new URL(end_session_endpoint)
+    url.search = new URLSearchParams({
+        client_id: settings().clientId, post_logout_redirect_uri: login, state: random(), ...hint ? {id_token_hint: hint} : {},
+    }).toString()
+    return url.toString()
 }

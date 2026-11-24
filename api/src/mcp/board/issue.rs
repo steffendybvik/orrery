@@ -92,7 +92,7 @@ impl Api<'_> {
 }
 
 /// A comment's first line that says something, cut to a line's length (140 UTF-16 units, as the channel's `firstLine`).
-fn first_line(body: &str) -> String {
+pub(super) fn first_line(body: &str) -> String {
     let first = body.split('\n').map(str::trim).find(|l| !l.is_empty()).unwrap_or_default();
     let units: Vec<u16> = first.encode_utf16().collect();
     if units.len() > 140 {

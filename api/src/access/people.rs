@@ -232,7 +232,7 @@ impl<'c> People<'c> {
     /// Whose `session` is, if anyone's yet (ORR-705). Only read here: the Nuxt server claims it (`fixSessionPerson`),
     /// as `session_people`'s one writer (ORR-1010).
     pub async fn session_holder(&mut self, session: &str) -> Result<Option<String>> {
-        let row = sqlx::query(&sql("SELECT person FROM session_people WHERE session = ?")).bind(session).fetch_optional(&mut *self.conn).await?;
+        let row = sqlx::query(sql("SELECT person FROM session_people WHERE session = ?")).bind(session).fetch_optional(&mut *self.conn).await?;
         Ok(row.map(|row| row.get("person")))
     }
 
@@ -264,7 +264,7 @@ impl<'c> People<'c> {
     }
 
     pub(crate) async fn person(&mut self, id: &str) -> Result<sqlx::any::AnyRow> {
-        sqlx::query(&sql("SELECT id, name, role, created_at, removed_at FROM people WHERE id = ?"))
+        sqlx::query(sql("SELECT id, name, role, created_at, removed_at FROM people WHERE id = ?"))
             .bind(id)
             .fetch_optional(&mut *self.conn)
             .await?
@@ -299,7 +299,7 @@ impl<'c> People<'c> {
         if RESERVED.contains(&id.as_str()) {
             return Err(ApiError::bad_request(format!("\"{id}\" is what agents or orrery go by; pick another name")));
         }
-        let taken = sqlx::query(&sql("SELECT name, removed_at FROM people WHERE id = ?")).bind(&id).fetch_optional(&mut *self.conn).await?;
+        let taken = sqlx::query(sql("SELECT name, removed_at FROM people WHERE id = ?")).bind(&id).fetch_optional(&mut *self.conn).await?;
         if let Some(taken) = taken {
             let what = match taken.get::<Option<String>, _>("removed_at") {
                 Some(_) => "was someone who has been removed".to_string(),
@@ -350,7 +350,7 @@ impl<'c> People<'c> {
         }
         let old = before["name"].as_str().unwrap_or("owner").to_string();
         if name != old
-            && sqlx::query(&sql("SELECT 1 AS one FROM people WHERE id = ? AND role <> 'owner'")).bind(&name).fetch_optional(&mut *self.conn).await?.is_some()
+            && sqlx::query(sql("SELECT 1 AS one FROM people WHERE id = ? AND role <> 'owner'")).bind(&name).fetch_optional(&mut *self.conn).await?.is_some()
         {
             return Err(ApiError::conflict(format!("\"{name}\" is someone else on this orrery; pick another name")));
         }
@@ -364,9 +364,9 @@ impl<'c> People<'c> {
         let done: Result<()> = async {
             let now = stamp();
             let renamed =
-                sqlx::query(&sql("UPDATE people SET id = ?, name = ? WHERE role = 'owner'")).bind(&name).bind(&display).execute(&mut *self.conn).await?;
+                sqlx::query(sql("UPDATE people SET id = ?, name = ? WHERE role = 'owner'")).bind(&name).bind(&display).execute(&mut *self.conn).await?;
             if renamed.rows_affected() == 0 {
-                sqlx::query(&sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'owner', ?)"))
+                sqlx::query(sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'owner', ?)"))
                     .bind(&name)
                     .bind(&display)
                     .bind(&now)
@@ -374,16 +374,16 @@ impl<'c> People<'c> {
                     .await?;
             }
             // The first person owns the one workspace there is so far (ORR-1106); a rename carries along (ON UPDATE CASCADE).
-            sqlx::query(&sql("INSERT INTO workspace_members (workspace, person, role, created_at) SELECT 'default', ?, 'owner', ? \
+            sqlx::query(sql("INSERT INTO workspace_members (workspace, person, role, created_at) SELECT 'default', ?, 'owner', ? \
                  WHERE NOT EXISTS (SELECT 1 FROM workspace_members WHERE workspace = 'default' AND person = ?)"))
             .bind(&name)
             .bind(&now)
             .bind(&name)
             .execute(&mut *self.conn)
             .await?;
-            sqlx::query(&sql("UPDATE project_members SET person = ? WHERE person = ?")).bind(&name).bind(&old).execute(&mut *self.conn).await?;
+            sqlx::query(sql("UPDATE project_members SET person = ? WHERE person = ?")).bind(&name).bind(&old).execute(&mut *self.conn).await?;
             // Boards made before there was anyone to hold them are the owner's.
-            sqlx::query(&sql("INSERT INTO project_members (project, person, role, created_at) SELECT id, ?, 'owner', created_at FROM projects \
+            sqlx::query(sql("INSERT INTO project_members (project, person, role, created_at) SELECT id, ?, 'owner', created_at FROM projects \
                  WHERE NOT EXISTS (SELECT 1 FROM project_members WHERE project = projects.id AND role = 'owner') \
                  ON CONFLICT (project, person) DO NOTHING"))
             .bind(&name)
@@ -392,9 +392,9 @@ impl<'c> People<'c> {
             if name == old {
                 return Ok(());
             }
-            sqlx::query(&sql("UPDATE comments SET person = ? WHERE person = ?")).bind(&name).bind(&old).execute(&mut *self.conn).await?;
+            sqlx::query(sql("UPDATE comments SET person = ? WHERE person = ?")).bind(&name).bind(&old).execute(&mut *self.conn).await?;
             for table in OWNED_TABLES {
-                sqlx::query(&sql(&format!("UPDATE {table} SET created_by = ? WHERE owned = 1 AND lower(created_by) = ?")))
+                sqlx::query(sql(&format!("UPDATE {table} SET created_by = ? WHERE owned = 1 AND lower(created_by) = ?")))
                     .bind(&name)
                     .bind(&old)
                     .execute(&mut *self.conn)
@@ -407,11 +407,7 @@ impl<'c> People<'c> {
                 ("events", "resolved_by"),
                 ("schedule_requests", "answered_by"),
             ] {
-                sqlx::query(&sql(&format!("UPDATE {table} SET {column} = ? WHERE lower({column}) = ?")))
-                    .bind(&name)
-                    .bind(&old)
-                    .execute(&mut *self.conn)
-                    .await?;
+                sqlx::query(sql(&format!("UPDATE {table} SET {column} = ? WHERE lower({column}) = ?"))).bind(&name).bind(&old).execute(&mut *self.conn).await?;
             }
             Ok(())
         }
@@ -433,7 +429,7 @@ impl<'c> People<'c> {
         }
         let name = person_name(body)?;
         let id: String = person.get("id");
-        sqlx::query(&sql("UPDATE people SET name = ? WHERE id = ?")).bind(&name).bind(&id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("UPDATE people SET name = ? WHERE id = ?")).bind(&name).bind(&id).execute(&mut *self.conn).await?;
         Ok(person_json(&self.person(&id).await?))
     }
 
@@ -461,7 +457,7 @@ impl<'c> People<'c> {
     /// revoked, their logins and invites gone, and their open issues back to unassigned, each noted and told. Their
     /// name stays on history.
     pub(crate) async fn retire(&mut self, id: &str, heir: Option<&str>, actor: &Actor) -> Result<()> {
-        let open = sqlx::query(&sql(
+        let open = sqlx::query(sql(
             "SELECT project, id, assignee FROM issues WHERE lower(assignee) = ? AND status NOT IN (SELECT id FROM statuses WHERE kind IN ('done', 'canceled'))",
         ))
         .bind(id)
@@ -469,33 +465,33 @@ impl<'c> People<'c> {
         .await?;
         let open: Vec<(String, String, String)> = open.iter().map(|r| (r.get("project"), r.get("id"), r.get("assignee"))).collect();
         let now = stamp();
-        sqlx::query(&sql("UPDATE people SET removed_at = ? WHERE id = ?")).bind(&now).bind(id).execute(&mut *self.conn).await?;
-        sqlx::query(&sql("DELETE FROM project_members WHERE person = ? AND role = 'member'")).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("UPDATE people SET removed_at = ? WHERE id = ?")).bind(&now).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM project_members WHERE person = ? AND role = 'member'")).bind(id).execute(&mut *self.conn).await?;
         match heir {
             // What they held goes to the heir, who may already be on it.
             Some(heir) => {
-                sqlx::query(&sql("DELETE FROM project_members WHERE person = ? AND project IN (SELECT project FROM project_members WHERE person = ?)"))
+                sqlx::query(sql("DELETE FROM project_members WHERE person = ? AND project IN (SELECT project FROM project_members WHERE person = ?)"))
                     .bind(heir)
                     .bind(id)
                     .execute(&mut *self.conn)
                     .await?;
-                sqlx::query(&sql("UPDATE project_members SET person = ? WHERE person = ?")).bind(heir).bind(id).execute(&mut *self.conn).await?;
+                sqlx::query(sql("UPDATE project_members SET person = ? WHERE person = ?")).bind(heir).bind(id).execute(&mut *self.conn).await?;
             }
             None => {
-                sqlx::query(&sql("DELETE FROM project_members WHERE person = ?")).bind(id).execute(&mut *self.conn).await?;
+                sqlx::query(sql("DELETE FROM project_members WHERE person = ?")).bind(id).execute(&mut *self.conn).await?;
             }
         }
-        sqlx::query(&sql("UPDATE keys SET revoked_at = ? WHERE person = ? AND revoked_at IS NULL")).bind(&now).bind(id).execute(&mut *self.conn).await?;
-        sqlx::query(&sql("DELETE FROM logins WHERE person = ?")).bind(id).execute(&mut *self.conn).await?;
-        sqlx::query(&sql("DELETE FROM invites WHERE person = ?")).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("UPDATE keys SET revoked_at = ? WHERE person = ? AND revoked_at IS NULL")).bind(&now).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM logins WHERE person = ?")).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM invites WHERE person = ?")).bind(id).execute(&mut *self.conn).await?;
         for (project, issue, assignee) in &open {
-            sqlx::query(&sql("UPDATE issues SET assignee = NULL, updated_at = ? WHERE project = ? AND id = ?"))
+            sqlx::query(sql("UPDATE issues SET assignee = NULL, updated_at = ? WHERE project = ? AND id = ?"))
                 .bind(stamp())
                 .bind(project)
                 .bind(issue)
                 .execute(&mut *self.conn)
                 .await?;
-            sqlx::query(&sql(
+            sqlx::query(sql(
                 "INSERT INTO issue_events (project, issue, field, \"before\", \"after\", created_by, session_name, owned, created_at) VALUES (?, ?, 'assignee', ?, NULL, ?, ?, ?, ?)",
             ))
             .bind(project)
@@ -532,7 +528,7 @@ impl<'c> People<'c> {
             Some(who) => who.person.clone(),
             None => crate::board::issue_writes::IssueWrites::new(&mut *self.conn).owner_id().await?,
         };
-        let theirs = sqlx::query(&sql("SELECT 1 FROM workspace_members WHERE workspace = ? AND person = ?"))
+        let theirs = sqlx::query(sql("SELECT 1 FROM workspace_members WHERE workspace = ? AND person = ?"))
             .bind(&workspace)
             .bind(&owner)
             .fetch_optional(&mut *self.conn)
@@ -542,7 +538,7 @@ impl<'c> People<'c> {
         }
         let secret = URL_SAFE_NO_PAD.encode(random(32));
         let expires = (chrono::Utc::now() + chrono::Duration::days(INVITE_DAYS)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        sqlx::query(&sql("INSERT INTO invites (id, person, expires_at, workspace) VALUES (?, ?, ?, ?)"))
+        sqlx::query(sql("INSERT INTO invites (id, person, expires_at, workspace) VALUES (?, ?, ?, ?)"))
             .bind(hash_of(&secret))
             .bind(person)
             .bind(&expires)
@@ -553,7 +549,7 @@ impl<'c> People<'c> {
     }
 
     async fn needs_person(&mut self, id: &str) -> Result<()> {
-        if sqlx::query(&sql("SELECT 1 FROM people WHERE id = ? AND removed_at IS NULL")).bind(id).fetch_optional(&mut *self.conn).await?.is_none() {
+        if sqlx::query(sql("SELECT 1 FROM people WHERE id = ? AND removed_at IS NULL")).bind(id).fetch_optional(&mut *self.conn).await?.is_none() {
             return Err(ApiError::not_found(format!("No person \"{id}\"")));
         }
         Ok(())
@@ -566,7 +562,7 @@ impl<'c> People<'c> {
             if person.is_some() { " WHERE person = ?" } else { "" }
         );
         let text = sql(&text);
-        let mut query = sqlx::query(&text);
+        let mut query = sqlx::query(text.clone());
         if let Some(person) = person {
             query = query.bind(person);
         }
@@ -599,7 +595,7 @@ impl<'c> People<'c> {
         let key = format!("orrery_{kind}_{}", URL_SAFE_NO_PAD.encode(random(32)));
         let id: String = random(6).iter().map(|b| format!("{b:02x}")).collect();
         let created = stamp();
-        sqlx::query(&sql("INSERT INTO keys (id, person, kind, name, workspace, hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"))
+        sqlx::query(sql("INSERT INTO keys (id, person, kind, name, workspace, hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"))
             .bind(&id)
             .bind(&whose)
             .bind(&kind)
@@ -624,7 +620,7 @@ impl<'c> People<'c> {
             Some(Value::String(w)) if !w.trim().is_empty() => w.trim().to_string(),
             Some(_) => return Err(ApiError::bad_request("\"workspace\" is the id of the workspace the agent key reaches")),
         };
-        let member = sqlx::query(&sql("SELECT 1 FROM workspace_members WHERE workspace = ? AND person = ?"))
+        let member = sqlx::query(sql("SELECT 1 FROM workspace_members WHERE workspace = ? AND person = ?"))
             .bind(&workspace)
             .bind(whose)
             .fetch_optional(&mut *self.conn)
@@ -638,7 +634,7 @@ impl<'c> People<'c> {
     /// Revokes a key, at once, with the logins it started (ORR-786), and its person's logins from before orrery kept which
     /// key started one; revoking it again changes nothing. `mine`, when given, is whose it has to be.
     pub async fn revoke_key(&mut self, id: &str, mine: Option<&str>) -> Result<()> {
-        let row = sqlx::query(&sql("SELECT person, revoked_at FROM keys WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
+        let row = sqlx::query(sql("SELECT person, revoked_at FROM keys WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
         let Some(row) = row.filter(|r| mine.is_none_or(|mine| r.get::<String, _>("person") == mine)) else {
             return Err(ApiError::not_found(format!("No key \"{id}\"")));
         };
@@ -663,13 +659,13 @@ impl<'c> People<'c> {
     /// A new member, and a member of the one workspace there is so far (ORR-1106), as everyone was made by step 091.
     async fn make_member(&mut self, id: &str, name: &str) -> Result<()> {
         let at = stamp();
-        sqlx::query(&sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)"))
+        sqlx::query(sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)"))
             .bind(id)
             .bind(name)
             .bind(&at)
             .execute(&mut *self.conn)
             .await?;
-        sqlx::query(&sql("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('default', ?, 'member', ?)"))
+        sqlx::query(sql("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('default', ?, 'member', ?)"))
             .bind(id)
             .bind(&at)
             .execute(&mut *self.conn)
@@ -678,8 +674,8 @@ impl<'c> People<'c> {
     }
 
     async fn revoke(&mut self, id: &str, person: &str) -> Result<()> {
-        sqlx::query(&sql("UPDATE keys SET revoked_at = ? WHERE id = ?")).bind(stamp()).bind(id).execute(&mut *self.conn).await?;
-        sqlx::query(&sql("DELETE FROM logins WHERE by_key = ? OR person = ? AND known = 0")).bind(id).bind(person).execute(&mut *self.conn).await?;
+        sqlx::query(sql("UPDATE keys SET revoked_at = ? WHERE id = ?")).bind(stamp()).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM logins WHERE by_key = ? OR person = ? AND known = 0")).bind(id).bind(person).execute(&mut *self.conn).await?;
         Ok(())
     }
 
@@ -691,7 +687,7 @@ impl<'c> People<'c> {
             if person.is_some() { " AND person = ?" } else { "" }
         );
         let text = sql(&text);
-        let mut query = sqlx::query(&text).bind(stamp());
+        let mut query = sqlx::query(text.clone()).bind(stamp());
         if let Some(person) = person {
             query = query.bind(person);
         }
@@ -726,7 +722,7 @@ impl<'c> People<'c> {
     /// Who a key is, by its hash as the keys table keeps it: the router sends a bearer hashed (`Orrery-Key`), so the key
     /// itself stays with it.
     async fn key_hash_holder(&mut self, hash: &str) -> Result<Option<Holder>> {
-        let row = sqlx::query(&sql("SELECT k.id, k.kind, k.person, k.workspace, p.role, k.last_used_at FROM keys k JOIN people p ON p.id = k.person \
+        let row = sqlx::query(sql("SELECT k.id, k.kind, k.person, k.workspace, p.role, k.last_used_at FROM keys k JOIN people p ON p.id = k.person \
              WHERE k.hash = ? AND k.revoked_at IS NULL AND p.removed_at IS NULL"))
         .bind(hash)
         .fetch_optional(&mut *self.conn)
@@ -734,7 +730,7 @@ impl<'c> People<'c> {
         let Some(row) = row else { return Ok(None) };
         let id: String = row.get("id");
         if stale(row.get("last_used_at")) {
-            sqlx::query(&sql("UPDATE keys SET last_used_at = ? WHERE id = ?")).bind(stamp()).bind(&id).execute(&mut *self.conn).await?;
+            sqlx::query(sql("UPDATE keys SET last_used_at = ? WHERE id = ?")).bind(stamp()).bind(&id).execute(&mut *self.conn).await?;
         }
         Ok(Some(Holder {
             person: row.get("person"),
@@ -751,8 +747,8 @@ impl<'c> People<'c> {
         let secret = URL_SAFE_NO_PAD.encode(random(32));
         let now = stamp();
         let expires = (chrono::Utc::now() + chrono::Duration::days(LOGIN_DAYS)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        sqlx::query(&sql("DELETE FROM logins WHERE expires_at < ?")).bind(&now).execute(&mut *self.conn).await?;
-        sqlx::query(&sql("INSERT INTO logins (id, person, expires_at, by_key, known, name, created_at, last_used_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)"))
+        sqlx::query(sql("DELETE FROM logins WHERE expires_at < ?")).bind(&now).execute(&mut *self.conn).await?;
+        sqlx::query(sql("INSERT INTO logins (id, person, expires_at, by_key, known, name, created_at, last_used_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)"))
             .bind(hash_of(&secret))
             .bind(person)
             .bind(&expires)
@@ -768,7 +764,7 @@ impl<'c> People<'c> {
     /// Who a login is, by its cookie hashed as the logins table keeps it (`loginHolder`), if it hasn't run out and
     /// they're still here: a person in a browser. The router sends the cookie hashed (`Orrery-Login`).
     async fn login_holder(&mut self, id: &str) -> Result<Option<Who>> {
-        let row = sqlx::query(&sql(
+        let row = sqlx::query(sql(
             "SELECT l.person, p.role, l.last_used_at FROM logins l JOIN people p ON p.id = l.person WHERE l.id = ? AND l.expires_at > ? AND p.removed_at IS NULL",
         ))
         .bind(id)
@@ -777,7 +773,7 @@ impl<'c> People<'c> {
         .await?;
         let Some(row) = row else { return Ok(None) };
         if stale(row.get("last_used_at")) {
-            sqlx::query(&sql("UPDATE logins SET last_used_at = ? WHERE id = ?")).bind(stamp()).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(sql("UPDATE logins SET last_used_at = ? WHERE id = ?")).bind(stamp()).bind(id).execute(&mut *self.conn).await?;
         }
         Ok(Some(Who { person: row.get("person"), owner: row.get::<String, _>("role") == "owner", browser: true, workspace: None }))
     }
@@ -824,7 +820,7 @@ impl<'c> People<'c> {
 
     /// `identity`, with sign-up `open` or not, as `ORRERY_SIGN_UP` says.
     pub(crate) async fn identity_with(&mut self, issuer: &str, subject: &str, invite: Option<&str>, name: Option<&str>, open: bool) -> Result<Option<String>> {
-        let known = sqlx::query(&sql(
+        let known = sqlx::query(sql(
             "SELECT i.person FROM identities i JOIN people p ON p.id = i.person WHERE i.issuer = ? AND i.subject = ? AND p.removed_at IS NULL",
         ))
         .bind(issuer)
@@ -870,14 +866,14 @@ impl<'c> People<'c> {
         // An id a removed person had stays theirs, on history: the new owner's name gets a number until it's free.
         let mut display = first.clone();
         let mut n = 1;
-        while sqlx::query(&sql("SELECT 1 FROM people WHERE id = ?")).bind(actor_id(&display)).fetch_optional(&mut *self.conn).await?.is_some() {
+        while sqlx::query(sql("SELECT 1 FROM people WHERE id = ?")).bind(actor_id(&display)).fetch_optional(&mut *self.conn).await?.is_some() {
             n += 1;
             display = format!("{} {n}", first.chars().take(56).collect::<String>());
         }
         self.name_owner(&serde_json::json!({"name": display}), &Actor { name: "orrery".into(), ..Actor::default() }).await?;
         let owner = actor_id(&display);
         let attached =
-            sqlx::query(&sql("INSERT INTO identities (issuer, subject, person) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM identities WHERE person = ?) \
+            sqlx::query(sql("INSERT INTO identities (issuer, subject, person) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM identities WHERE person = ?) \
              ON CONFLICT (issuer, subject) DO NOTHING"))
             .bind(issuer)
             .bind(subject)
@@ -902,17 +898,17 @@ impl<'c> People<'c> {
         let done: Result<String> = async {
             let mut id = base.clone();
             let mut n = 1;
-            while sqlx::query(&sql("SELECT 1 FROM people WHERE id = ?")).bind(&id).fetch_optional(&mut *self.conn).await?.is_some() {
+            while sqlx::query(sql("SELECT 1 FROM people WHERE id = ?")).bind(&id).fetch_optional(&mut *self.conn).await?.is_some() {
                 n += 1;
                 id = format!("{base}-{n}");
             }
-            sqlx::query(&sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)"))
+            sqlx::query(sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)"))
                 .bind(&id)
                 .bind(&display)
                 .bind(stamp())
                 .execute(&mut *self.conn)
                 .await?;
-            let attached = sqlx::query(&sql("INSERT INTO identities (issuer, subject, person) VALUES (?, ?, ?) ON CONFLICT (issuer, subject) DO NOTHING"))
+            let attached = sqlx::query(sql("INSERT INTO identities (issuer, subject, person) VALUES (?, ?, ?) ON CONFLICT (issuer, subject) DO NOTHING"))
                 .bind(issuer)
                 .bind(subject)
                 .bind(&id)
@@ -940,7 +936,7 @@ impl<'c> People<'c> {
     async fn attach(&mut self, issuer: &str, subject: &str, invite: &str) -> Result<String> {
         let gone = || ApiError::conflict("That invite has been used or has run out: ask for a new one");
         let now = stamp();
-        let used = sqlx::query(&sql("UPDATE invites SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at > ?"))
+        let used = sqlx::query(sql("UPDATE invites SET used_at = ? WHERE id = ? AND used_at IS NULL AND expires_at > ?"))
             .bind(&now)
             .bind(hash_of(invite))
             .bind(&now)
@@ -949,11 +945,11 @@ impl<'c> People<'c> {
         if used.rows_affected() == 0 {
             return Err(gone());
         }
-        let row = sqlx::query(&sql("SELECT person, workspace FROM invites WHERE id = ?")).bind(hash_of(invite)).fetch_optional(&mut *self.conn).await?;
+        let row = sqlx::query(sql("SELECT person, workspace FROM invites WHERE id = ?")).bind(hash_of(invite)).fetch_optional(&mut *self.conn).await?;
         let row = row.ok_or_else(gone)?;
         let person: String = row.get("person");
         // The invite lands them in the workspace it was made for (ORR-1108), as well as any they're in already.
-        sqlx::query(&sql("INSERT INTO workspace_members (workspace, person, role, created_at) SELECT ?, ?, 'member', ? \
+        sqlx::query(sql("INSERT INTO workspace_members (workspace, person, role, created_at) SELECT ?, ?, 'member', ? \
              WHERE NOT EXISTS (SELECT 1 FROM workspace_members WHERE workspace = ? AND person = ?)"))
         .bind(row.get::<String, _>("workspace"))
         .bind(&person)
@@ -962,7 +958,7 @@ impl<'c> People<'c> {
         .bind(&person)
         .execute(&mut *self.conn)
         .await?;
-        let attached = sqlx::query(&sql(
+        let attached = sqlx::query(sql(
             "INSERT INTO identities (issuer, subject, person) VALUES (?, ?, ?) ON CONFLICT (issuer, subject) DO UPDATE SET person = excluded.person \
              WHERE identities.person IN (SELECT id FROM people WHERE removed_at IS NOT NULL)",
         ))
@@ -984,7 +980,7 @@ impl<'c> People<'c> {
 
     /// Ends a login by its secret's hash, as the logins table keeps it and the router sends it (`Orrery-Login`).
     pub async fn log_out_hashed(&mut self, hashed: &str) -> Result<()> {
-        sqlx::query(&sql("DELETE FROM logins WHERE id = ?")).bind(hashed).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM logins WHERE id = ?")).bind(hashed).execute(&mut *self.conn).await?;
         Ok(())
     }
 
@@ -992,7 +988,7 @@ impl<'c> People<'c> {
     pub async fn end_login(&mut self, reference: &str, mine: Option<&str>) -> Result<()> {
         let listed = reference.len() == LOGIN_REF && reference.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
         let row = if listed {
-            sqlx::query(&sql(&format!("SELECT id, person FROM logins WHERE substr(id, 1, {LOGIN_REF}) = ?")))
+            sqlx::query(sql(&format!("SELECT id, person FROM logins WHERE substr(id, 1, {LOGIN_REF}) = ?")))
                 .bind(reference)
                 .fetch_optional(&mut *self.conn)
                 .await?
@@ -1002,7 +998,7 @@ impl<'c> People<'c> {
         let Some(row) = row.filter(|r| mine.is_none_or(|mine| r.get::<String, _>("person") == mine)) else {
             return Err(ApiError::not_found(format!("No login \"{reference}\"")));
         };
-        sqlx::query(&sql("DELETE FROM logins WHERE id = ?")).bind(row.get::<String, _>("id")).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM logins WHERE id = ?")).bind(row.get::<String, _>("id")).execute(&mut *self.conn).await?;
         Ok(())
     }
 
@@ -1012,13 +1008,13 @@ impl<'c> People<'c> {
         let only = if person.is_some() { " AND person = ?" } else { "" };
         let keep = keep.unwrap_or("");
         let count = sql(&format!("SELECT CAST(count(*) AS BIGINT) AS n FROM logins WHERE id <> ?{only}"));
-        let mut query = sqlx::query(&count).bind(keep);
+        let mut query = sqlx::query(count.clone()).bind(keep);
         if let Some(person) = person {
             query = query.bind(person);
         }
         let ended: i64 = query.fetch_one(&mut *self.conn).await?.get("n");
         let delete = sql(&format!("DELETE FROM logins WHERE id <> ?{only}"));
-        let mut query = sqlx::query(&delete).bind(keep);
+        let mut query = sqlx::query(delete.clone()).bind(keep);
         if let Some(person) = person {
             query = query.bind(person);
         }
@@ -1030,7 +1026,7 @@ impl<'c> People<'c> {
     /// created_at}]`.
     pub async fn members(&mut self, project: &str) -> Result<Value> {
         crate::board::issue_writes::IssueWrites::new(&mut *self.conn).project_uid(project).await?;
-        let rows = sqlx::query(&sql("SELECT m.person, p.name, m.role, m.created_at FROM project_members m JOIN people p ON p.id = m.person \
+        let rows = sqlx::query(sql("SELECT m.person, p.name, m.role, m.created_at FROM project_members m JOIN people p ON p.id = m.person \
              WHERE m.project = ? ORDER BY m.role = 'owner' DESC, m.created_at, m.person"))
         .bind(project)
         .fetch_all(&mut *self.conn)
@@ -1049,13 +1045,24 @@ impl<'c> People<'c> {
     pub async fn add_member(&mut self, project: &str, body: &Value, actor: &Actor) -> Result<Value> {
         crate::board::issue_writes::IssueWrites::new(&mut *self.conn).project_uid(project).await?;
         self.manages_board(project, actor).await?;
-        let person = self.person(&actor_id(&member_of(body)?)).await?;
+        let wanted = actor_id(&member_of(body)?);
+        // Only someone in the board's workspace: anyone else is the same 404 as nobody, so a board's holder learns
+        // nothing of who else is on the server (ORR-1385).
+        let here = sqlx::query(sql("SELECT 1 AS one FROM workspace_members m JOIN projects p ON p.workspace = m.workspace WHERE p.id = ? AND m.person = ?"))
+            .bind(project)
+            .bind(&wanted)
+            .fetch_optional(&mut *self.conn)
+            .await?;
+        if here.is_none() {
+            return Err(ApiError::not_found(format!("No person \"{wanted}\"")));
+        }
+        let person = self.person(&wanted).await?;
         let id: String = person.get("id");
         if person.get::<Option<String>, _>("removed_at").is_some() {
             return Err(ApiError::conflict(format!("{} has been removed", person.get::<String, _>("name"))));
         }
         changes::begin(self.conn).await?;
-        let done = sqlx::query(&sql(
+        let done = sqlx::query(sql(
             "INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'member', ?) ON CONFLICT (project, person) DO NOTHING",
         ))
         .bind(project)
@@ -1082,7 +1089,7 @@ impl<'c> People<'c> {
             return Err(ApiError::bad_request(format!("{person} holds {project}, so they stay on it")));
         }
         changes::begin(self.conn).await?;
-        let done = sqlx::query(&sql("DELETE FROM project_members WHERE project = ? AND person = ?"))
+        let done = sqlx::query(sql("DELETE FROM project_members WHERE project = ? AND person = ?"))
             .bind(project)
             .bind(person)
             .execute(&mut *self.conn)
@@ -1095,7 +1102,7 @@ impl<'c> People<'c> {
 
     /// Whether `person` holds `project`'s board (`holdsBoard`).
     async fn holds_board(&mut self, project: &str, person: &str) -> Result<bool> {
-        let row = sqlx::query(&sql("SELECT 1 AS one FROM project_members WHERE project = ? AND person = ? AND role = 'owner'"))
+        let row = sqlx::query(sql("SELECT 1 AS one FROM project_members WHERE project = ? AND person = ? AND role = 'owner'"))
             .bind(project)
             .bind(person)
             .fetch_optional(&mut *self.conn)

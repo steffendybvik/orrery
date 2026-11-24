@@ -150,7 +150,7 @@ async fn the_owner_deletes_themselves_and_the_longest_here_takes_the_orrery() {
     assert_eq!(deleted.status, 204, "{}", deleted.body);
     // `default` is emptied, not deleted: the server needs it.
     assert_eq!(api.count("SELECT count(*) AS n FROM workspaces WHERE id = 'default'").await, 1);
-    assert_eq!(api.count(&crate::db::sql("SELECT count(*) AS n FROM projects")).await, 0, "{primes}");
+    assert_eq!(api.count(crate::db::sql("SELECT count(*) AS n FROM projects").as_str()).await, 0, "{primes}");
     assert!(api.count("SELECT count(*) AS n FROM statuses WHERE workspace = 'default'").await > 0);
     // ana and bo joined together: ana, first by id, owns the orrery now, and `default`.
     assert_eq!(api.get("/api/owner").send().await.body["name"], "ana");

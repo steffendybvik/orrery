@@ -2,6 +2,7 @@
 // web/server/api/presets/ and `…/projects/{project}/presets` do. The presets orrery ships are read from the same
 // web/shared/presets.json the Nuxt server imports, so a default's `changed` is worked out from one source. Seeding them
 // as the server starts is here too (`seed`), sent by the Nuxt server once the API listens (ORR-1136). Nothing they write wakes a session, so a write has no effects to tell.
+use crate::access::scope::Workspace;
 use crate::changes;
 use crate::db::sql;
 use crate::error::{ApiError, Result};
@@ -154,38 +155,42 @@ pub fn server_id(prefix: &str, kind: &str, sent: &str, uid: &str) -> Result<i64>
 pub struct Presets<'c> {
     pub conn: &'c mut AnyConnection,
     /// The workspace whose presets these are (ORR-1107). A project's own preset is its project's workspace's.
-    pub workspace: String,
+    pub workspace: Workspace,
+}
+
+/// The server's own random id, which a preset's full id ends with: the installation's, nobody's workspace's.
+pub(crate) async fn uid(conn: &mut AnyConnection) -> Result<String> {
+    let row = sqlx::query("SELECT value FROM settings WHERE key = 'uid'").fetch_optional(&mut *conn).await?;
+    Ok(row.and_then(|r| serde_json::from_str::<String>(&r.get::<String, _>("value")).ok()).unwrap_or_default())
 }
 
 impl<'c> Presets<'c> {
-    pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Presets { conn, workspace: "default".into() }
+    /// The presets of `workspace`.
+    pub fn of(conn: &'c mut AnyConnection, workspace: Workspace) -> Self {
+        Presets { conn, workspace }
     }
 
-    /// The presets of `workspace`.
-    pub fn of(conn: &'c mut AnyConnection, workspace: String) -> Self {
-        Presets { conn, workspace }
+    /// The presets of `project`'s workspace, a 404 when there's no such project (see `Projects::for_project`).
+    pub async fn for_project(conn: &'c mut AnyConnection, project: &str) -> Result<Self> {
+        let workspace = Workspace::of_project(&mut *conn, project).await?;
+        Ok(Presets::of(conn, workspace))
     }
 
     /// The server's own random id, which a preset's full id ends with.
     pub async fn uid(&mut self) -> Result<String> {
-        let row = sqlx::query("SELECT value FROM settings WHERE key = 'uid'").fetch_optional(&mut *self.conn).await?;
-        Ok(row.and_then(|r| serde_json::from_str::<String>(&r.get::<String, _>("value")).ok()).unwrap_or_default())
+        uid(self.conn).await
     }
 
     /// The workspace `project` is in, a 404 when there's no such project.
-    async fn project_there(&mut self, project: &str) -> Result<String> {
-        match sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await? {
-            Some(row) => Ok(row.get("workspace")),
-            None => Err(ApiError::not_found(format!("No project \"{project}\""))),
-        }
+    async fn project_there(&mut self, project: &str) -> Result<Workspace> {
+        Workspace::of_project(&mut *self.conn, project).await
     }
 
     async fn row(&mut self, id: i64) -> Result<AnyRow> {
         let query = format!("SELECT {COLUMNS} FROM presets WHERE id = ? AND workspace = ?");
-        sqlx::query(&sql(&query))
+        sqlx::query(sql(&query))
             .bind(id)
-            .bind(&self.workspace)
+            .bind(self.workspace.id())
             .fetch_optional(&mut *self.conn)
             .await?
             .ok_or_else(|| ApiError::not_found(format!("No preset {id}")))
@@ -203,7 +208,7 @@ impl<'c> Presets<'c> {
         };
         let query =
             format!("SELECT {COLUMNS} FROM presets WHERE (project IS NULL AND workspace = ?) OR project = ? ORDER BY project IS NOT NULL, lower(name), id");
-        let rows = sqlx::query(&sql(&query)).bind(&workspace).bind(project).fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(sql(&query)).bind(workspace.id()).bind(project).fetch_all(&mut *self.conn).await?;
         Ok(Value::Array(rows.iter().map(preset_of).collect()))
     }
 
@@ -217,7 +222,7 @@ impl<'c> Presets<'c> {
         let input = check_input(body, false)?;
         let (name, text) = (trimmed(&input, "name")?, trimmed(&input, "text")?);
         let now = stamp();
-        let row = sqlx::query(&sql(
+        let row = sqlx::query(sql(
             "INSERT INTO presets (project, name, text, icon, color, created_by, owned, created_at, updated_at, workspace) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING CAST(id AS BIGINT) AS id",
         ))
         .bind(project)
@@ -229,7 +234,7 @@ impl<'c> Presets<'c> {
         .bind(i64::from(actor.owner))
         .bind(&now)
         .bind(&now)
-        .bind(&workspace)
+        .bind(workspace.id())
         .fetch_one(&mut *self.conn)
         .await?;
         let id: i64 = row.get("id");
@@ -260,7 +265,7 @@ impl<'c> Presets<'c> {
     async fn set(&mut self, id: i64, set: Vec<(&str, Option<String>)>) -> Result<()> {
         let columns: Vec<String> = set.iter().map(|(column, _)| format!("{column} = ?")).chain(["updated_at = ?".to_string()]).collect();
         let query = sql(&format!("UPDATE presets SET {} WHERE id = ?", columns.join(", ")));
-        let mut update = sqlx::query(&query);
+        let mut update = sqlx::query(query.clone());
         for (_, value) in set {
             update = update.bind(value);
         }
@@ -271,7 +276,7 @@ impl<'c> Presets<'c> {
     pub async fn delete(&mut self, id: i64, actor: &Actor) -> Result<()> {
         owner_only(actor)?;
         self.row(id).await?;
-        sqlx::query(&sql("DELETE FROM presets WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM presets WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
         Ok(())
     }
 
@@ -297,8 +302,8 @@ impl<'c> Presets<'c> {
     /// Adds back the presets orrery ships that were removed, as it ships them; says which.
     pub async fn restore(&mut self, actor: &Actor) -> Result<Value> {
         owner_only(actor)?;
-        let rows = sqlx::query(&sql("SELECT default_key FROM presets WHERE default_key IS NOT NULL AND workspace = ?"))
-            .bind(&self.workspace)
+        let rows = sqlx::query(sql("SELECT default_key FROM presets WHERE default_key IS NOT NULL AND workspace = ?"))
+            .bind(self.workspace.id())
             .fetch_all(&mut *self.conn)
             .await?;
         let kept: Vec<String> = rows.iter().map(|r| r.get("default_key")).collect();
@@ -306,7 +311,7 @@ impl<'c> Presets<'c> {
         for shipped in SHIPPED.iter().filter(|d| !kept.contains(&d.key)) {
             let now = stamp();
             let row =
-                sqlx::query(&sql("INSERT INTO presets (project, name, text, icon, color, default_key, created_by, owned, created_at, updated_at, workspace) \
+                sqlx::query(sql("INSERT INTO presets (project, name, text, icon, color, default_key, created_by, owned, created_at, updated_at, workspace) \
                  VALUES (NULL, ?, ?, ?, ?, ?, 'orrery', 1, ?, ?, ?) RETURNING CAST(id AS BIGINT) AS id"))
                 .bind(&shipped.name)
                 .bind(&shipped.text)
@@ -315,7 +320,7 @@ impl<'c> Presets<'c> {
                 .bind(&shipped.key)
                 .bind(&now)
                 .bind(&now)
-                .bind(&self.workspace)
+                .bind(self.workspace.id())
                 .fetch_one(&mut *self.conn)
                 .await?;
             restored.push(self.preset(row.get("id")).await?);
@@ -334,27 +339,15 @@ impl<'c> Presets<'c> {
     }
 
     async fn seed_within(&mut self) -> Result<usize> {
-        let rows = sqlx::query("SELECT key FROM preset_defaults").fetch_all(&mut *self.conn).await?;
-        let seeded: Vec<String> = rows.iter().map(|r| r.get("key")).collect();
-        let due: Vec<&Shipped> = SHIPPED.iter().filter(|d| !seeded.contains(&d.key)).collect();
-        for shipped in &due {
-            let now = stamp();
-            sqlx::query(&sql("INSERT INTO presets (project, name, text, icon, color, default_key, created_by, owned, created_at, updated_at) \
-                 VALUES (NULL, ?, ?, ?, ?, ?, 'orrery', 1, ?, ?)"))
-            .bind(&shipped.name)
-            .bind(&shipped.text)
-            .bind(&shipped.icon)
-            .bind(&shipped.color)
-            .bind(&shipped.key)
-            .bind(&now)
-            .bind(&now)
-            .execute(&mut *self.conn)
-            .await?;
-            sqlx::query(&sql("INSERT INTO preset_defaults (key, seeded_at) VALUES (?, ?)")).bind(&shipped.key).bind(&now).execute(&mut *self.conn).await?;
+        // Each workspace has its own (ORR-1350): one removed in one workspace stays in every other.
+        let workspaces: Vec<String> = sqlx::query_scalar("SELECT id FROM workspaces ORDER BY id").fetch_all(&mut *self.conn).await?;
+        let mut added = 0;
+        for workspace in &workspaces {
+            added += self.seed_in(workspace).await?;
         }
         for shipped in SHIPPED.iter() {
             for old in &shipped.was {
-                sqlx::query(&sql("UPDATE presets SET text = ?, updated_at = ? WHERE default_key = ? AND text = ?"))
+                sqlx::query(sql("UPDATE presets SET text = ?, updated_at = ? WHERE default_key = ? AND text = ?"))
                     .bind(&shipped.text)
                     .bind(stamp())
                     .bind(&shipped.key)
@@ -363,7 +356,41 @@ impl<'c> Presets<'c> {
                     .await?;
             }
         }
+        Ok(added)
+    }
+
+    /// Adds to `workspace` the presets orrery ships that it hasn't had yet; says how many.
+    async fn seed_in(&mut self, workspace: &str) -> Result<usize> {
+        let rows = sqlx::query(sql("SELECT key FROM preset_defaults WHERE workspace = ?")).bind(workspace).fetch_all(&mut *self.conn).await?;
+        let seeded: Vec<String> = rows.iter().map(|r| r.get("key")).collect();
+        let due: Vec<&Shipped> = SHIPPED.iter().filter(|d| !seeded.contains(&d.key)).collect();
+        for shipped in &due {
+            let now = stamp();
+            sqlx::query(sql("INSERT INTO presets (project, name, text, icon, color, default_key, created_by, owned, created_at, updated_at, workspace) \
+                 VALUES (NULL, ?, ?, ?, ?, ?, 'orrery', 1, ?, ?, ?)"))
+            .bind(&shipped.name)
+            .bind(&shipped.text)
+            .bind(&shipped.icon)
+            .bind(&shipped.color)
+            .bind(&shipped.key)
+            .bind(&now)
+            .bind(&now)
+            .bind(workspace)
+            .execute(&mut *self.conn)
+            .await?;
+            sqlx::query(sql("INSERT INTO preset_defaults (key, seeded_at, workspace) VALUES (?, ?, ?)"))
+                .bind(&shipped.key)
+                .bind(&now)
+                .bind(workspace)
+                .execute(&mut *self.conn)
+                .await?;
+        }
         Ok(due.len())
+    }
+
+    /// Seeds a workspace just made with the presets orrery ships (ORR-1350), as the server seeds each one as it starts.
+    pub(crate) async fn seed_workspace(&mut self, workspace: &str) -> Result<usize> {
+        self.seed_in(workspace).await
     }
 }
 

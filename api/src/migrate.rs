@@ -57,7 +57,7 @@ fn failed(step: u32) -> impl Fn(sqlx::Error) -> String {
 }
 
 async fn exec(conn: &mut AnyConnection, sql: &str) -> Result<(), sqlx::Error> {
-    sqlx::raw_sql(sql).execute(conn).await.map(|_| ())
+    sqlx::raw_sql(sqlx::AssertSqlSafe(sql)).execute(conn).await.map(|_| ())
 }
 
 async fn sqlite(conn: &mut AnyConnection, path: &str) -> Result<Migrated, String> {
@@ -243,7 +243,7 @@ async fn people(conn: &mut AnyConnection, table: &str, insert: &str, n: u32) -> 
     let person = owner.as_deref().map(owner_person).transpose().map_err(|e| format!("schema step {n} failed: the owner setting {e}"))?.flatten();
     if let Some((id, name)) = person {
         let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
-        sqlx::query(insert).bind(id).bind(name).bind(now).execute(&mut *conn).await.map_err(&fail)?;
+        sqlx::query(sqlx::AssertSqlSafe(insert)).bind(id).bind(name).bind(now).execute(&mut *conn).await.map_err(&fail)?;
     }
     exec(conn, "DELETE FROM settings WHERE key = 'owner'").await.map_err(fail)
 }

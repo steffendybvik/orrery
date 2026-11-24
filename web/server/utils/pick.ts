@@ -32,16 +32,24 @@ const urgency = (issue: Pick<Issue, 'priority'>) => issue.priority ? RANK[issue.
  * (todo-focus.ts) both go by it. */
 export const forSessions = (issue: {assignee?: string | null}) => !issue.assignee || issue.assignee.toLowerCase() === 'claude'
 
-/** Whether no session may be handed the board's issues unasked (ORR-1224): it was uploaded from a file, whose titles
- * nobody has checked, and the owner hasn't let sessions pick from it yet. Picking, `next`, the Todo hand-outs
- * (todo-focus.ts) and carrying on to related work (clearing.ts) pass it over; the owner's own Focus on this doesn't. A
- * board gone since is held too. */
-export async function heldFromPicks(project: string): Promise<boolean> {
+/** Why no session may be handed the board's issues unasked (ORR-1224), or `null` when they may: `held`, it was
+ * uploaded from a file, whose titles nobody has checked, and the owner hasn't let sessions pick from it yet; `gone`, the
+ * board is gone since; `unread`, whether it's held couldn't be read, so it's held to be safe, and the error is logged
+ * (ORR-1356: a failing read emptied every session's list without a word). */
+export async function pickHold(project: string): Promise<'held' | 'gone' | 'unread' | null> {
     try {
-        return await useStore().picksHeld(project)
-    } catch {
-        return true
+        return await useStore().picksHeld(project) ? 'held' : null
+    } catch (error) {
+        if ((error as {statusCode?: number}).statusCode === 404) return 'gone'
+        console.error(`[orrery] reading whether ${project} is held from picks, so holding it:`, error)
+        return 'unread'
     }
+}
+
+/** Whether no session may be handed the board's issues unasked (`pickHold`). Picking, `next`, the Todo hand-outs
+ * (todo-focus.ts) and carrying on to related work (clearing.ts) pass it over; the owner's own Focus on this doesn't. */
+export async function heldFromPicks(project: string): Promise<boolean> {
+    return await pickHold(project) !== null
 }
 
 /** Who may be handed an issue (ORR-656): `null` nobody; `{}` any session, as with one person; else the sessions of
@@ -60,12 +68,19 @@ export async function handedTo(project: string, issue: {assignee?: string | null
 /** The issues a session hearing `projects` may start: Todo, most urgent first (then
  * oldest), without proposals not yet approved, ones assigned to someone (`forSessions`), ones waiting on the owner's
  * answer, ones blocked by an issue not done yet (ORR-601), sub-issues of one another session is on (ORR-613), and parents
- * (their sub-issues are the work), on no board held out of pick lists (`heldFromPicks`). At most PICK_FROM. */
-async function pickable(projects: string[], person?: string): Promise<(IssueRecord & {project: string})[]> {
+ * (their sub-issues are the work), on no board held out of pick lists (`pickHold`). At most PICK_FROM. `held` the
+ * boards passed over as held, `unread` those whose hold couldn't be read, so `next` can say why its list is empty. */
+export async function pickable(projects: string[], person?: string): Promise<{issues: (IssueRecord & {project: string})[], held: string[], unread: string[]}> {
     const store = useStore()
     const open: (IssueRecord & {project: string})[] = []
-    for (const project of projects) {
-        if (await heldFromPicks(project)) continue
+    const held: string[] = []
+    const unread: string[] = []
+    // `*` (a session hearing every project, signal-feed.ts) isn't a board.
+    for (const project of new Set(projects.filter(p => p !== '*'))) {
+        const hold = await pickHold(project)
+        if (hold === 'held') held.push(project)
+        if (hold === 'unread') unread.push(project)
+        if (hold) continue
         for (const issue of await store.listIssues(project)) {
             if (issue.proposal || issue.waiting || isBlocked(issue)) continue
             const to = await handedTo(project, issue)
@@ -78,9 +93,20 @@ async function pickable(projects: string[], person?: string): Promise<(IssueReco
     }
     const parents = new Set(open.map(i => i.parent).filter(Boolean))
     const work = open.filter(i => !parents.has(i.id))
-    return work.filter(i => i.kind === 'todo')
+    const issues = work.filter(i => i.kind === 'todo')
         .sort((a, b) => urgency(a) - urgency(b) || a.created_at.localeCompare(b.created_at))
         .slice(0, PICK_FROM)
+    return {issues, held, unread}
+}
+
+/** Why `next` found nothing: no Todo issue free, and the boards it passed over (ORR-1356, ORR-1357), so the session
+ * can tell the owner what's in the way. */
+function nothingToPick(held: string[], unread: string[]): string {
+    const why = ['Nothing to pick: no Todo issue is free for you.']
+    if (held.length) why.push(`Held from sessions, so passed over: ${held.join(', ')} (uploaded from a file). Tell the owner: they let sessions pick from a board in its Settings → Held from sessions → "Let sessions pick from this board".`)
+    if (unread.length) why.push(`Couldn't read whether ${unread.join(', ')} ${unread.length === 1 ? 'is' : 'are'} held from sessions, so passed over: tell the owner (orrery logged the error).`)
+    why.push("Stop here: you'll be handed the list when the board changes.")
+    return why.join(' ')
 }
 
 /** The message a session is handed: what to do, then the list, a line each, with a frozen release's note. */
@@ -127,7 +153,7 @@ export async function pickNext(project: string, id: string): Promise<boolean> {
     const session = sessionNow(id)
     if (!session?.listening || session.state !== 'idle' || clearPending(id)) return false
     if (await stillBusy(project, id)) return false
-    const issues = await pickable([session.project, ...session.also ?? []], session.person)
+    const {issues} = await pickable([session.project, ...session.also ?? []], session.person)
     for (const known of handed.keys()) {
         if (!sessionNow(known)) handed.delete(known)
     }
@@ -146,8 +172,8 @@ export async function nextFor(id: string): Promise<{issues: {id: string, project
     if (!session) return undefined
     const busy = await stillBusy(session.project, id)
     if (busy) return {issues: [], text: busy}
-    const issues = await pickable([session.project, ...session.also ?? []], session.person)
-    if (!issues.length) return {issues: [], text: "Nothing to pick: no Todo issue is free for you. Stop here: you'll be handed the list when the board changes."}
+    const {issues, held, unread} = await pickable([session.project, ...session.also ?? []], session.person)
+    if (!issues.length) return {issues: [], text: nothingToPick(held, unread)}
     handed.set(currentId(id), listed(issues))
     return {issues: issues.map(i => ({id: i.id, project: i.project, title: i.title, column: i.column, priority: i.priority ?? null})), text: await pickMessage(issues)}
 }

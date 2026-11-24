@@ -80,18 +80,24 @@ export class Branches {
     }
 
     /** The owner removing a branch: only one that still reads as remove, asked afresh, so nothing that has moved on since the
-     * page was read goes. */
-    async remove(repo: string, name: string) {
-        const projects = (await this.pulls.repos()).get(repo)
-        if (!projects) throw notFound(`No project's repo is ${repo} on GitHub`)
+     * page was read goes. `seen` is the projects the asker can see (undefined with login off): a repo on none of them is
+     * the same 404 as one on no project, and the read and the removal use only their GitHub token (ORR-1374). */
+    async remove(repo: string, name: string, seen?: Set<string>) {
+        const projects = (await this.pulls.repos()).get(repo)?.filter(p => !seen || seen.has(p))
+        const [project] = projects ?? []
+        if (!projects || !project) throw notFound(`No project's repo is ${repo} on GitHub`)
         this.reads.delete(repo)
-        const read = await this.read(repo, projects)
-        if (read.error) throw conflict(read.error)
-        const branch = read.branches.find(b => b.name === name)
-        if (!branch) throw notFound(`${repo} has no branch ${name}`)
-        if (branch.verdict !== 'remove') throw conflict(`${name} no longer reads as one to remove: ${branch.why}`)
-        await this.pulls.deleteBranch(repo, projects[0] ?? '', name)
-        this.reads.delete(repo)
+        try {
+            const read = await this.read(repo, projects)
+            if (read.error) throw conflict(read.error)
+            const branch = read.branches.find(b => b.name === name)
+            if (!branch) throw notFound(`${repo} has no branch ${name}`)
+            if (branch.verdict !== 'remove') throw conflict(`${name} no longer reads as one to remove: ${branch.why}`)
+            await this.pulls.deleteBranch(repo, project, name)
+        } finally {
+            // Read with the asker's projects alone: not kept for the list, which reads with every one.
+            this.reads.delete(repo)
+        }
     }
 
     private async read(repo: string, projects: string[]): Promise<RepoRead> {

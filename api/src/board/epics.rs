@@ -3,6 +3,7 @@
 // epic is one piece of work across projects (ORR-895), with a number of its own across the orrery; its progress is its
 // issues', counted the way a release's are, from each project's board as `issues.rs` reads it. A write says the epics
 // changed (`Effects::epics`), for open pages to ask for them again. An epic's focus signals sessions, so it stays in Nuxt.
+use crate::access::scope::Workspace;
 use crate::board::issue_edits::epic_number;
 use crate::board::issues::{kinds_json, Board, Issues, Kinds, Node};
 use crate::changes::{self, Outbox};
@@ -13,7 +14,7 @@ use crate::write::{js, stamp, Actor, Effects};
 use serde_json::{json, Map, Value};
 use sqlx::any::AnyRow;
 use sqlx::{AnyConnection, Row};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// What an epic's body may hold (`EPIC_FIELDS`).
 const FIELDS: [&str; 3] = ["title", "notes", "position"];
@@ -133,21 +134,20 @@ pub struct Epics<'c> {
     /// Set for a write: what it sets off goes into the outbox in its transaction (ORR-929).
     pub outbox: Option<Outbox>,
     /// The workspace whose epics these are (ORR-1107): another's are as if they weren't here.
-    pub workspace: String,
+    pub workspace: Workspace,
+    /// The projects the asker doesn't see (ORR-1381): a board they aren't on is left out of every epic's parts and
+    /// counts, as if its issues weren't set for it. Set by the routes; none for what orrery does itself.
+    pub hidden: HashSet<String>,
 }
 
 impl<'c> Epics<'c> {
-    pub fn new(conn: &'c mut AnyConnection) -> Self {
-        Epics { conn, effects: Effects::default(), outbox: None, workspace: "default".into() }
-    }
-
     /// The epics of `workspace`.
-    pub fn of(conn: &'c mut AnyConnection, workspace: String) -> Self {
-        Epics { workspace, ..Epics::new(conn) }
+    pub fn of(conn: &'c mut AnyConnection, workspace: Workspace) -> Self {
+        Epics { conn, effects: Effects::default(), outbox: None, workspace, hidden: HashSet::new() }
     }
 
     async fn uid(&mut self) -> Result<String> {
-        Ok(Settings::new(&mut *self.conn).get().await?["uid"].as_str().unwrap_or_default().to_string())
+        Ok(Settings::of(&mut *self.conn, Workspace::installation()).get().await?["uid"].as_str().unwrap_or_default().to_string())
     }
 
     /// The epic's number from its number or any form of its id, as `epicId` reads the URL, then its row (`epicRow`),
@@ -161,30 +161,44 @@ impl<'c> Epics<'c> {
     }
 
     async fn row(&mut self, id: i64) -> Result<AnyRow> {
-        sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM epics WHERE id = ? AND workspace = ?")))
+        sqlx::query(sql(&format!("SELECT {COLUMNS} FROM epics WHERE id = ? AND workspace = ?")))
             .bind(id)
-            .bind(&self.workspace)
+            .bind(self.workspace.id())
             .fetch_optional(&mut *self.conn)
             .await?
             .ok_or_else(|| ApiError::not_found(format!("No epic {id}: GET /api/epics lists them")))
     }
 
-    /// The projects with an issue set for one of `epics` (every epic, without), by id (`projectsIn`).
+    /// The projects of this workspace the asker sees with an issue set for `epic` (every epic, without), by id
+    /// (`projectsIn`).
     async fn projects_in(&mut self, epic: Option<i64>) -> Result<Vec<String>> {
+        // Only this workspace's projects: another's issues may carry the same epic number, and counting them would
+        // show its projects, names and tallies here (ORR-1347).
         let rows = match epic {
             Some(epic) => {
-                sqlx::query(&sql("SELECT DISTINCT project FROM issues WHERE epic = ? ORDER BY project")).bind(epic).fetch_all(&mut *self.conn).await?
+                sqlx::query(sql(
+                    "SELECT DISTINCT i.project FROM issues i JOIN projects p ON p.id = i.project WHERE i.epic = ? AND p.workspace = ? ORDER BY i.project",
+                ))
+                .bind(epic)
+                .bind(self.workspace.id())
+                .fetch_all(&mut *self.conn)
+                .await?
             }
-            None => sqlx::query("SELECT DISTINCT project FROM issues WHERE epic IS NOT NULL ORDER BY project").fetch_all(&mut *self.conn).await?,
+            None => sqlx::query(sql(
+                "SELECT DISTINCT i.project FROM issues i JOIN projects p ON p.id = i.project WHERE i.epic IS NOT NULL AND p.workspace = ? ORDER BY i.project",
+            ))
+            .bind(self.workspace.id())
+            .fetch_all(&mut *self.conn)
+            .await?,
         };
-        Ok(rows.iter().map(|r| r.get("project")).collect())
+        Ok(rows.iter().map(|r| r.get::<String, _>("project")).filter(|p| !self.hidden.contains(p)).collect())
     }
 
     /// Every epic, in the order they're arranged in, a new one on top, each with its progress and each project's part
     /// (`epics`).
     pub async fn list(&mut self) -> Result<Value> {
-        let rows = sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM epics WHERE workspace = ? ORDER BY position, id DESC")))
-            .bind(&self.workspace)
+        let rows = sqlx::query(sql(&format!("SELECT {COLUMNS} FROM epics WHERE workspace = ? ORDER BY position, id DESC")))
+            .bind(self.workspace.id())
             .fetch_all(&mut *self.conn)
             .await?;
         let ids: Vec<i64> = rows.iter().map(|r| r.get("id")).collect();
@@ -263,15 +277,15 @@ impl<'c> Epics<'c> {
     /// Puts the epic at `index` among them (0 the top, past the end the bottom), numbering them all again from 0
     /// (`placeEpic`).
     async fn place(&mut self, id: i64, index: f64) -> Result<()> {
-        let rows = sqlx::query(&sql("SELECT CAST(id AS BIGINT) AS id FROM epics WHERE workspace = ? ORDER BY position, id DESC"))
-            .bind(&self.workspace)
+        let rows = sqlx::query(sql("SELECT CAST(id AS BIGINT) AS id FROM epics WHERE workspace = ? ORDER BY position, id DESC"))
+            .bind(self.workspace.id())
             .fetch_all(&mut *self.conn)
             .await?;
         let mut order: Vec<i64> = rows.iter().map(|r| r.get::<i64, _>("id")).filter(|e| *e != id).collect();
         let at = (index.trunc().max(0.0) as usize).min(order.len());
         order.insert(at, id);
         for (position, each) in order.iter().enumerate() {
-            sqlx::query(&sql("UPDATE epics SET position = ? WHERE id = ?")).bind(position as i64).bind(each).execute(&mut *self.conn).await?;
+            sqlx::query(sql("UPDATE epics SET position = ? WHERE id = ?")).bind(position as i64).bind(each).execute(&mut *self.conn).await?;
         }
         Ok(())
     }
@@ -284,12 +298,12 @@ impl<'c> Epics<'c> {
         let now = stamp();
         changes::begin(self.conn).await?;
         let done: Result<i64> = async {
-            let top: Option<i64> = sqlx::query(&sql("SELECT CAST(min(position) AS BIGINT) AS n FROM epics WHERE workspace = ?"))
-                .bind(&self.workspace)
+            let top: Option<i64> = sqlx::query(sql("SELECT CAST(min(position) AS BIGINT) AS n FROM epics WHERE workspace = ?"))
+                .bind(self.workspace.id())
                 .fetch_one(&mut *self.conn)
                 .await?
                 .get("n");
-            let row = sqlx::query(&sql(
+            let row = sqlx::query(sql(
                 "INSERT INTO epics (title, notes, position, created_by, owned, created_at, updated_at, workspace) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING CAST(id AS BIGINT) AS id",
             ))
             .bind(&title)
@@ -299,7 +313,7 @@ impl<'c> Epics<'c> {
             .bind(i32::from(actor.owner))
             .bind(&now)
             .bind(&now)
-            .bind(&self.workspace)
+            .bind(self.workspace.id())
             .fetch_one(&mut *self.conn)
             .await?;
             let id: i64 = row.get("id");
@@ -334,7 +348,7 @@ impl<'c> Epics<'c> {
             }
             sets.push("updated_at = ?");
             let statement = sql(&format!("UPDATE epics SET {} WHERE id = ?", sets.join(", ")));
-            let mut query = sqlx::query(&statement);
+            let mut query = sqlx::query(statement.clone());
             if let Some(title) = &title {
                 query = query.bind(title.clone());
             }
@@ -363,18 +377,18 @@ impl<'c> Epics<'c> {
             return Err(ApiError::refused_for("epics.delete", format!("Deleting epic {id} is the owner's call: they made it")));
         }
         let projects = self.projects_in(Some(id)).await?;
-        let issues = sqlx::query(&sql("SELECT project, id FROM issues WHERE epic = ? ORDER BY project, id")).bind(id).fetch_all(&mut *self.conn).await?;
+        let issues = sqlx::query(sql("SELECT project, id FROM issues WHERE epic = ? ORDER BY project, id")).bind(id).fetch_all(&mut *self.conn).await?;
         let issues: Vec<(String, String)> = issues.iter().map(|r| (r.get("project"), r.get("id"))).collect();
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            sqlx::query(&sql("UPDATE issues SET epic = NULL WHERE epic = ?")).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(sql("UPDATE issues SET epic = NULL WHERE epic = ?")).bind(id).execute(&mut *self.conn).await?;
             for (project, issue) in &issues {
                 self.effects.tell_change("issue.epic", project, issue, Some(&id.to_string()), None);
             }
-            sqlx::query(&sql("DELETE FROM epics WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(sql("DELETE FROM epics WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
             let now = stamp();
             for project in &projects {
-                sqlx::query(&sql("UPDATE projects SET updated_at = ? WHERE id = ?")).bind(&now).bind(project).execute(&mut *self.conn).await?;
+                sqlx::query(sql("UPDATE projects SET updated_at = ? WHERE id = ?")).bind(&now).bind(project).execute(&mut *self.conn).await?;
             }
             self.effects.changed = projects.clone();
             self.effects.epics = true;

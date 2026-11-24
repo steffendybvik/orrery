@@ -1,5 +1,6 @@
 // Releases, a project's and across projects: the handlers and the routes they answer (ORR-1048).
 use super::P;
+use crate::access::scope::ScopedProject;
 use crate::access::seen::Seen;
 use crate::board::issues::Issues;
 use crate::board::plans::Plans;
@@ -25,47 +26,62 @@ pub(crate) fn routes() -> Router<Arc<App>> {
         .route("/api/releases", get(all_releases))
 }
 
-async fn create_release(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn create_release(State(app): Shared, scoped: ScopedProject, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
+    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
     let mut releases = Releases::new(&mut conn);
     releases.outbox = Some(Outbox::new(actor_of(&headers)));
-    let version = releases.create(&project, &body_of(&body), &actor_of(&headers)).await?;
+    let version = releases.create(&scoped, &body_of(&body), &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut releases.effects);
-    let value = Plans::new(&mut Issues::new(&mut conn)).release(&project, &version).await?;
+    let value = Plans::new(&mut Issues::new(&mut conn)).hiding(hidden).release(&project, &version).await?;
     Ok(reply(StatusCode::CREATED, Some(value), effects))
 }
 
-async fn patch_release(State(app): Shared, Path((project, release)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn patch_release(
+    State(app): Shared,
+    scoped: ScopedProject,
+    Path((_, release)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
+    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
     let mut releases = Releases::new(&mut conn);
     releases.outbox = Some(Outbox::new(actor_of(&headers)));
-    releases.update(&project, &release, &body_of(&body)).await?;
+    releases.update(&scoped, &release, &body_of(&body)).await?;
     let effects = std::mem::take(&mut releases.effects);
-    let value = Plans::new(&mut Issues::new(&mut conn)).release(&project, &release).await?;
+    let value = Plans::new(&mut Issues::new(&mut conn)).hiding(hidden).release(&project, &release).await?;
     Ok(reply(StatusCode::OK, Some(value), effects))
 }
 
-async fn delete_release(State(app): Shared, Path((project, release)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+async fn delete_release(State(app): Shared, scoped: ScopedProject, Path((_, release)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let mut releases = Releases::new(&mut conn);
     releases.outbox = Some(Outbox::new(actor_of(&headers)));
-    releases.delete(&project, &release, &actor_of(&headers)).await?;
+    releases.delete(&scoped, &release, &actor_of(&headers)).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut releases.effects)))
 }
 
-async fn list_releases(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
+async fn list_releases(State(app): Shared, scoped: ScopedProject, headers: HeaderMap) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Plans::new(&mut Issues::new(&mut conn)).releases(&project).await?).into_response())
+    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
+    Ok(Json(Plans::new(&mut Issues::new(&mut conn)).hiding(hidden).releases(&project).await?).into_response())
 }
 
-async fn get_release(State(app): Shared, Path((project, release)): Path<(String, String)>) -> Result<Response> {
+async fn get_release(State(app): Shared, scoped: ScopedProject, Path((_, release)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Plans::new(&mut Issues::new(&mut conn)).release(&project, &release).await?).into_response())
+    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
+    Ok(Json(Plans::new(&mut Issues::new(&mut conn)).hiding(hidden).release(&project, &release).await?).into_response())
 }
 
 async fn all_releases(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut value = Plans::new(&mut Issues::new(&mut conn)).all_releases().await?;
+    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
+    let mut value = Plans::new(&mut Issues::new(&mut conn)).hiding(hidden).all_releases().await?;
     Seen::listed(&mut conn, &headers).await?.keep(&mut conn, &mut value, "project").await?;
     Ok(Json(value).into_response())
 }
@@ -73,7 +89,8 @@ async fn all_releases(State(app): Shared, headers: HeaderMap) -> Result<Response
 /// `GET …/releases/:release/row` → the release's row as it's stored, in the project's source when it takes its
 /// releases from another, for the local app's store (`releaseRow`, ORR-1174), which checks a release a focus names.
 /// A 400 for a project with no releases and a 404 for a release there isn't, as the store says each.
-async fn release_row(State(app): Shared, Path((project, release)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+async fn release_row(State(app): Shared, scoped: ScopedProject, Path((_, release)): Path<(String, String)>, headers: HeaderMap) -> Result<Response> {
+    let project = scoped.id().to_string();
     if !came_of(&headers).server {
         return Err(ApiError::forbidden("Only the local app reads a release's row"));
     }
@@ -83,7 +100,7 @@ async fn release_row(State(app): Shared, Path((project, release)): Path<(String,
     issues.release_there(&project, &row, &release).await?;
     let source = if row.release_mode == "shared" { row.releases_from.clone().unwrap_or_default() } else { project.clone() };
     let row =
-        sqlx::query(&crate::db::sql("SELECT * FROM releases WHERE project = ? AND version = ?")).bind(&source).bind(&release).fetch_one(&mut *conn).await?;
+        sqlx::query(crate::db::sql("SELECT * FROM releases WHERE project = ? AND version = ?")).bind(&source).bind(&release).fetch_one(&mut *conn).await?;
     Ok(Json(crate::db::row_json(&row)).into_response())
 }
 

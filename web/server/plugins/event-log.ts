@@ -1,3 +1,6 @@
+import type {H3Event} from 'h3'
+import type {Who} from '../utils/auth'
+import type {Asker} from '../utils/event-log'
 import type {LaunchEvent} from '../utils/launches'
 
 // Fills the event log (server/utils/event-log.ts): every 5xx the server answers with, each 403 and 409 as a refusal, its starts and the migrations
@@ -8,9 +11,14 @@ export default defineNitroPlugin(nitro => {
     nitro.hooks.hook('error', (error, {event}) => {
         const status = (error as {statusCode?: number}).statusCode ?? 500
         if (status < 500) {
-            const refused = event && refusal(status, event.method, event.path, error.message, getHeader(event, 'orrery-actor')?.trim().slice(0, 60), (error as {data?: {permission?: string}}).data?.permission)
-            // An untrusted schedule's session refused sets off no schedule: what it tried was steered by what it read.
-            if (refused) log.note(untrustedWrite(event) ? {...refused, untrusted: true} : refused)
+            if (!event || !refusal(status, event.method, event.path, '')) return
+            const permission = (error as {data?: {permission?: string}}).data?.permission
+            void askerOf(event).then(asker => {
+                if (!asker) return
+                const refused = refusal(status, event.method, event.path, error.message, asker, permission)
+                // An untrusted schedule's session refused sets off no schedule: what it tried was steered by what it read.
+                if (refused) return log.note(untrustedWrite(event) ? {...refused, untrusted: true} : refused)
+            }).catch(cause => console.error('[orrery] logging a refusal:', cause))
             return
         }
         log.note({level: 'error', kind: 'server.error', message: error.message, details: {
@@ -40,3 +48,17 @@ export default defineNitroPlugin(nitro => {
         }
     })
 })
+
+/** Who a refused request was (ORR-1377). With login on, the checked credential: the person, the name they act under,
+ * the workspace they act in and what they see, never the `Orrery-Actor` they sent. Null for someone signed in in no
+ * workspace, whose refusal has no log of theirs to go in: it's said on the console. With login off, the name sent. */
+async function askerOf(event: H3Event): Promise<Asker | null> {
+    const who = event.context?.who as Who | undefined
+    if (!who) return {name: getHeader(event, 'orrery-actor')?.trim().slice(0, 60) || 'agent'}
+    const [actor, workspace, sees] = await Promise.all([actorOf(event), askerWorkspace(event), memberSees(event)])
+    if (!workspace) {
+        console.warn(`[orrery] a refusal of ${who.person}'s, who acts in no workspace here, isn't logged: ${event.method} ${event.path.split('?')[0]}`)
+        return null
+    }
+    return {name: actor.name, person: who.person, workspace, ...sees ? {sees} : {}}
+}

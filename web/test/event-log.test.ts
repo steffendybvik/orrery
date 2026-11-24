@@ -1,6 +1,6 @@
 import {beforeEach, describe, expect, it} from 'vitest'
 import type {LoggedEvent} from '#shared/roadmap'
-import {describe as describeChange, EventLog, HOLD, redact, refusal} from '../server/utils/event-log'
+import {describe as describeChange, EventLog, HOLD, keepOutOfLog, redact, refusal} from '../server/utils/event-log'
 import {writeToApi} from '../server/utils/api-router'
 import {ORRERY} from '../server/store/schema'
 import {Store} from '../server/utils/store'
@@ -64,6 +64,21 @@ describe('the event log', () => {
         expect(redact('postgres://me@db/orrery?sslmode=require&password=hunter22')).toBe('postgres://me@db/orrery?sslmode=require&password=…')
         expect(redact("host=db user=me password='hunter 22' dbname=orrery")).toBe('host=db user=me password=… dbname=orrery')
         expect(redact('host=db password=hunter22')).toBe('host=db password=…')
+    })
+
+    it("keeps orrery's own credentials out: keys, the login cookie, links' tokens and the API's token (ORR-1392)", () => {
+        expect(redact('key orrery_agent_AbC-123_xyzXYZ0987 refused')).toBe('key orrery_agent_… refused')
+        expect(redact('ORRERY_PERSON_abcdefgh12345678')).toBe('ORRERY_PERSON_…')
+        expect(redact('cookie: orrery_login_9000=s3cr3tvalue; other=1')).toBe('cookie: orrery_login_9000=…; other=1')
+        expect(redact('GET https://o.example/login?t=abcd1234efgh&x=1')).toBe('GET https://o.example/login?t=…&x=1')
+        expect(redact('/join?invite=abc123def456')).toBe('/join?invite=…')
+        expect(redact('NUXT_API_TOKEN=deadbeefcafe0123 node')).toBe('NUXT_API_TOKEN=… node')
+        expect(redact('{"Orrery-Api-Token":"deadbeefcafe0123"}')).toBe('{"Orrery-Api-Token":"…"}')
+        const token = 'f00dfacef00dface0123456789'
+        const letIn = keepOutOfLog(token)
+        expect(redact(`fetch failed: ${token}`)).toBe('fetch failed: …')
+        letIn()
+        expect(redact(token)).toBe(token)
     })
 
     it('reads Advanced and the secrets once, and again only once told they changed', async () => {
@@ -146,6 +161,28 @@ describe('the event log', () => {
         expect(refusal(404, 'GET', '/api/projects/nope', 'No project nope')).toBeNull()
         // One the permissions table refused names its row (ORR-512).
         expect(refusal(403, 'POST', '/api/notices/clear', 'Clear the bell', 'claude', 'notices.clear')?.details).toMatchObject({permission: 'notices.clear'})
+    })
+
+    // With login on, the checked person and their workspace, never the name sent (ORR-1377).
+    it("names the checked person, goes in the asker's workspace, and names only a project they see", () => {
+        const bo = {name: 'claude', person: 'bo', workspace: 'acme', sees: new Set(['rockets'])}
+        expect(refusal(403, 'POST', '/api/secrets', 'Only the owner', bo)).toEqual({
+            level: 'warn', kind: 'request.refused', workspace: 'acme',
+            message: "Refused claude (bo's agent) POST /api/secrets: Only the owner",
+            details: {route: 'POST /api/secrets', status: 403, by: 'claude', person: 'bo'},
+        })
+        expect(refusal(403, 'PATCH', '/api/projects/rockets/issues/ROC-1', 'No', bo)).toMatchObject({project: 'rockets', workspace: 'acme'})
+        // Another's project: in bo's log, without its name.
+        const theirs = refusal(403, 'PATCH', '/api/projects/primes/issues/PRI-1', 'No', bo)
+        expect(theirs).toMatchObject({workspace: 'acme'})
+        expect(theirs?.project).toBeUndefined()
+        expect(refusal(403, 'POST', '/api/chats', 'No', {name: 'bo', person: 'bo', workspace: 'acme'})?.message).toBe('Refused bo POST /api/chats: No')
+    })
+
+    it('sends the workspace a line names along with it', async () => {
+        api.advanced = true
+        await log.record({level: 'warn', kind: 'request.refused', message: 'Refused bo', workspace: 'acme'})
+        expect(api.sent.find(sent => sent.path === '/api/events/log/lines')?.body).toMatchObject({kind: 'request.refused', workspace: 'acme'})
     })
 
     it("tells the schedules an untrusted session's refusal is its, so none runs on it", async () => {

@@ -131,7 +131,7 @@ later) once, and `pnpm dev` (`nuxt dev`) starts `api/target/debug/orrery-api` be
 fresh token, and stops it with itself; build again after a change in `api/`. `NUXT_API_BIN` names another binary (the
 image sets it to its own copy). Or run one yourself and point at it: `NUXT_API_TOKEN` (16 characters or more) and
 `NUXT_DATABASE` for both, `ORRERY_API_LISTEN` for the API (`127.0.0.1:9100` by default), `NUXT_API_URL` for Nuxt.
-`ORRERY_API_LOG=1` has the API say each request it answers. With none
+`ORRERY_API_LOG=1` has the API say each request it answers, its path without the query. With none
 of these and no build, the server says so as it starts, and the API's routes answer 503.
 
 Which server answered: every reply to an `/api/` request carries `X-Served-By: rust` or `X-Served-By: nuxt` (the
@@ -266,12 +266,18 @@ Linux the spec skips; `pnpm test:e2e:visual` (in `web/`) runs it in CI's Playwri
 the flows' stays one person's: the login page, signing in with a key, Settings' keys and logging out. Then it runs
 `e2e/signup/` on another, with a fresh `web/.data/e2e-signup.db` and a login provider of its own (`scripts/e2e-oidc.mjs`),
 as a provider takes the key box off the login page: the first account in becomes the owner, someone new signs up into a
-workspace of their own, and neither sees the other's projects, workspaces or events. CI runs it after the first Chrome shard.
+workspace of their own, and neither sees the other's projects, workspaces or events. Its `workspaces-apart.spec.ts` calls
+every route the Nuxt server answers itself (`server/api`) as other people with one person's ids, and fails on any answer
+that differs from one for ids that aren't there, or gives that person's away; a new route needs a line in its `ROUTES`
+(ORR-1352). The Rust API's routes and `/mcp`'s tools have the same sweep in `api/src/access/isolation_tests.rs`. CI runs
+it after the first Chrome shard.
 
 `pnpm --dir web test:e2e:restart` builds the app and runs `e2e/restart/` on it, with a fresh `web/.data/e2e-restart.db`:
 its specs stop and start the server themselves: what outlives a restart (the owner's chats, `chats.spec.ts`), and moving
 an orrery to another server as the hosting doc says, a board's file and the whole database with its key (`move.spec.ts`,
-ORR-1209). `RESTART_NO_BUILD=1` skips the build.
+ORR-1209), each spec on SQLite files of its own under `web/.data/`. `RESTART_NO_BUILD=1` skips the build. CI runs it in
+a job of its own (`restart`) whenever it runs the browser suite: on a pull request into `main` that isn't a draft, on a
+release tag and by hand (ORR-1310).
 
 `pnpm --dir web images:readme` takes the README's images into `docs/images`, all 1440×900, from the playground's demo on an orrery of
 its own with a fresh `web/.data/readme.db`. It's a script rather than a test, so it isn't part of `pnpm test:e2e`. It rewrites only the images that differ by more than a run's own noise. A machine that isn't Linux renders every image differently, so the real ones come from the **Images** workflow, in CI's Playwright image: `gh workflow run images.yml --ref v<version>`, on a release branch. Any that changed go on `images/v<version>`, as one commit on that branch's tip, and the run's summary links the pull request to open. Actions can't open it here, and its checks wouldn't start if it did. Someone looks at the images, so it doesn't merge itself. A later run updates an open one and starts its checks again.

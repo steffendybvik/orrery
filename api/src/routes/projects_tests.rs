@@ -46,7 +46,7 @@ async fn a_new_project_takes_its_id_and_key_from_its_name() {
     assert!(body["uid"].as_str().is_some_and(|u| !u.is_empty()));
     assert_eq!(reply.changed(), ["prime-numbers"], "each project in it percent-encoded");
     assert_eq!(reply.header("orrery-changed"), Some("prime%2Dnumbers"));
-    let rows = sqlx::query(&crate::db::sql("SELECT kind, project FROM changes WHERE id > ? ORDER BY id")).bind(before).fetch_all(&api.app.pool).await.unwrap();
+    let rows = sqlx::query(crate::db::sql("SELECT kind, project FROM changes WHERE id > ? ORDER BY id")).bind(before).fetch_all(&api.app.pool).await.unwrap();
     let rows: Vec<(String, Option<String>)> = rows.iter().map(|r| (r.get("kind"), r.get("project"))).collect();
     assert_eq!(rows, [("project.changed".to_string(), Some("prime-numbers".to_string()))]);
     assert_eq!(api.get("/api/projects/prime-numbers").send().await.body, reply.body);
@@ -56,7 +56,7 @@ async fn a_new_project_takes_its_id_and_key_from_its_name() {
 async fn whoever_makes_a_project_holds_it() {
     let api = TestApi::new().await;
     for (id, role) in [("owner", "owner"), ("ann", "member")] {
-        sqlx::query(&crate::db::sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, ?, ?)"))
+        sqlx::query(crate::db::sql("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, ?, ?)"))
             .bind(id)
             .bind(id)
             .bind(role)
@@ -68,7 +68,7 @@ async fn whoever_makes_a_project_holds_it() {
     let holders = |project: &'static str| {
         let pool = api.app.pool.clone();
         async move {
-            let rows = sqlx::query(&crate::db::sql("SELECT person, role FROM project_members WHERE project = ?")).bind(project).fetch_all(&pool).await.unwrap();
+            let rows = sqlx::query(crate::db::sql("SELECT person, role FROM project_members WHERE project = ?")).bind(project).fetch_all(&pool).await.unwrap();
             rows.iter().map(|r| (r.get::<String, _>("person"), r.get::<String, _>("role"))).collect::<Vec<_>>()
         }
     };
@@ -271,7 +271,7 @@ async fn moving_to_another_source_lets_go_of_releases_it_does_not_have() {
 async fn a_board_is_exported_as_one_file_named_for_the_day() {
     let api = TestApi::new().await;
     let project = api.project("Primes").await;
-    sqlx::query(&crate::db::sql("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"))
+    sqlx::query(crate::db::sql("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"))
         .bind("0123456789abcdef01234567")
         .bind("image/png")
         .bind("dot.png")
@@ -306,6 +306,38 @@ async fn a_board_is_exported_as_one_file_named_for_the_day() {
     assert_eq!(without.body["uploads"], json!([]), "images only when asked for");
     assert_eq!(without.body["tables"]["docs"][0]["id"], "plan", "the rest of the board all the same");
     assert_eq!(api.get("/api/projects/nope/export").send().await.status, 404);
+}
+
+/// Another workspace's image named in a board's text stays out of its export (ORR-1384): the id alone gets nobody its bytes.
+#[tokio::test]
+async fn an_export_holds_only_its_own_workspaces_images() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let rockets = api.acme(&["bo"]).await;
+    let project = api.project("Primes").await;
+    for (id, workspace) in [("aaaaaaaaaaaaaaaaaaaaaaaa", "default"), ("bbbbbbbbbbbbbbbbbbbbbbbb", "acme")] {
+        sqlx::query(crate::db::sql(
+            "INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at, workspace) VALUES (?, 'image/png', 'dot.png', 3, ?, 'owner', 1, ?, ?)",
+        ))
+        .bind(id)
+        .bind(vec![1_u8, 2, 3])
+        .bind("2026-11-07T00:00:00.000Z")
+        .bind(workspace)
+        .execute(&api.app.pool)
+        .await
+        .unwrap();
+    }
+    let body = "![mine](/api/uploads/aaaaaaaaaaaaaaaaaaaaaaaa) ![theirs](/api/uploads/bbbbbbbbbbbbbbbbbbbbbbbb)";
+    api.post(&format!("/api/projects/{project}/docs"), json!({"title": "Plan", "body": body})).send().await;
+    let reply = api.get(&format!("/api/projects/{project}/export?uploads=1")).send().await;
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    let ids: Vec<&str> = reply.body["uploads"].as_array().unwrap().iter().map(|u| u["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["aaaaaaaaaaaaaaaaaaaaaaaa"], "acme's image isn't Primes'");
+    // And acme's board, naming default's image, gets none of it.
+    api.post(&format!("/api/projects/{rockets}/docs"), json!({"title": "Plan", "body": body})).send().await;
+    let theirs = api.get(&format!("/api/projects/{rockets}/export?uploads=1")).send().await;
+    let ids: Vec<&str> = theirs.body["uploads"].as_array().unwrap().iter().map(|u| u["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["bbbbbbbbbbbbbbbbbbbbbbbb"]);
 }
 
 #[tokio::test]
@@ -384,7 +416,7 @@ async fn an_import_replaces_a_roadmap_only_when_asked() {
     let ids = issue_ids(&replaced.body);
     assert_eq!(ids.len(), 4);
     assert!(!ids.contains(&format!("{key}-1")), "a number never comes to mean another issue: {ids:?}");
-    let comments: i64 = sqlx::query(&crate::db::sql("SELECT CAST(COUNT(*) AS BIGINT) AS n FROM comments WHERE project = ?"))
+    let comments: i64 = sqlx::query(crate::db::sql("SELECT CAST(COUNT(*) AS BIGINT) AS n FROM comments WHERE project = ?"))
         .bind(&project)
         .fetch_one(&api.app.pool)
         .await
@@ -494,7 +526,10 @@ async fn the_projects_sharing_releases_are_those_drawing_on_it_and_its_source() 
     assert_eq!(peers("alone").await.body, json!([]));
     assert_eq!(peers("nowhere").await.body, json!([]));
     let door = TestApi::at_the_door().await;
-    assert_eq!(door.get("/api/projects/x/release-peers").send().await.status, 403, "only the local app asks");
+    let x = door.project("x").await;
+    assert_eq!(door.get(&format!("/api/projects/{x}/release-peers")).send().await.status, 403, "only the local app asks");
+    // One there isn't is a 404 first, as one in another workspace is (ORR-1352).
+    assert_eq!(door.get("/api/projects/nowhere/release-peers").send().await.status, 404);
 }
 
 /// A project's row and an issue's, as they're stored, for the local app's store (ORR-1174): numbers as numbers, texts
@@ -656,4 +691,47 @@ async fn no_project_takes_its_releases_from_a_board_marked_as_moved() {
     let reply = api.patch(&format!("/api/projects/{app}"), json!({"release_mode": "shared", "releases_from": source["id"]})).send().await;
     assert_eq!(reply.status, 409, "{}", reply.body);
     assert_eq!(reply.body["data"]["moved_to"], "https://orrery.example.com");
+}
+
+/// One workspace's project ids never block or show through to another's (ORR-1350): an id only another workspace has
+/// is quietly given `-2`, both ways, and one the workspace has itself is still a 409.
+#[tokio::test]
+async fn a_project_id_another_workspace_has_is_given_a_suffix_both_ways() {
+    let api = TestApi::new().await;
+    api.owner().await;
+    let primes = api.project("Primes").await;
+    let rockets = api.acme(&["sam"]).await;
+    assert_eq!((primes.as_str(), rockets.as_str()), ("primes", "rockets"));
+
+    let here = api.post("/api/projects", json!({"name": "Rockets"})).send().await;
+    assert_eq!((here.status.as_u16(), here.body["id"].as_str()), (201, Some("rockets-2")), "{}", here.body);
+    assert!(!here.body.to_string().contains("acme"), "it says nothing of the other workspace: {}", here.body);
+    let there = api.post("/api/projects", json!({"name": "Primes", "id": "primes"})).header("orrery-workspace", "acme").send().await;
+    assert_eq!((there.status.as_u16(), there.body["id"].as_str()), (201, Some("primes-2")), "{}", there.body);
+
+    let again = api.post("/api/projects", json!({"name": "Primes"})).send().await;
+    assert_eq!(again.status, 409, "{}", again.body);
+    let again = api.post("/api/projects", json!({"name": "Rockets", "id": "rockets"})).header("orrery-workspace", "acme").send().await;
+    assert_eq!(again.status, 409, "{}", again.body);
+
+    // Each workspace keeps what it had, and lists only its own.
+    assert_eq!(api.count("SELECT count(*) FROM projects WHERE id = 'primes' AND workspace = 'default'").await, 1);
+    assert_eq!(api.count("SELECT count(*) FROM projects WHERE id = 'rockets' AND workspace = 'acme'").await, 1);
+    let listed = api.signed(api.get("/api/projects").header("orrery-workspace", "default"), "sam").await.send().await;
+    assert_eq!(ids(&listed.body), ["primes", "rockets-2"], "{}", listed.body);
+    let listed = api.signed(api.get("/api/projects").header("orrery-workspace", "acme"), "sam").await.send().await;
+    assert_eq!(ids(&listed.body), ["primes-2", "rockets"], "{}", listed.body);
+}
+
+/// A project takes its releases only from one in its own workspace: another's is as if it weren't here (ORR-1350).
+#[tokio::test]
+async fn releases_come_only_from_a_project_in_the_same_workspace() {
+    let api = TestApi::new().await;
+    api.owner().await;
+    let rockets = api.acme(&["sam"]).await;
+    let own = api.patch(&format!("/api/projects/{rockets}"), json!({"release_mode": "own"})).header("orrery-workspace", "acme").send().await;
+    assert_eq!(own.status, 200, "{}", own.body);
+    let made = api.post("/api/projects", json!({"name": "Probe", "release_mode": "shared", "releases_from": rockets})).send().await;
+    assert_eq!(made.status, 400, "{}", made.body);
+    assert_eq!(made.body["message"], format!("No project \"{rockets}\" to take releases from"));
 }

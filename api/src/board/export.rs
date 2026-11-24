@@ -2,8 +2,9 @@
 // board where it is, as web/server/utils/board-export.ts makes it. The tables and which rows of each are its `EXPORTED`,
 // and its test (web/test/board-export.test.ts) keeps that list whole; the parity test keeps this one the same. Each row
 // is taken whole (`SELECT *`), so a column added to a table travels without a change here.
+use crate::access::scope::Workspace;
 use crate::db::{on_postgres, sql};
-use crate::error::{ApiError, Result};
+use crate::error::Result;
 use base64::Engine;
 use chrono::{SecondsFormat, Utc};
 use regex::Regex;
@@ -75,7 +76,7 @@ fn whole(row: &AnyRow) -> Result<Value> {
 
 async fn rows(conn: &mut AnyConnection, query: &str, binds: &[&str]) -> Result<Vec<Value>> {
     let text = sql(query);
-    let mut q = sqlx::query(&text);
+    let mut q = sqlx::query(text.clone());
     for bind in binds {
         q = q.bind(*bind);
     }
@@ -85,17 +86,16 @@ async fn rows(conn: &mut AnyConnection, query: &str, binds: &[&str]) -> Result<V
 /// The board `project` as one file's contents (`exportBoard`): 404 when there's no such project. Its images go in only
 /// `with_uploads` (ORR-1248): they're most of a big board's file, and one past a proxy's body cap can't be uploaded.
 pub async fn export(conn: &mut AnyConnection, project: &str, with_uploads: bool) -> Result<Value> {
-    let found = sqlx::query(&sql("SELECT id FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *conn).await?;
-    if found.is_none() {
-        return Err(ApiError::not_found(format!("No project \"{project}\"")));
-    }
+    let workspace = Workspace::of_project(conn, project).await?;
     sqlx::query(if on_postgres() { "BEGIN ISOLATION LEVEL REPEATABLE READ" } else { "BEGIN" }).execute(&mut *conn).await?;
-    let read = read(conn, project, with_uploads).await;
+    let read = read(conn, project, workspace.id(), with_uploads).await;
     sqlx::query(if read.is_ok() { "COMMIT" } else { "ROLLBACK" }).execute(&mut *conn).await?;
     read
 }
 
-async fn read(conn: &mut AnyConnection, project: &str, with_uploads: bool) -> Result<Value> {
+/// The board's rows, and of the workspace's own (`workspace`, the project's: ORR-1384) the statuses its issues are in and
+/// the images its text shows. Another workspace's upload named in the text isn't one of them, whoever wrote its id there.
+async fn read(conn: &mut AnyConnection, project: &str, workspace: &str, with_uploads: bool) -> Result<Value> {
     let mut tables = Map::new();
     for (table, which) in EXPORTED {
         tables.insert(table.to_string(), Value::Array(rows(conn, &format!("SELECT * FROM {table} WHERE {which}"), &[project]).await?));
@@ -116,8 +116,11 @@ async fn read(conn: &mut AnyConnection, project: &str, with_uploads: bool) -> Re
         .filter(|person| person["id"].as_str().is_some_and(|id| named.contains(id)))
         .collect();
     let used: HashSet<&Value> = issues.iter().map(|row| &row["status"]).collect();
-    let statuses: Vec<Value> =
-        rows(conn, "SELECT * FROM statuses ORDER BY position", &[]).await?.into_iter().filter(|status| used.contains(&status["id"])).collect();
+    let statuses: Vec<Value> = rows(conn, "SELECT * FROM statuses WHERE workspace = ? ORDER BY position", &[workspace])
+        .await?
+        .into_iter()
+        .filter(|status| used.contains(&status["id"]))
+        .collect();
     // The images its text shows.
     let text = serde_json::to_string(&tables).unwrap_or_default();
     let mut shown: Vec<&str> = Vec::new();
@@ -131,7 +134,8 @@ async fn read(conn: &mut AnyConnection, project: &str, with_uploads: bool) -> Re
         Vec::new()
     } else {
         let marks = vec!["?"; shown.len()].join(", ");
-        rows(conn, &format!("SELECT * FROM uploads WHERE id IN ({marks}) ORDER BY id"), &shown).await?
+        let binds: Vec<&str> = shown.iter().copied().chain([workspace]).collect();
+        rows(conn, &format!("SELECT * FROM uploads WHERE id IN ({marks}) AND workspace = ? ORDER BY id"), &binds).await?
     };
     for upload in &mut uploads {
         if let Some(data) = upload.get_mut("data") {

@@ -1,6 +1,7 @@
 // A project's milestones, written (ORR-974): what `createMilestone`, `updateMilestone` and `deleteMilestone` do
 // (web/server/store/milestones.ts), answering as their routes do. Reading them is `plans.rs`. Each write puts what it set
 // off in the outbox inside its transaction (ORR-929), and the router tells the Nuxt server's hooks from the reply.
+use crate::access::scope::ScopedProject;
 use crate::board::issues::Issues;
 use crate::changes::{self, Outbox};
 use crate::db::sql;
@@ -87,7 +88,7 @@ impl<'c> Milestones<'c> {
     /// The milestone's id, from its id, an old id or its full form, or a 404, as `milestoneId` and `milestoneRow` give it.
     pub(crate) async fn milestone_id(&mut self, project: &str, sent: &str) -> Result<(String, bool)> {
         let id = Issues::new(self.conn).resolve(project, sent, true).await?;
-        let row = sqlx::query(&sql("SELECT CAST(owned AS BIGINT) AS owned FROM milestones WHERE project = ? AND id = ?"))
+        let row = sqlx::query(sql("SELECT CAST(owned AS BIGINT) AS owned FROM milestones WHERE project = ? AND id = ?"))
             .bind(project)
             .bind(&id)
             .fetch_optional(&mut *self.conn)
@@ -97,7 +98,7 @@ impl<'c> Milestones<'c> {
     }
 
     async fn touch_project(&mut self, project: &str) -> Result<()> {
-        sqlx::query(&sql("UPDATE projects SET updated_at = ? WHERE id = ?")).bind(stamp()).bind(project).execute(&mut *self.conn).await?;
+        sqlx::query(sql("UPDATE projects SET updated_at = ? WHERE id = ?")).bind(stamp()).bind(project).execute(&mut *self.conn).await?;
         Ok(())
     }
 
@@ -106,20 +107,19 @@ impl<'c> Milestones<'c> {
     async fn next_id(&mut self, project: &str) -> Result<String> {
         loop {
             let row =
-                sqlx::query(&sql("UPDATE projects SET next_milestone = next_milestone + 1 WHERE id = ? RETURNING CAST(next_milestone - 1 AS BIGINT) AS n"))
+                sqlx::query(sql("UPDATE projects SET next_milestone = next_milestone + 1 WHERE id = ? RETURNING CAST(next_milestone - 1 AS BIGINT) AS n"))
                     .bind(project)
                     .fetch_one(&mut *self.conn)
                     .await?;
             let id = row.get::<i64, _>("n").to_string();
-            let taken = sqlx::query(&sql(
-                "SELECT 1 FROM milestones WHERE project = ? AND id = ? UNION SELECT 1 FROM milestone_aliases WHERE project = ? AND alias = ?",
-            ))
-            .bind(project)
-            .bind(&id)
-            .bind(project)
-            .bind(&id)
-            .fetch_optional(&mut *self.conn)
-            .await?;
+            let taken =
+                sqlx::query(sql("SELECT 1 FROM milestones WHERE project = ? AND id = ? UNION SELECT 1 FROM milestone_aliases WHERE project = ? AND alias = ?"))
+                    .bind(project)
+                    .bind(&id)
+                    .bind(project)
+                    .bind(&id)
+                    .fetch_optional(&mut *self.conn)
+                    .await?;
             if taken.is_none() {
                 return Ok(id);
             }
@@ -127,7 +127,7 @@ impl<'c> Milestones<'c> {
     }
 
     async fn next_position(&mut self, project: &str) -> Result<f64> {
-        let row = sqlx::query(&sql("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM milestones WHERE project = ?"))
+        let row = sqlx::query(sql("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM milestones WHERE project = ?"))
             .bind(project)
             .fetch_one(&mut *self.conn)
             .await?;
@@ -139,7 +139,8 @@ impl<'c> Milestones<'c> {
     }
 
     /// Makes a milestone with the project's next number: its id.
-    pub async fn create(&mut self, project: &str, body: &Value, actor: &Actor) -> Result<String> {
+    pub async fn create(&mut self, scoped: &ScopedProject, body: &Value, actor: &Actor) -> Result<String> {
+        let project = scoped.id();
         Issues::new(self.conn).project(project).await?;
         let input = check_input(body, false)?;
         let title = input["title"].as_str().unwrap_or_default().trim().to_string();
@@ -151,7 +152,7 @@ impl<'c> Milestones<'c> {
                 Some(at) => at,
                 None => self.next_position(project).await?,
             };
-            sqlx::query(&sql("INSERT INTO milestones (project, id, title, summary, priority, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"))
+            sqlx::query(sql("INSERT INTO milestones (project, id, title, summary, priority, position, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"))
                 .bind(project)
                 .bind(&id)
                 .bind(&title)
@@ -174,7 +175,8 @@ impl<'c> Milestones<'c> {
     }
 
     /// Changes its title, summary, priority or position: its id.
-    pub async fn update(&mut self, project: &str, sent: &str, body: &Value) -> Result<String> {
+    pub async fn update(&mut self, scoped: &ScopedProject, sent: &str, body: &Value) -> Result<String> {
+        let project = scoped.id();
         let (id, _) = self.milestone_id(project, sent).await?;
         let input = check_input(body, true)?;
         changes::begin(self.conn).await?;
@@ -187,7 +189,7 @@ impl<'c> Milestones<'c> {
             }
             sets.push("updated_at = ?".into());
             let statement = sql(&format!("UPDATE milestones SET {} WHERE project = ? AND id = ?", sets.join(", ")));
-            let mut query = sqlx::query(&statement);
+            let mut query = sqlx::query(statement.clone());
             for key in FIELDS {
                 match (key, input.get(key)) {
                     (_, None) => {}
@@ -211,7 +213,8 @@ impl<'c> Milestones<'c> {
     }
 
     /// Deletes it; its issues stay, in no milestone. One the owner made is theirs to delete.
-    pub async fn delete(&mut self, project: &str, sent: &str, actor: &Actor) -> Result<()> {
+    pub async fn delete(&mut self, scoped: &ScopedProject, sent: &str, actor: &Actor) -> Result<()> {
+        let project = scoped.id();
         let (id, owned) = self.milestone_id(project, sent).await?;
         if owned && !actor.owner {
             return Err(ApiError::refused_for(
@@ -220,7 +223,7 @@ impl<'c> Milestones<'c> {
             ));
         }
         // Each issue it held is told as moving out of it (ORR-984).
-        let held: Vec<String> = sqlx::query_scalar(&sql("SELECT id FROM issues WHERE project = ? AND milestone = ? ORDER BY id"))
+        let held: Vec<String> = sqlx::query_scalar(sql("SELECT id FROM issues WHERE project = ? AND milestone = ? ORDER BY id"))
             .bind(project)
             .bind(&id)
             .fetch_all(&mut *self.conn)
@@ -238,7 +241,7 @@ impl<'c> Milestones<'c> {
                 "UPDATE schedules SET milestone = NULL WHERE project = ? AND milestone = ?",
                 "DELETE FROM milestones WHERE project = ? AND id = ?",
             ] {
-                sqlx::query(&sql(statement)).bind(project).bind(&id).execute(&mut *self.conn).await?;
+                sqlx::query(sql(statement)).bind(project).bind(&id).execute(&mut *self.conn).await?;
             }
             self.touch_project(project).await?;
             self.effects.changed = vec![project.into()];

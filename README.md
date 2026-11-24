@@ -35,6 +35,10 @@ In practice:
 <td><img alt="A release being prepared: its notes and progress, buttons to freeze its features or mark it shipped, a changelog draft, and its issues by status with their sub-issues" src="docs/images/release-light.png"></td>
 <td><img alt="The Events page: what happened across every project, one line each with its time, level and kind, from issues made to sessions connecting" src="docs/images/events-light.png"></td>
 </tr>
+<tr>
+<td><img alt="A project's roadmap: its milestones in the column their issues put them in, each with its summary, a bar of its issues by status and how many are done" src="docs/images/roadmap-light.png"></td>
+<td><img alt="Connect an agent: the line that installs the launcher, which connects a repo with a click, the repos connected so far, and a line to give an agent instead" src="docs/images/connect-light.png"></td>
+</tr>
 </table>
 
 ## Features
@@ -97,7 +101,7 @@ You need:
 
    ```sh
    mkdir orrery && cd orrery
-   curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.22/compose.yml
+   curl -LO https://github.com/steffendybvik/orrery/releases/download/v1.0.0-rc.23/compose.yml
    docker compose up -d        # http://localhost:9000
    ```
 

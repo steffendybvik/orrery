@@ -321,3 +321,60 @@ async fn the_rest_of_a_big_board_comes_into_it_after_it() {
     assert_eq!(api.count("SELECT count(*) FROM signals WHERE project = 'copy'").await, 0, "nothing is signalled");
     assert_eq!(api.get("/api/projects/copy/comments/unanswered").send().await.body, json!([]));
 }
+
+/// A board's id and key are its workspace's (ORR-1350): one only another workspace has comes in with `-2` and the key
+/// as asked, and the later parts go to the id it was given. One its own workspace has is still a 409.
+#[tokio::test]
+async fn a_boards_id_or_key_another_workspace_has_is_no_clash() {
+    let api = TestApi::new().await;
+    let (project, file) = primes(&api).await;
+    api.acme(&["sam"]).await;
+    let reply = api.post("/api/boards", sent(&file, &project, "PRI")).header("orrery-workspace", "acme").send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert_eq!((&reply.body["id"], &reply.body["key"]), (&json!("primes-2"), &json!("PRI")), "{}", reply.body);
+    assert_eq!(api.count("SELECT count(*) FROM issues WHERE project = 'primes-2'").await, 2);
+    assert_eq!(api.count("SELECT count(*) FROM issues WHERE project = 'primes'").await, 2, "default's board is as it was");
+
+    let mut later = sent(&file, "primes-2", "PRI");
+    later["into"] = json!(true);
+    later["tables"] = json!({"projects": file["tables"]["projects"], "comments": file["tables"]["comments"]});
+    let added = api.post("/api/boards", later).header("orrery-workspace", "acme").send().await;
+    assert_eq!(added.status, 200, "{}", added.body);
+
+    let again = api.post("/api/boards", sent(&file, &project, "OTH")).send().await;
+    assert_eq!(again.status, 409, "{}", again.body);
+    let again = api.post("/api/boards", sent(&file, "fresh", "PRI")).send().await;
+    assert_eq!(again.status, 409, "{}", again.body);
+}
+
+/// What a board's file points at outside itself stays only within the workspace it comes into (ORR-1382): another
+/// workspace's releases, an issue there and a person only there are dropped as ones that aren't here, though the uploader
+/// is on that board. Into that workspace, the same file keeps all three.
+#[tokio::test]
+async fn a_boards_links_out_stay_inside_the_workspace_it_comes_into() {
+    let api = TestApi::new().await;
+    let (_, mut file) = primes(&api).await;
+    let rockets = api.acme(&["sam"]).await;
+    let launch = api.issue(&rockets, json!({"title": "Launch"})).await;
+    api.run("INSERT INTO people (id, name, role, created_at) VALUES ('bo', 'Bo', 'member', ?)", &["2026-11-23T00:00:00.000Z"]).await;
+    api.run("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('acme', 'bo', 'member', ?)", &["2026-11-23T00:00:00.000Z"]).await;
+    file["tables"]["projects"][0]["releases_from"] = json!(rockets);
+    file["tables"]["projects"][0]["release_mode"] = json!("shared");
+    file["tables"]["issue_links"] = json!([{"project": file["project"]["id"], "issue": "PRI-1", "on_project": rockets, "on_issue": launch,
+        "created_by": "sam", "owned": 0, "created_at": "2026-11-23T00:00:00.000Z"}]);
+    for issue in file["tables"]["issues"].as_array_mut().unwrap() {
+        issue["assignee"] = json!("bo");
+    }
+
+    let reply = api.post("/api/boards", sent(&file, "copy", "CPY")).send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert_eq!(api.count("SELECT count(*) FROM projects WHERE id = 'copy' AND releases_from IS NULL AND release_mode = 'none'").await, 1);
+    assert_eq!(api.count("SELECT count(*) FROM issue_links WHERE project = 'copy'").await, 0);
+    assert_eq!(api.count("SELECT count(*) FROM issues WHERE project = 'copy' AND assignee = 'bo'").await, 0);
+
+    let reply = api.post("/api/boards", sent(&file, "copy2", "CPZ")).header("orrery-workspace", "acme").send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert_eq!(api.count(&format!("SELECT count(*) FROM projects WHERE id = 'copy2' AND releases_from = '{rockets}'")).await, 1);
+    assert_eq!(api.count("SELECT count(*) FROM issue_links WHERE project = 'copy2'").await, 1);
+    assert_eq!(api.count("SELECT count(*) FROM issues WHERE project = 'copy2' AND assignee = 'bo'").await, 2);
+}

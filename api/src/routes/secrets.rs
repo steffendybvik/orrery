@@ -1,9 +1,9 @@
 // Reading secrets, never a value, and keeping what the local app sealed: the handlers and the routes they answer
 // (ORR-1048, ORR-1096).
+use crate::access::scope::{Across, Workspace};
 use crate::access::secrets::Secrets;
 use crate::access::seen::Seen;
 use crate::changes::Outbox;
-use crate::db::sql;
 use crate::error::{ApiError, Result};
 use crate::reply::reply;
 use crate::request::{actor_of, body_of, came_of};
@@ -15,7 +15,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use sqlx::{AnyConnection, Row};
+use sqlx::AnyConnection;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -31,21 +31,16 @@ pub(crate) fn routes() -> Router<Arc<App>> {
 /// The workspace a call is about (ORR-1107). The local app's names it: `?project=`'s, as egress and orrery's own
 /// requests name the project they're for, or `?workspace=`, or `Orrery-Workspace`, else `default`. Anyone else's is
 /// the one it acts in (`Seen::workspace`).
-async fn workspace_of(conn: &mut AnyConnection, headers: &HeaderMap, query: &HashMap<String, String>) -> Result<String> {
+async fn workspace_of(conn: &mut AnyConnection, headers: &HeaderMap, query: &HashMap<String, String>) -> Result<Workspace> {
     if !came_of(headers).server {
         return Seen::workspace(conn, headers).await;
     }
     let named = |key: &str| query.get(key).map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
     if let Some(workspace) = named("workspace") {
-        return Ok(workspace);
+        return Ok(Workspace::across(Across::Server, workspace));
     }
     match named("project").as_deref() {
-        Some(project) => sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?"))
-            .bind(project)
-            .fetch_optional(&mut *conn)
-            .await?
-            .map(|r| r.get::<String, _>("workspace"))
-            .ok_or_else(|| ApiError::not_found(format!("No project \"{project}\""))),
+        Some(project) => Workspace::of_project(conn, project).await,
         None => Seen::workspace(conn, headers).await,
     }
 }
@@ -61,8 +56,7 @@ async fn keep_sealed(
     local_app_only(&headers)?;
     let mut conn = app.pool.acquire().await?;
     let workspace = workspace_of(&mut conn, &headers, &query).await?;
-    let mut writes = SecretWrites::new(&mut conn);
-    writes.workspace = workspace;
+    let mut writes = SecretWrites::of(&mut conn, workspace);
     writes.outbox = Some(Outbox::new(actor_of(&headers)));
     writes.keep(&name, &body_of(&body)).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut writes.effects)))
@@ -72,8 +66,7 @@ async fn forget_sealed(State(app): Shared, Path(name): Path<String>, headers: He
     local_app_only(&headers)?;
     let mut conn = app.pool.acquire().await?;
     let workspace = workspace_of(&mut conn, &headers, &query).await?;
-    let mut writes = SecretWrites::new(&mut conn);
-    writes.workspace = workspace;
+    let mut writes = SecretWrites::of(&mut conn, workspace);
     writes.outbox = Some(Outbox::new(actor_of(&headers)));
     writes.forget(&name).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut writes.effects)))
@@ -90,8 +83,7 @@ async fn keep_use(
     local_app_only(&headers)?;
     let mut conn = app.pool.acquire().await?;
     let workspace = workspace_of(&mut conn, &headers, &query).await?;
-    let mut writes = SecretWrites::new(&mut conn);
-    writes.workspace = workspace;
+    let mut writes = SecretWrites::of(&mut conn, workspace);
     writes.outbox = Some(Outbox::new(actor_of(&headers)));
     writes.used(&name, &body_of(&body)).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut writes.effects)))
@@ -119,7 +111,7 @@ async fn read_sealed(State(app): Shared, Path(name): Path<String>, headers: Head
 async fn read_all_sealed(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     local_app_only(&headers)?;
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Secrets::new(&mut conn).all_sealed().await?).into_response())
+    Ok(Json(Secrets::of(&mut conn, Workspace::across(Across::Server, "default")).all_sealed().await?).into_response())
 }
 
 async fn list_secrets(State(app): Shared, headers: HeaderMap, Query(query): Query<HashMap<String, String>>) -> Result<Response> {

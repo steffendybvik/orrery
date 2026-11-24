@@ -180,7 +180,7 @@ export class Secrets {
         if (value.length < 8) throw badRequest('"value" is too short to be a secret (8 characters at least)')
         const hosts = hostsOf(input.hosts as string[])
         if (!hosts.length) throw badRequest('"hosts" needs at least one host it may be sent to, e.g. api.stripe.com')
-        const projects = await this.projectsOf(input.projects as string[] | null | undefined)
+        const projects = await this.projectsOf(input.projects as string[] | null | undefined, workspace)
         const now = new Date().toISOString()
         const before = await this.sealedRow(name, {workspace})
         await this.keepSealed(name, {value: this.seal(name, value, hosts, projects), last4: value.slice(-4), hosts, projects, created_by: actor.name, owned: !!actor.owner, at: now}, {workspace})
@@ -197,7 +197,7 @@ export class Secrets {
         const input = checkInput(body, NARROW_FIELDS, true)
         const was = {hosts: JSON.parse(row.hosts) as string[], projects: row.projects ? JSON.parse(row.projects) as string[] : null}
         const hosts = input.hosts === undefined ? was.hosts : hostsOf(input.hosts as string[])
-        const projects = input.projects === undefined ? was.projects : await this.projectsOf(input.projects as string[] | null)
+        const projects = input.projects === undefined ? was.projects : await this.projectsOf(input.projects as string[] | null, workspace)
         if (!hosts.length) throw badRequest('"hosts" needs at least one host; delete the secret to stop it going anywhere')
         const wasIn = was.projects
         const wider = hosts.some(h => !was.hosts.includes(h)) || (wasIn !== null && (projects === null || projects.some(p => !wasIn.includes(p))))
@@ -260,10 +260,14 @@ export class Secrets {
             throw badRequest(`"url" isn't a URL: ${template}`)
         }
         if (url.protocol !== 'https:') throw badRequest('Secrets only go over https')
-        const host = scrub(url.host)
+        // What's said and kept is the url as the agent wrote it, never the filled one: a value put in the host comes
+        // back lowercased, or cut at a `/`, in no form the scrubber knows, and a whole address's path is part of it (ORR-1389).
+        const asSent = sentAs(template)
         for (const [name, {hosts}] of secrets) {
-            if (!hosts.includes(url.host)) throw refusedFor('secrets.egress', `${name} may only go to ${hosts.join(', ')}, not ${host}`)
+            if (!hosts.includes(url.host)) throw refusedFor('secrets.egress', `${name} may only go to ${hosts.join(', ')}, not ${scrub(asSent.host)}`)
         }
+        // One of the hosts the secrets allow, so not a value.
+        const host = url.host
 
         const sent = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k, fill(v)]))
         if (text !== undefined && typeof (body as {body?: unknown}).body !== 'string' && !Object.keys(sent).some(k => k.toLowerCase() === 'content-type')) {
@@ -275,7 +279,7 @@ export class Secrets {
                 : undefined
         const record = async (status: number | null, error: string | null) => {
             for (const name of names) {
-                await this.keepUse(name, {method, host, path: scrub(url.pathname), project, issue, status, error, created_by: actor.name, created_at: new Date().toISOString()})
+                await this.keepUse(name, {method, host, path: scrub(asSent.path), project, issue, status, error, created_by: actor.name, created_at: new Date().toISOString()})
             }
             await this.changed(true)
             // Not its path: what the secret is used on is the secret's own record, not the log's.
@@ -380,10 +384,16 @@ export class Secrets {
         return row
     }
 
-    /** Projects as kept: each one there, by its id; none is null (any). */
-    private async projectsOf(sent: string[] | null | undefined): Promise<string[] | null> {
+    /** Projects as kept: each one there, by its id, and in the secret's workspace, as another workspace's project is
+     * answered as one that isn't there (ORR-1352); none is null (any). */
+    private async projectsOf(sent: string[] | null | undefined, workspace?: string): Promise<string[] | null> {
         if (!sent?.length) return null
-        const ids = await Promise.all(sent.map(p => this.store.projectId(p)))
+        const here = await this.workspaceOf({workspace})
+        const ids = await Promise.all(sent.map(async p => {
+            const id = await this.store.projectId(p)
+            if (await this.store.projectWorkspace(id) !== here) throw notFound(`No project "${p}"`)
+            return id
+        }))
         return [...new Set(ids)].sort()
     }
 
@@ -504,10 +514,24 @@ function fillUrl(template: string, fill: (part: string, escape?: (value: string)
     return fill(lead) + fill(path, inPath) + fill(query, encodeURIComponent)
 }
 
+/** Where `template` goes, as written, placeholders and all: never a filled value or any part of one. A url that
+ * starts with a whole address has its host in the secret, so it's said as that placeholder's. */
+function sentAs(template: string): {host: string, path: string} {
+    const lead = template.match(/^\{\{secret:[A-Za-z0-9_]+\}\}/)?.[0] ?? ''
+    const rest = template.slice(lead.length)
+    const at = rest.search(/[?#]/)
+    const before = at < 0 ? rest : rest.slice(0, at)
+    if (lead) return {host: `the address in ${lead}`, path: lead + before}
+    const parts = before.match(/^[A-Za-z][A-Za-z0-9+.-]*:[/\\]{2}([^/\\]*)(.*)$/s)
+    const [, authority = before, path = ''] = parts ?? []
+    return {host: authority.slice(authority.lastIndexOf('@') + 1), path: path || '/'}
+}
+
 const inPath = (value: string) => encodeURIComponent(value).replaceAll('%2F', '/')
 
-/** `scrub` puts the placeholder back wherever a value shows: as it is, URL- or form-encoded, JSON-escaped,
- * or inside base64 (as Basic auth sends it, a user name and all). `cut` drops what's left of one at the end
+/** `scrub` puts the placeholder back wherever a value shows: as it is, URL-encoded (once or twice) or form-encoded,
+ * JSON-escaped, in any case (an answer that upper-cases what it echoes: ORR-1392), or inside base64 (as Basic auth
+ * sends it, a user name and all). `cut` drops what's left of one at the end
  * of an answer cut short. It stops a value echoed back; the hosts are what stop one being sent away on purpose. */
 function scrubber(secrets: Map<string, {value: string}>): {scrub: (text: string) => string, cut: (text: string) => string} {
     const json = (value: string) => JSON.stringify(value).slice(1, -1)
@@ -515,7 +539,8 @@ function scrubber(secrets: Map<string, {value: string}>): {scrub: (text: string)
         // The URL's own escaping of a query adds `%27` for `'`, which encodeURIComponent leaves.
         value, encodeURIComponent(value), encodeURIComponent(value).replaceAll("'", '%27'), inPath(value),
         new URLSearchParams({v: value}).toString().slice(2), json(value), json(value).replaceAll('/', '\\/'),
-    ].map(form => ({form, name})))
+        encodeURIComponent(encodeURIComponent(value)),
+    ].map(form => ({form, name, any: new RegExp(form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')})))
         .sort((a, b) => b.form.length - a.form.length)
     // In base64 the value's characters depend on where it starts, so each of the three starts has its own run
     // of characters that only the value decides; one found takes the whole base64 word it's in.
@@ -524,15 +549,18 @@ function scrubber(secrets: Map<string, {value: string}>): {scrub: (text: string)
         const [from, to] = [Math.ceil(start * 8 / 6), Math.floor(bytes.length * 8 / 6)]
         return [bytes.toString('base64').slice(from, to), bytes.toString('base64url').slice(from, to)]
     }).filter(core => core.length >= 4).map(core => ({core, name})))
-    const starts = [...forms.map(f => f.form), ...cores.map(c => c.core)]
+    // A value's forms end an answer in any case; a base64 run only as it is.
+    const starts = [...forms.map(f => ({form: f.form.toLowerCase(), folded: true})), ...cores.map(c => ({form: c.core, folded: false}))]
     return {
         scrub: text => {
-            const plain = forms.reduce((out, {form, name}) => out.replaceAll(form, `{{secret:${name}}}`), text)
+            const plain = forms.reduce((out, {any, name}) => out.replace(any, `{{secret:${name}}}`), text)
             return cores.reduce((out, {core, name}) => replaceWords(out, core, `{{secret:${name}}}`), plain)
         },
         cut: text => {
-            const left = Math.max(0, ...starts.map(form => {
-                for (let k = Math.min(form.length - 1, text.length); k > 0; k--) if (text.endsWith(form.slice(0, k))) return k
+            const lower = text.toLowerCase()
+            const left = Math.max(0, ...starts.map(({form, folded}) => {
+                const end = folded ? lower : text
+                for (let k = Math.min(form.length - 1, text.length); k > 0; k--) if (end.endsWith(form.slice(0, k))) return k
                 return 0
             }))
             return text.slice(0, text.length - left)

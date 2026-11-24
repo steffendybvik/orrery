@@ -1,16 +1,33 @@
 import type {Who} from './auth'
 
-/** What one subscriber to `/api/events` hears (ORR-1195): the owner, or anyone with login off, everything; a member who
- * isn't the owner only the boards in `seen` (the projects they can see), and none of what's the owner's own (the bell,
- * chats, secrets, the event log, the settings). */
-export function streamHearing(who: Who | undefined, seen: () => Set<string>) {
-    const member = !!who && !who.owner
+/** What one subscriber to `/api/events` hears (ORR-1195, ORR-1347): with login off, everything; anyone signed in, the
+ * owner too, only the boards in `seen`, the projects of the tab's workspace they can see (undefined: every one, as for
+ * the owner with no API to ask); and the owner alone what's the owner's own (the bell, secrets, the event log, the
+ * settings). A chat is heard with its project. `workspace` is the tab's (`default` when it names none): an event log
+ * line is heard in its own workspace's tabs alone (ORR-1386). */
+export function streamHearing(who: Who | undefined, seen: () => Set<string> | undefined, workspace = 'default') {
+    const held = !!who
+    const sees = (project: string | null | undefined) => {
+        const projects = held ? seen() : undefined
+        return !projects || (!!project && projects.has(project))
+    }
     return {
-        member,
+        /** Whether what they hear is held to `seen`, which has to be asked of the API for them. */
+        held,
         /** Whether events about `project` reach them. */
-        sees: (project: string | null | undefined) => !member || (!!project && seen().has(project)),
+        sees,
         /** Whether what's the owner's own reaches them. */
-        ownersToo: !member,
+        ownersToo: !who || who.owner,
+        /** Whether a bell notice reaches them (ORR-1353): the owner's, with a project they see, as `GET /notices` keeps it. */
+        hearsNotice: (notice: unknown) => (!who || who.owner) && sees((notice as {project?: string} | null)?.project),
+        /** Whether an event log row reaches them (ORR-1353): the owner's, in the tab's workspace (ORR-1386: a member's
+         * refusal is in the member's), with a project they see, as `/events/log` keeps it; a row naming no project (a
+         * server error) is the installation's, so the owner's. A row from before lines named their workspace is `default`'s. */
+        hearsLogged: (logged: unknown) => {
+            const line = (logged as {event?: {project?: string | null, workspace?: string | null}} | null)?.event
+            if ((line?.workspace || 'default') !== workspace) return false
+            return (!who || who.owner) && (!line?.project || sees(line.project))
+        },
     }
 }
 

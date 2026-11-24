@@ -70,8 +70,22 @@ export default defineNuxtPlugin(async () => {
         return resolve(to, current)
     }) as Router['resolve']
 
+    /** The workspace a page opened outside them all filled its caches in: the one it fell back on as it opened. */
+    let openedIn: string | undefined
+
     router.beforeEach(async (to, from) => {
         const path = await addressOf(to.path, from.path)
+        // Into another workspace than the one this page is in is a fresh page (ORR-1396, ORR-1390), as the switcher
+        // makes it: every cache (projects, settings, epics, statuses, the bell, chats, the live stream) holds the
+        // workspace the page loaded in, and an in-app move never leaves it, so none of its rows can show, or be
+        // written to, in another one.
+        const going = workspaceIn(path ?? to.path)
+        // A page opened outside every workspace (`/connect`) filled its caches in the one it fell back on (ORR-1409).
+        const loaded = workspaceIn(location.pathname) ?? openedIn
+        if (going && loaded && going !== loaded) {
+            location.assign(resolve({path: path ?? to.path, query: to.query, hash: to.hash}).href)
+            return false
+        }
         // `/w/<workspace>/p/<project>`, as the plan first wrote it, is the project's page too. A push stays a push, so
         // Back still goes to the page before it: a redirect keeps the navigation's own `replace`.
         if (path && path !== to.path) return {path, query: to.query, hash: to.hash}
@@ -83,5 +97,5 @@ export default defineNuxtPlugin(async () => {
     if (useAuth().loggedOut.value) return
     const opened = await addressOf(location.pathname, '')
     if (opened && opened !== location.pathname) history.replaceState(history.state, '', opened + location.search + location.hash)
-    else if (OUTSIDE_WORKSPACE.includes(location.pathname)) known.value = await fallback()
+    else if (OUTSIDE_WORKSPACE.includes(location.pathname)) openedIn = known.value = await fallback()
 })

@@ -5,6 +5,7 @@
 // row, written here alone (`keepChatThrough` sends it, ORR-1135). A chat's messages are rows
 // of their own (`chat_messages`, ORR-1100), each added here, which gives it its id, and changed one at a time (a
 // request's answer, its drift), so the chat's requests can be asked and answered here too.
+use crate::access::scope::{Across, ScopedProject, Workspace};
 use crate::board::issue_edits::resolve_status;
 use crate::board::issue_writes::IssueWrites;
 use crate::board::issues::Issues;
@@ -169,7 +170,7 @@ impl<'c> Chats<'c> {
         kept.shift_remove("messages");
         let text = |key: &str| sent[key].as_str().unwrap_or_default().to_string();
         changes::begin(self.conn).await?;
-        let done = sqlx::query(&sql(
+        let done = sqlx::query(sql(
             "INSERT INTO chats (id, project, started_at, ended_at, chat) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET ended_at = excluded.ended_at, chat = excluded.chat",
         ))
         .bind(id)
@@ -193,8 +194,8 @@ impl<'c> Chats<'c> {
     }
 
     async fn forget_in(&mut self, id: &str) -> Result<()> {
-        sqlx::query(&sql("DELETE FROM chat_messages WHERE chat = ?")).bind(id).execute(&mut *self.conn).await?;
-        sqlx::query(&sql("DELETE FROM chats WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM chat_messages WHERE chat = ?")).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM chats WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
         Ok(())
     }
 
@@ -220,7 +221,7 @@ impl<'c> Chats<'c> {
         let last: i64 = sqlx::query("SELECT CAST(COALESCE(MAX(id), 0) AS BIGINT) AS n FROM chat_messages").fetch_one(&mut *self.conn).await?.get("n");
         let id = last + 1;
         let at = crate::write::stamp();
-        sqlx::query(&sql("INSERT INTO chat_messages (chat, id, at, message) VALUES (?, ?, ?, ?)"))
+        sqlx::query(sql("INSERT INTO chat_messages (chat, id, at, message) VALUES (?, ?, ?, ?)"))
             .bind(chat)
             .bind(id)
             .bind(&at)
@@ -252,7 +253,7 @@ impl<'c> Chats<'c> {
     }
 
     async fn change_in(&mut self, chat: &str, id: i64, message: serde_json::Map<String, Value>) -> Result<Value> {
-        let changed = sqlx::query(&sql("UPDATE chat_messages SET message = ? WHERE chat = ? AND id = ?"))
+        let changed = sqlx::query(sql("UPDATE chat_messages SET message = ? WHERE chat = ? AND id = ?"))
             .bind(Value::Object(message).to_string())
             .bind(chat)
             .bind(id)
@@ -261,7 +262,7 @@ impl<'c> Chats<'c> {
         if changed.rows_affected() == 0 {
             return Err(ApiError::not_found(format!("No message {id} in chat {chat}")));
         }
-        let row = sqlx::query(&sql("SELECT CAST(id AS BIGINT) AS id, at, message FROM chat_messages WHERE chat = ? AND id = ?"))
+        let row = sqlx::query(sql("SELECT CAST(id AS BIGINT) AS id, at, message FROM chat_messages WHERE chat = ? AND id = ?"))
             .bind(chat)
             .bind(id)
             .fetch_one(&mut *self.conn)
@@ -277,7 +278,7 @@ impl<'c> Chats<'c> {
             return Err(ApiError::bad_request("Send the answer as {\"text\": \"…\"}"));
         }
         let running: Option<String> =
-            sqlx::query_scalar(&sql("SELECT id FROM chats WHERE id = ? AND ended_at IS NULL")).bind(chat).fetch_optional(&mut *self.conn).await?;
+            sqlx::query_scalar(sql("SELECT id FROM chats WHERE id = ? AND ended_at IS NULL")).bind(chat).fetch_optional(&mut *self.conn).await?;
         if running.is_none() {
             return Err(ApiError::not_found(format!("No chat {chat}: it has ended")));
         }
@@ -310,7 +311,10 @@ impl<'c> Chats<'c> {
                 to = json!(handle.to_lowercase());
             }
         }
-        let from = crate::work::settings::Settings::new(&mut *self.conn).get().await?.get(setting).cloned().unwrap_or(Value::Null);
+        // What it's set to in the chat's own workspace, not `default`'s (ORR-1355).
+        let workspace: Option<String> = sqlx::query_scalar(sql("SELECT workspace FROM chats WHERE id = ?")).bind(chat).fetch_optional(&mut *self.conn).await?;
+        let workspace = workspace.map(|w| Workspace::across(Across::Stored, w)).unwrap_or_else(Workspace::installation);
+        let from = crate::work::settings::Settings::of(&mut *self.conn, workspace).get().await?.get(setting).cloned().unwrap_or(Value::Null);
         let why = body.get("why").and_then(Value::as_str).map(str::trim).unwrap_or_default().to_string();
         changes::begin(self.conn).await?;
         let done = self.ask_setting_in(chat, setting, from, to, why).await;
@@ -320,7 +324,7 @@ impl<'c> Chats<'c> {
 
     async fn ask_setting_in(&mut self, chat: &str, setting: &str, from: Value, to: Value, why: String) -> Result<Value> {
         let ended: Option<Option<String>> =
-            sqlx::query_scalar(&sql("SELECT ended_at FROM chats WHERE id = ?")).bind(chat).fetch_optional(&mut *self.conn).await?;
+            sqlx::query_scalar(sql("SELECT ended_at FROM chats WHERE id = ?")).bind(chat).fetch_optional(&mut *self.conn).await?;
         if !matches!(ended, Some(None)) {
             return Err(ApiError::not_found(format!("No chat {chat}: it has ended")));
         }
@@ -347,7 +351,8 @@ impl<'c> Chats<'c> {
     /// asked before for the same schedule, still unanswered, expires. A 404 when the chat isn't running.
     pub async fn ask_schedule(&mut self, chat: &str, body: &Value) -> Result<Value> {
         let own = self.running(chat).await?;
-        let project = self.project_for(&own, body).await?;
+        let scoped = self.project_for(chat, &own, body).await?;
+        let project = scoped.id().to_string();
         let mut request = crate::work::schedule_requests::ScheduleRequests::new(&mut *self.conn)
             .request(&project, body.get("schedule"), body.get("id"), "The owner's chat")
             .await?;
@@ -365,7 +370,8 @@ impl<'c> Chats<'c> {
     /// when the chat isn't running.
     pub async fn ask_release(&mut self, chat: &str, body: &Value) -> Result<Value> {
         let own = self.running(chat).await?;
-        let project = self.project_for(&own, body).await?;
+        let scoped = self.project_for(chat, &own, body).await?;
+        let project = scoped.id().to_string();
         let fields = body.get("release").and_then(Value::as_object).filter(|f| !f.is_empty());
         let Some(fields) = fields else {
             return Err(ApiError::bad_request(format!(
@@ -412,7 +418,8 @@ impl<'c> Chats<'c> {
     /// still unanswered, expires. A 404 when the chat isn't running.
     pub async fn ask_issue(&mut self, chat: &str, body: &Value) -> Result<Value> {
         let own = self.running(chat).await?;
-        let project = self.project_for(&own, body).await?;
+        let scoped = self.project_for(chat, &own, body).await?;
+        let project = scoped.id().to_string();
         let Some(fields) = body.get("issue").and_then(Value::as_object) else {
             return Err(ApiError::bad_request(format!("Send {{issue: {{…}}}}: its {}", CHAT_ISSUE_FIELDS.join(", "))));
         };
@@ -451,7 +458,8 @@ impl<'c> Chats<'c> {
     /// nothing until they allow it, and one asked before for any of the same issues, still unanswered, expires.
     pub async fn ask_move(&mut self, chat: &str, body: &Value) -> Result<Moved> {
         let own = self.running(chat).await?;
-        let project = self.project_for(&own, body).await?;
+        let scoped = self.project_for(chat, &own, body).await?;
+        let project = scoped.id().to_string();
         let asked = body.get("move").filter(|m| m.is_object()).cloned().unwrap_or(Value::Null);
         let ids =
             asked.get("ids").and_then(Value::as_array).filter(|ids| !ids.is_empty() && ids.iter().all(|i| i.as_str().is_some_and(|i| !i.trim().is_empty())));
@@ -541,7 +549,7 @@ impl<'c> Chats<'c> {
             })
         });
         if named {
-            return self.move_now(chat, &project, &moving, to).await;
+            return self.move_now(chat, &scoped, &moving, to).await;
         }
         let asking: Vec<String> = issues.iter().map(|i| text_of(&i["id"])).collect();
         let was: serde_json::Map<String, Value> = issues
@@ -580,7 +588,8 @@ impl<'c> Chats<'c> {
     /// own move on the page would be (`moveNow`): the same guards hold, each issue its own write. Any request still
     /// asking to move one expires, as it's been decided. One that fails stops the rest; those moved before it stay
     /// moved, and the error says so.
-    async fn move_now(&mut self, chat: &str, project: &str, ids: &[String], to: serde_json::Map<String, Value>) -> Result<Moved> {
+    async fn move_now(&mut self, chat: &str, scoped: &ScopedProject, ids: &[String], to: serde_json::Map<String, Value>) -> Result<Moved> {
+        let project = scoped.id();
         let owner = Actor { name: IssueWrites::new(&mut *self.conn).owner_id().await?, owner: true, ..Actor::default() };
         let mut set_off = Effects::default();
         let mut urgent = vec![];
@@ -589,7 +598,7 @@ impl<'c> Chats<'c> {
         for issue in ids {
             let mut writes = IssueWrites::new(&mut *self.conn);
             writes.outbox = self.outbox.as_ref().map(|_| Outbox::new(owner.clone()));
-            let edited = writes.edit_words(project, issue, &Value::Object(to.clone()), &owner).await;
+            let edited = writes.edit_words(scoped, issue, &Value::Object(to.clone()), &owner).await;
             absorb(&mut set_off, std::mem::take(&mut writes.effects));
             match edited {
                 Ok(made_urgent) => {
@@ -653,7 +662,8 @@ impl<'c> Chats<'c> {
     /// A line in the event log, as the local app's `useEventLog().note` writes one, and what it set off. One that can't
     /// be written isn't the request's failure: what it notes has happened.
     async fn note(&mut self, kind: &str, project: &str, message: &str, details: serde_json::Map<String, Value>) -> Effects {
-        let mut log = EventLog::new(&mut *self.conn);
+        let workspace = Workspace::of_project_or_none(&mut *self.conn, project).await.ok().flatten().unwrap_or_else(Workspace::installation);
+        let mut log = EventLog::of(&mut *self.conn, workspace);
         log.outbox = self.outbox.as_ref().map(|_| Outbox::new(Actor::default()));
         let line = json!({"level": "info", "kind": kind, "project": project, "message": message, "details": details});
         match log.write(&line).await {
@@ -665,22 +675,32 @@ impl<'c> Chats<'c> {
     /// The project of chat `chat`, a 404 unless it's running.
     async fn running(&mut self, chat: &str) -> Result<String> {
         let own: Option<String> =
-            sqlx::query_scalar(&sql("SELECT project FROM chats WHERE id = ? AND ended_at IS NULL")).bind(chat).fetch_optional(&mut *self.conn).await?;
+            sqlx::query_scalar(sql("SELECT project FROM chats WHERE id = ? AND ended_at IS NULL")).bind(chat).fetch_optional(&mut *self.conn).await?;
         own.ok_or_else(|| ApiError::not_found(format!("No chat {chat}: it has ended")))
     }
 
     /// The project a chat's request is on (`projectFor`): the one `body` names, so a chat can ask on another project
     /// than its own (ORR-1063), or else the chat's own, `own`.
-    async fn project_for(&mut self, own: &str, body: &Value) -> Result<String> {
-        match body.get("project") {
-            None | Some(Value::Null) => Ok(own.to_string()),
-            Some(Value::String(p)) if p.trim() == own => Ok(own.to_string()),
+    async fn project_for(&mut self, chat: &str, own: &str, body: &Value) -> Result<ScopedProject> {
+        let named = match body.get("project") {
+            None | Some(Value::Null) => own.to_string(),
+            Some(Value::String(p)) if p.trim() == own => own.to_string(),
             Some(Value::String(p)) if !p.trim().is_empty() => {
+                // Only a project of the chat's own workspace: another's is as if it weren't here (ORR-1395).
+                let workspace: Option<String> =
+                    sqlx::query_scalar(sql("SELECT workspace FROM chats WHERE id = ?")).bind(chat).fetch_optional(&mut *self.conn).await?;
+                let there = Workspace::of_project_or_none(&mut *self.conn, p.trim()).await?;
+                if workspace.is_none() || there.as_ref().map(Workspace::id) != workspace.as_deref() {
+                    return Err(ApiError::not_found(format!("No project \"{}\"", p.trim())));
+                }
                 crate::board::issue_writes::IssueWrites::new(&mut *self.conn).project_uid(p.trim()).await?;
-                Ok(p.trim().to_string())
+                p.trim().to_string()
             }
-            Some(_) => Err(ApiError::bad_request("Send \"project\" as a project's id, or leave it out for the chat's own")),
-        }
+            Some(_) => return Err(ApiError::bad_request("Send \"project\" as a project's id, or leave it out for the chat's own")),
+        };
+        // The chat's own project, or one of its workspace it named, checked above: a chat acts in the workspace it was
+        // started in (`Across::Stored`).
+        ScopedProject::across(&mut *self.conn, Across::Stored, &named).await
     }
 
     /// The chat's session asking to make a doc, or change doc `id` (its `create_doc` and `update_doc`, `askDoc`): `{doc,
@@ -690,7 +710,8 @@ impl<'c> Chats<'c> {
     /// expires. A 404 when the chat isn't running.
     pub async fn ask_doc(&mut self, chat: &str, body: &Value) -> Result<Value> {
         let own = self.running(chat).await?;
-        let project = self.project_for(&own, body).await?;
+        let scoped = self.project_for(chat, &own, body).await?;
+        let project = scoped.id().to_string();
         let mut request = crate::board::docs::Docs::new(&mut *self.conn).chat_request(&project, body.get("doc"), body.get("id")).await?;
         if project != own {
             request["project"] = json!(project);
@@ -730,7 +751,7 @@ impl<'c> Chats<'c> {
 
     /// A 404 unless the chat is kept.
     async fn known(&mut self, chat: &str) -> Result<()> {
-        let kept: Option<String> = sqlx::query_scalar(&sql("SELECT id FROM chats WHERE id = ?")).bind(chat).fetch_optional(&mut *self.conn).await?;
+        let kept: Option<String> = sqlx::query_scalar(sql("SELECT id FROM chats WHERE id = ?")).bind(chat).fetch_optional(&mut *self.conn).await?;
         kept.map(|_| ()).ok_or_else(|| ApiError::not_found(format!("No chat {chat}")))
     }
 
@@ -738,7 +759,7 @@ impl<'c> Chats<'c> {
     async fn messages(&mut self, chat: Option<&str>) -> Result<std::collections::HashMap<String, Vec<Value>>> {
         let rows = match chat {
             Some(chat) => {
-                sqlx::query(&sql("SELECT chat, CAST(id AS BIGINT) AS id, at, message FROM chat_messages WHERE chat = ? ORDER BY id"))
+                sqlx::query(sql("SELECT chat, CAST(id AS BIGINT) AS id, at, message FROM chat_messages WHERE chat = ? ORDER BY id"))
                     .bind(chat)
                     .fetch_all(&mut *self.conn)
                     .await?
@@ -764,7 +785,7 @@ impl<'c> Chats<'c> {
 
     /// One chat, running or ended, or a 404 (`readChat`).
     pub async fn get(&mut self, id: &str) -> Result<Value> {
-        let row = sqlx::query(&sql("SELECT project, chat FROM chats WHERE id = ?"))
+        let row = sqlx::query(sql("SELECT project, chat FROM chats WHERE id = ?"))
             .bind(id)
             .fetch_optional(&mut *self.conn)
             .await?

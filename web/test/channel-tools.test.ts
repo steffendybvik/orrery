@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 // @ts-expect-error: the channel is plain JavaScript, run by node from other repos
-import {ASK_TOOLS, CHANNELS_OWN, CHANNELS_REQUESTS, CHAT_READS, CHAT_REQUESTS, NOT_FOR_CHAT, ON_DEMAND, RELEASE_TOOLS, SERVED_ON_DEMAND, TOOLS, orreryTools, toolsFor} from '../../channel/tools.mjs'
+import {ASK_TOOLS, CHANNELS_OWN, CHANNELS_REQUESTS, CHAT_READS, CHAT_REQUESTS, MILESTONE_TOOLS, NOT_FOR_CHAT, ON_DEMAND, RELEASE_TOOLS, SERVED_ON_DEMAND, TOOLS, orreryTools, toolsFor} from '../../channel/tools.mjs'
 
 type Call = {method: string, url: string, headers: Record<string, string>, body?: unknown}
 
@@ -433,6 +433,35 @@ describe("the channel's tools", () => {
         expect(toolsFor(['greenhouse'], {untrusted: true, loaded: ['releases']}).map((t: {name: string}) => t.name)).not.toContain('create_release')
     })
 
+    it('in a work session, list, make and change milestones at once, their tools a group of more_tools (ORR-1397)', async () => {
+        const calls: {url: string, method: string, body?: unknown}[] = []
+        const milestone = {id: '7', title: 'Cheap devices', summary: 'Runs on a phone\nand more', column: 'todo', priority: 'P1', kind: 'todo', kinds: {backlog: 0, todo: 2, started: 1, done: 1}}
+        const fetch = async (url: string, init: {method: string, body?: string}) => {
+            calls.push({url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined})
+            if (url.endsWith('/milestones/9')) return {ok: false, status: 404, statusText: 'Not Found', text: async () => JSON.stringify({message: 'No milestone "9" in greenhouse'})}
+            if (url.includes('/issues?')) return {ok: true, status: 200, statusText: '', text: async () => '[]'}
+            if (url.endsWith('/milestones') && init.method === 'GET') return {ok: true, status: 200, statusText: '', text: async () => JSON.stringify([milestone])}
+            return {ok: true, status: 201, statusText: '', text: async () => JSON.stringify(milestone)}
+        }
+        const call = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', fetch}) as (name: string, args?: object) => Promise<{isError?: boolean, content: {text: string}[]}>
+        expect((await call('milestones')).content[0]!.text).toBe('7 [todo, P1] Cheap devices: 1/4 done\n    Runs on a phone')
+        expect((await call('create_milestone', {title: 'Cheap devices', priority: 'P1', position: 0})).content[0]!.text).toBe('Made milestone 7: Cheap devices. Put issues in it with update_issue (milestone: "7").')
+        expect((await call('update_milestone', {id: '7', title: 'Cheap devices'})).content[0]!.text).toBe('Milestone 7 is now: Cheap devices')
+        expect(calls.slice(1)).toEqual([
+            {url: 'http://o/api/projects/greenhouse/milestones', method: 'POST', body: {title: 'Cheap devices', priority: 'P1', position: 0}},
+            {url: 'http://o/api/projects/greenhouse/milestones/7', method: 'PATCH', body: {title: 'Cheap devices'}},
+        ])
+        // An empty milestone lists nothing; one that isn't there says so.
+        expect((await call('issues', {milestone: '7'})).content[0]!.text).toBe('No issues match.')
+        expect((await call('issues', {milestone: '9'})).content[0]!.text).toBe('No milestone "9" in greenhouse: the milestones tool lists them.')
+        expect(ON_DEMAND.milestones).toEqual(['milestones', 'create_milestone', 'update_milestone'])
+        expect(toolsFor(['greenhouse']).map((t: {name: string}) => t.name)).not.toContain('milestones')
+        expect(toolsFor(['greenhouse'], {loaded: ['milestones']}).map((t: {name: string}) => t.name)).toEqual(expect.arrayContaining(['milestones', 'create_milestone', 'update_milestone']))
+        expect(toolsFor(['greenhouse'], {untrusted: true, loaded: ['milestones']}).map((t: {name: string}) => t.name)).not.toContain('milestones')
+        const untrusted = orreryTools({api: 'http://o/api/projects/greenhouse', session: 'c', untrusted: true, fetch}) as typeof call
+        expect((await untrusted('create_milestone', {title: 'x'})).isError).toBe(true)
+    })
+
     it("in the owner's chat, change an issue's fields with nothing about its state of work", async () => {
         const calls: {url: string, method: string, body?: unknown}[] = []
         const fetch = async (url: string, init: {method: string, body?: string}) => {
@@ -819,7 +848,7 @@ describe('one channel serving several projects', () => {
         expect(docs.inputSchema.required).toEqual(['project'])
         expect(docs.inputSchema.properties.project!.enum).toEqual(['greenhouse', 'pantry'])
         expect(tools.find(t => t.name === 'issue')!.inputSchema.properties).not.toHaveProperty('project')
-        expect(toolsFor(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug', 'review', 'epics', 'releases', 'folder']})).toEqual([...TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)), ...ASK_TOOLS, ...RELEASE_TOOLS])
+        expect(toolsFor(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug', 'review', 'epics', 'releases', 'milestones', 'folder']})).toEqual([...TOOLS.filter((t: {name: string}) => !CHAT_READS.includes(t.name)), ...ASK_TOOLS, ...RELEASE_TOOLS, ...MILESTONE_TOOLS])
     })
 })
 
@@ -874,7 +903,7 @@ describe('tools loaded on demand', () => {
         expect(await call('more_tools', {group: 'everything'})).toMatchObject({isError: true})
         // Not listed yet, it still answers when called by its name.
         expect(await call('secrets')).not.toMatchObject({isError: true})
-        expect(tools({loaded: ['schedules', 'secrets', 'debug', 'review', 'epics', 'releases', 'folder']})).not.toContain('more_tools')
+        expect(tools({loaded: ['schedules', 'secrets', 'debug', 'review', 'epics', 'releases', 'milestones', 'folder']})).not.toContain('more_tools')
     })
 
     it("isn't the chat's or an untrusted run's, and an untrusted run can't call what it isn't given", async () => {

@@ -18,8 +18,13 @@ const manni: Actor = {name: 'manni', owner: false, asked: true, person: 'manni'}
 const who = (session: string): Listener => ({session, heard: true, stops: false, untrusted: false, chat: false, person: SESSIONS[session]})
 const add = async (assignee?: string) => (await store.createIssue('greenhouse', {title: 'Seed trays', ...assignee ? {assignee} : {}}, owner)).id
 
+/** The hand-out's last step, starting sessions for what nobody took (ORR-1399): a test waits for it, so it doesn't run
+ * after the globals are unstubbed. */
+const startForTodo = vi.fn(async () => 0)
+
 beforeEach(async () => {
     signals = []
+    startForTodo.mockClear()
     store = await apiStore(() => {}, signal => signals.push(signal))
     store.sessionPerson = session => SESSIONS[session]
     await store.createProject({name: 'greenhouse', key: 'GRE'})
@@ -38,6 +43,7 @@ beforeEach(async () => {
     vi.stubGlobal('pooled', (s: Signal) => !s.target)
     vi.stubGlobal('take', () => true)
     vi.stubGlobal('handBack', () => {})
+    vi.stubGlobal('startForTodo', startForTodo)
     vi.resetModules()
     vi.doMock('../server/utils/signal-payload', () => ({signalPayload: async (_store: unknown, _project: string, s: Signal) => ({id: s.id})}))
 })
@@ -144,6 +150,7 @@ describe('a move into Todo', () => {
         vi.useRealTimers()
         const sent = () => signals.filter(s => s.target && s.issue).map(s => [s.issue, s.target])
         await vi.waitFor(() => expect(sent()).toContainEqual([last, 'skoll-a']))
+        await vi.waitFor(() => expect(startForTodo).toHaveBeenCalled())
         return sent().filter(([issue]) => issue !== last)
     }
 
@@ -186,6 +193,7 @@ describe('a move into Todo', () => {
         vi.useRealTimers()
         const sent = () => signals.filter(s => s.target && s.issue).map(s => [s.issue, s.target])
         await vi.waitFor(() => expect(sent()).toContainEqual([id, 'skoll-a']))
+        await vi.waitFor(() => expect(startForTodo).toHaveBeenCalled())
         expect(sent()).toEqual([[id, 'skoll-a']])
     })
 

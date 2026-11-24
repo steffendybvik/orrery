@@ -11,7 +11,7 @@ use tower::ServiceExt;
 
 /// An outbox row, as a write's transaction puts one in; its id.
 async fn change(api: &TestApi, kind: &str, project: Option<&str>, payload: Option<&str>, untrusted: bool, created_at: &str) -> i64 {
-    sqlx::query(&crate::db::sql("INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, payload, created_at) VALUES (?, ?, 'PRI-1', 'claude', 0, 's1', ?, ?, ?)"))
+    sqlx::query(crate::db::sql("INSERT INTO changes (kind, project, subject, actor, owner, session, untrusted, payload, created_at) VALUES (?, ?, 'PRI-1', 'claude', 0, 's1', ?, ?, ?)"))
         .bind(kind)
         .bind(project.map(str::to_owned))
         .bind(i32::from(untrusted))
@@ -31,7 +31,7 @@ async fn first_event(app: &Arc<App>, after: Option<&str>, last_event_id: Option<
         .uri(after.map_or("/api/changes".into(), |a| format!("/api/changes?after={a}")))
         .header("orrery-api-token", TOKEN)
         .header("orrery-database", &app.database)
-        .header("orrery-came", "loopback")
+        .header("orrery-came", "server")
         .header("accept", "text/event-stream");
     if let Some(id) = last_event_id {
         request = request.header("last-event-id", id);
@@ -98,7 +98,7 @@ async fn a_cursor_whose_row_isnt_kept_is_a_gap_carrying_on_from_the_newest() {
     let api = TestApi::new().await;
     let first = change(&api, "settings", None, None, false, AT).await;
     let newest = change(&api, "epics", None, None, false, AT).await;
-    sqlx::query(&crate::db::sql("DELETE FROM changes WHERE id = ?")).bind(first).execute(&api.app.pool).await.unwrap();
+    sqlx::query(crate::db::sql("DELETE FROM changes WHERE id = ?")).bind(first).execute(&api.app.pool).await.unwrap();
     let gap = api.get(&format!("/api/changes?after={first}")).send().await;
     assert_eq!(gap.body, json!({"changes": [], "last": newest, "gap": true}));
     let elsewhere = api.get("/api/changes?after=99999").send().await;
@@ -130,6 +130,9 @@ async fn the_feed_answers_only_the_router_in_front() {
     change(&api, "settings", None, None, false, AT).await;
     assert_eq!(api.get("/api/changes").without("orrery-api-token").send().await.status, 401);
     assert_eq!(api.get("/api/changes").header("orrery-database", "another").send().await.status, 421);
+    // A request the router passes on from a page or a session isn't the local app's own (ORR-1386).
+    let passed = api.get("/api/changes").header("orrery-came", "loopback").send().await;
+    assert_eq!(passed.status, 403, "{}", passed.body);
 }
 
 #[tokio::test]
@@ -178,7 +181,7 @@ async fn a_stream_sends_a_write_committed_while_it_waits() {
     let api = TestApi::new().await;
     let write = async {
         tokio::time::sleep(Duration::from_millis(200)).await;
-        sqlx::query(&crate::db::sql("INSERT INTO changes (kind, owner, untrusted, created_at) VALUES ('settings', 1, 0, ?)"))
+        sqlx::query(crate::db::sql("INSERT INTO changes (kind, owner, untrusted, created_at) VALUES ('settings', 1, 0, ?)"))
             .bind(AT)
             .execute(&api.app.pool)
             .await

@@ -1,8 +1,8 @@
 // The owner moving an issue into Todo, or making one there, hands it to an idle session at once (ORR-515), without
 // Focus on this. Each issue goes, as a focus aimed at
 // it, to a different idle listening session out of work: one session per issue, and never one that's busy, so a
-// working session isn't interrupted. With nobody idle, the issue waits in Todo as before: nothing is queued and no
-// session is started. A burst of moves (a bulk move to Todo) is collected first, so the most urgent go out first and
+// working session isn't interrupted. With nobody idle, nothing is queued: a session is started for it instead, within
+// the limit (todo-start.ts, ORR-1399), or the next one out of work picks it. A burst of moves (a bulk move to Todo) is collected first, so the most urgent go out first and
 // no session is handed two. An agent's move, a schedule run's or an untrusted session's sends nothing: only the
 // owner's signals reach sessions.
 //
@@ -64,6 +64,8 @@ export function heardTodo({event, cause}: {event: OrreryEvent, cause?: unknown})
             for (const [project, issues] of linked) {
                 await handUnblocked(project, issues).catch(error => console.error(`[orrery] handing out what ${project}'s issues unblocked:`, error))
             }
+            // What no idle session took gets a session started for it, within the limit (ORR-1399).
+            await startForTodo().catch(error => console.error('[orrery] starting sessions for Todo work:', error))
         })()
     }, TODO_AFTER)
 }

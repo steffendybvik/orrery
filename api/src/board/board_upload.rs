@@ -203,7 +203,7 @@ impl People {
 impl Writer<'_> {
     async fn exists(&mut self, query: &str, binds: &[&str]) -> Result<bool> {
         let text = sql(query);
-        let mut q = sqlx::query(&text);
+        let mut q = sqlx::query(text.clone());
         for bind in binds {
             q = q.bind(*bind);
         }
@@ -240,7 +240,7 @@ impl Writer<'_> {
             keys.iter().map(|key| place(key)).collect::<Vec<_>>().join(", "),
             if returning { " RETURNING id" } else { "" },
         ));
-        let mut q = sqlx::query(&text);
+        let mut q = sqlx::query(text.clone());
         for key in &keys {
             let value = &row[key.as_str()];
             // Postgres casts the text to the column's type; SQLite keeps a number a number.
@@ -269,7 +269,8 @@ impl Writer<'_> {
         if self.exists("SELECT 1 FROM projects WHERE id = ?", &[id]).await? {
             return Err(ApiError::conflict(format!("There is already a project \"{id}\": choose another id")));
         }
-        if self.exists("SELECT 1 FROM projects WHERE key = ?", &[key]).await? {
+        // A key is its workspace's: another workspace's project with it is no clash (ORR-1350).
+        if self.exists("SELECT 1 FROM projects WHERE key = ? AND workspace = ?", &[key, workspace]).await? {
             return Err(ApiError::conflict(format!("There is already a project with the key {key}: choose another")));
         }
         let now = stamp();
@@ -278,7 +279,7 @@ impl Writer<'_> {
 
         // The workspace's own statuses (ORR-1110): by id, else by name, else the first of their kind. People by name, and
         // an open issue with nobody here goes unassigned.
-        let statuses: Vec<(String, String, String)> = sqlx::query(&sql("SELECT id, name, kind FROM statuses WHERE workspace = ? ORDER BY position"))
+        let statuses: Vec<(String, String, String)> = sqlx::query(sql("SELECT id, name, kind FROM statuses WHERE workspace = ? ORDER BY position"))
             .bind(workspace)
             .fetch_all(&mut *self.conn)
             .await?
@@ -305,7 +306,7 @@ impl Writer<'_> {
                 .map(pair)
                 .unwrap_or_else(|| ("backlog".into(), "backlog".into()))
         };
-        let people = self.people(body).await?;
+        let people = self.people(body, workspace).await?;
         let person_for = |who: Option<&Value>| people.of(who);
         let on_this_board = |row: &Row| -> Row {
             let mut row = row.clone();
@@ -323,11 +324,10 @@ impl Writer<'_> {
 
         self.bring_uploads(body.get("uploads"), actor, workspace).await?;
 
-        // What points outside the board stays only where it leads somewhere here that the uploader may see.
+        // What points outside the board stays only where it leads somewhere here that the uploader may see, in the
+        // workspace the board comes into: another workspace's project is dropped as one that isn't here (ORR-1382).
         let releases_from = match source.get("releases_from") {
-            Some(Value::String(from)) if self.exists("SELECT 1 FROM project_members WHERE project = ? AND person = ?", &[from.as_str(), holder]).await? => {
-                Value::String(from.clone())
-            }
+            Some(Value::String(from)) if self.on_a_board_here(from, holder, workspace).await? => Value::String(from.clone()),
             _ => Value::Null,
         };
         let mut project = source.clone();
@@ -367,7 +367,7 @@ impl Writer<'_> {
             project.insert(column.into(), value);
         }
         self.insert("projects", &project, false).await?;
-        sqlx::query(&sql("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'owner', ?)"))
+        sqlx::query(sql("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'owner', ?)"))
             .bind(id)
             .bind(holder)
             .bind(&now)
@@ -377,7 +377,7 @@ impl Writer<'_> {
             if let Value::String(person) = person_for(member.get("person")) {
                 if person != holder {
                     let at = member.get("created_at").filter(|at| !at.is_null()).map(said).unwrap_or_else(|| now.clone());
-                    sqlx::query(&sql("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'member', ?) ON CONFLICT DO NOTHING"))
+                    sqlx::query(sql("INSERT INTO project_members (project, person, role, created_at) VALUES (?, ?, 'member', ?) ON CONFLICT DO NOTHING"))
                         .bind(id)
                         .bind(&person)
                         .bind(&at)
@@ -457,7 +457,7 @@ impl Writer<'_> {
             if !inside {
                 let Value::String(on) = &on else { continue };
                 let issue = link.get("on_issue").map(said).unwrap_or_default();
-                let seen = self.exists("SELECT 1 FROM project_members WHERE project = ? AND person = ?", &[on.as_str(), holder]).await?;
+                let seen = self.on_a_board_here(on, holder, workspace).await?;
                 if !seen || !self.exists("SELECT 1 FROM issues WHERE project = ? AND id = ?", &[on.as_str(), issue.as_str()]).await? {
                     continue;
                 }
@@ -489,7 +489,7 @@ impl Writer<'_> {
         let exported = body.get("exported_at").and_then(Value::as_str);
         for issue in &issues {
             let issue = issue.get("id").map(said).unwrap_or_default();
-            sqlx::query(&sql("INSERT INTO issue_events (project, issue, field, after, created_by, owned, created_at) VALUES (?, ?, 'uploaded', ?, ?, ?, ?)"))
+            sqlx::query(sql("INSERT INTO issue_events (project, issue, field, after, created_by, owned, created_at) VALUES (?, ?, 'uploaded', ?, ?, ?, ?)"))
                 .bind(id)
                 .bind(&issue)
                 .bind(exported)
@@ -502,14 +502,26 @@ impl Writer<'_> {
         Ok(())
     }
 
-    /// The people here, and those the file names, to find one by name.
-    async fn people(&mut self, body: &Value) -> Result<People> {
-        let here: Vec<(String, String)> = sqlx::query("SELECT id, name FROM people")
-            .fetch_all(&mut *self.conn)
-            .await?
-            .iter()
-            .map(|row| (row.get::<String, _>("id"), row.get::<String, _>("name")))
-            .collect();
+    /// Whether `project` is in `workspace` and `holder` is on its board: what a link out of an uploaded board may lead to.
+    async fn on_a_board_here(&mut self, project: &str, holder: &str, workspace: &str) -> Result<bool> {
+        self.exists(
+            "SELECT 1 FROM projects p JOIN project_members m ON m.project = p.id WHERE p.id = ? AND p.workspace = ? AND m.person = ?",
+            &[project, workspace, holder],
+        )
+        .await
+    }
+
+    /// The people of the workspace the board comes into, and those the file names, to find one by name. Someone only
+    /// in another workspace isn't found, so the file can't put them on the board or tell that they're here (ORR-1382).
+    async fn people(&mut self, body: &Value, workspace: &str) -> Result<People> {
+        let here: Vec<(String, String)> =
+            sqlx::query(sql("SELECT p.id, p.name FROM people p JOIN workspace_members w ON w.person = p.id WHERE w.workspace = ?"))
+                .bind(workspace)
+                .fetch_all(&mut *self.conn)
+                .await?
+                .iter()
+                .map(|row| (row.get::<String, _>("id"), row.get::<String, _>("name")))
+                .collect();
         let named: HashMap<String, String> = rows(body.get("people"))
             .iter()
             .map(|person| (person.get("id").map(said).unwrap_or_default().to_lowercase(), person.get("name").map(said).unwrap_or_default().to_lowercase()))
@@ -530,7 +542,7 @@ impl Writer<'_> {
         if !held {
             return Err(ApiError::not_found(format!("No board {id} of yours to add to")));
         }
-        let people = self.people(body).await?;
+        let people = self.people(body, workspace).await?;
         self.later(upload, tables, &people).await?;
         Ok(())
     }
@@ -594,7 +606,7 @@ impl Writer<'_> {
         for release in table("releases") {
             if let Some(&mark) = release.get("doc_mark").and_then(|m| revisions.get(&said(m))) {
                 let version = release.get("version").map(said).unwrap_or_default();
-                sqlx::query(&sql("UPDATE releases SET doc_mark = ? WHERE project = ? AND version = ?"))
+                sqlx::query(sql("UPDATE releases SET doc_mark = ? WHERE project = ? AND version = ?"))
                     .bind(mark)
                     .bind(id)
                     .bind(&version)
@@ -629,7 +641,7 @@ impl Writer<'_> {
                 continue;
             }
             let name: Option<String> = upload.get("name").and_then(Value::as_str).map(|n| n.chars().take(200).collect());
-            sqlx::query(&sql("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at, workspace) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)"))
+            sqlx::query(sql("INSERT INTO uploads (id, type, name, size, data, created_by, owned, created_at, workspace) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)"))
                 .bind(id)
                 .bind(kind)
                 .bind(name)

@@ -4,6 +4,7 @@
 // comment do. A new or edited comment reaches the session on its issue and the owner's bell from the Nuxt server, which
 // knows the sessions: the reply says which (`Handoff`), and the router passes it on. They're writes on an issue, so
 // they're methods of `IssueWrites` (issue_writes.rs), with the rails they share.
+use crate::access::scope::ScopedProject;
 use crate::board::issue_writes::IssueWrites;
 use crate::changes;
 use crate::db::sql;
@@ -161,7 +162,7 @@ impl IssueWrites<'_> {
             let marks = vec!["?"; comments.len()].join(", ");
             let query = format!("SELECT CAST(comment AS BIGINT) AS comment, CAST(schedule AS BIGINT) AS schedule, title, changes, body, state FROM schedule_requests WHERE comment IN ({marks})");
             let query = sql(&query);
-            let mut asked = sqlx::query(&query);
+            let mut asked = sqlx::query(query.clone());
             for comment in &comments {
                 asked = asked.bind(comment["id"].as_i64().unwrap_or_default());
             }
@@ -188,31 +189,34 @@ impl IssueWrites<'_> {
     }
 
     /// The issue's comments, oldest first.
-    pub async fn list(&mut self, project: &str, sent: &str) -> Result<Value> {
+    pub async fn list(&mut self, scoped: &ScopedProject, sent: &str) -> Result<Value> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let query = format!("SELECT {} FROM comments c WHERE c.project = ? AND c.issue = ? ORDER BY c.created_at, c.id", columns());
-        let rows = sqlx::query(&sql(&query)).bind(project).bind(&issue).fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(sql(&query)).bind(project).bind(&issue).fetch_all(&mut *self.conn).await?;
         Ok(Value::Array(self.with_schedule_requests(rows.iter().map(comment_of).collect()).await?))
     }
 
     /// Who changed what on the issue, and when, oldest first.
-    pub async fn activity(&mut self, project: &str, sent: &str) -> Result<Value> {
+    pub async fn activity(&mut self, scoped: &ScopedProject, sent: &str) -> Result<Value> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let query =
             "SELECT CAST(id AS BIGINT) AS id, issue, field, \"before\", \"after\", created_by, session_name, CAST(owned AS BIGINT) AS owned, created_at \
                      FROM issue_events WHERE project = ? AND issue = ? ORDER BY created_at, id";
-        let rows = sqlx::query(&sql(query)).bind(project).bind(&issue).fetch_all(&mut *self.conn).await?;
+        let rows = sqlx::query(sql(query)).bind(project).bind(&issue).fetch_all(&mut *self.conn).await?;
         Ok(Value::Array(rows.iter().map(event_of).collect()))
     }
 
     /// One comment on the issue.
-    pub async fn comment(&mut self, project: &str, sent: &str, id: i64) -> Result<Value> {
+    pub async fn comment(&mut self, scoped: &ScopedProject, sent: &str, id: i64) -> Result<Value> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let query = format!("SELECT {} FROM comments c WHERE c.project = ? AND c.issue = ? AND c.id = ?", columns());
-        let row = sqlx::query(&sql(&query)).bind(project).bind(&issue).bind(id).fetch_optional(&mut *self.conn).await?;
+        let row = sqlx::query(sql(&query)).bind(project).bind(&issue).bind(id).fetch_optional(&mut *self.conn).await?;
         let row = row.ok_or_else(|| ApiError::not_found(format!("No comment {id} on {issue}")))?;
         Ok(self.with_schedule_requests(vec![comment_of(&row)]).await?.remove(0))
     }
@@ -221,10 +225,11 @@ impl IssueWrites<'_> {
 
     /// A new comment on the issue: an agent's ask assigns the issue to the owner, and the owner's answer gives it back
     /// to the agent who asked. With people, an agent's ask waits on its own person, and only on an issue that's theirs.
-    pub async fn create(&mut self, project: &str, sent: &str, body: &Value, actor: &Actor) -> Result<(Value, Handoff)> {
+    pub async fn create(&mut self, scoped: &ScopedProject, sent: &str, body: &Value, actor: &Actor) -> Result<(Value, Handoff)> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
-        let held: Option<String> = sqlx::query(&sql("SELECT assignee FROM issues WHERE project = ? AND id = ?"))
+        let held: Option<String> = sqlx::query(sql("SELECT assignee FROM issues WHERE project = ? AND id = ?"))
             .bind(project)
             .bind(&issue)
             .fetch_one(&mut *self.conn)
@@ -245,7 +250,7 @@ impl IssueWrites<'_> {
         let now = stamp();
         changes::begin(self.conn).await?;
         let done: Result<i64> = async {
-            let id: i64 = sqlx::query(&sql(
+            let id: i64 = sqlx::query(sql(
                 "INSERT INTO comments (project, issue, body, asks, created_by, session_name, owned, person, by_agent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING CAST(id AS BIGINT) AS id",
             ))
             .bind(project)
@@ -263,7 +268,7 @@ impl IssueWrites<'_> {
             .await?
             .get("id");
             if let Some(assignee) = &assignee {
-                sqlx::query(&sql("UPDATE issues SET assignee = ? WHERE project = ? AND id = ?")).bind(assignee).bind(project).bind(&issue).execute(&mut *self.conn).await?;
+                sqlx::query(sql("UPDATE issues SET assignee = ? WHERE project = ? AND id = ?")).bind(assignee).bind(project).bind(&issue).execute(&mut *self.conn).await?;
                 if held.as_deref() != Some(assignee.as_str()) {
                     self.record_assignee(project, &issue, actor, held.as_deref(), assignee).await?;
                 }
@@ -291,14 +296,15 @@ impl IssueWrites<'_> {
             edited: false,
             quiet: false,
         };
-        Ok((self.comment(project, &issue, id).await?, handoff))
+        Ok((self.comment(scoped, &issue, id).await?, handoff))
     }
 
     /// orrery's own word on an issue (ORR-1094), as `systemComment` and `systemNote` in web/server/store/comments.ts
     /// write it: a comment by `orrery`, nobody's words but its own, so nobody's bell hears it. `wakes` passes it on to
     /// the session on the issue, as a pull request's news does, unless the issue is closed, where there's no work left
     /// to wake anyone for; a note (why a schedule moved it) wakes nobody. Only the Nuxt server's own work sends it.
-    pub async fn said(&mut self, project: &str, sent: &str, body: &Value) -> Result<(Value, Handoff)> {
+    pub async fn said(&mut self, scoped: &ScopedProject, sent: &str, body: &Value) -> Result<(Value, Handoff)> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let text = match body.get("body") {
@@ -310,7 +316,7 @@ impl IssueWrites<'_> {
             Some(Value::Bool(true)) => true,
             Some(other) => return Err(ApiError::bad_request(format!("\"wakes\" should be true or false, not {}", js(other)))),
         };
-        let kind: Option<String> = sqlx::query(&sql("SELECT s.kind FROM issues i JOIN statuses s ON s.id = i.status WHERE i.project = ? AND i.id = ?"))
+        let kind: Option<String> = sqlx::query(sql("SELECT s.kind FROM issues i JOIN statuses s ON s.id = i.status WHERE i.project = ? AND i.id = ?"))
             .bind(project)
             .bind(&issue)
             .fetch_optional(&mut *self.conn)
@@ -320,7 +326,7 @@ impl IssueWrites<'_> {
         let now = stamp();
         changes::begin(self.conn).await?;
         let done: Result<i64> = async {
-            let id: i64 = sqlx::query(&sql(
+            let id: i64 = sqlx::query(sql(
                 "INSERT INTO comments (project, issue, body, created_by, owned, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?) RETURNING CAST(id AS BIGINT) AS id",
             ))
             .bind(project)
@@ -340,13 +346,14 @@ impl IssueWrites<'_> {
         self.effects.tell("comment.added", project, &issue);
         let id = changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
         let handoff = Handoff { project: project.into(), issue: issue.clone(), comment: id, carry: wakes && !closed, ..Handoff::default() };
-        Ok((self.comment(project, &issue, id).await?, handoff))
+        Ok((self.comment(scoped, &issue, id).await?, handoff))
     }
 
     /// Edits the comment's words or what it asks: the owner's only by them, and a member's (or their agents') only by
     /// them or the owner (`updateComment`). New words by the comment's own person go to the session on the issue too, as
     /// it may have read the first ones (`Handoff`, `edited`).
-    pub async fn update(&mut self, project: &str, sent: &str, id: i64, body: &Value, actor: &Actor) -> Result<(Value, Option<Handoff>)> {
+    pub async fn update(&mut self, scoped: &ScopedProject, sent: &str, id: i64, body: &Value, actor: &Actor) -> Result<(Value, Option<Handoff>)> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let whose = self.whose(project, &issue, id).await?;
@@ -368,7 +375,7 @@ impl IssueWrites<'_> {
             set.push("updated_at = ?");
             let query = format!("UPDATE comments SET {} WHERE id = ?", set.join(", "));
             let query = sql(&query);
-            let mut update = sqlx::query(&query);
+            let mut update = sqlx::query(query.clone());
             if let Some(text) = &text {
                 update = update.bind(text);
             }
@@ -385,11 +392,12 @@ impl IssueWrites<'_> {
         let carry = theirs && text.as_ref().is_some_and(|t| *t != whose.body);
         let handoff =
             carry.then(|| Handoff { project: project.into(), issue: issue.clone(), comment: id, carry: true, notice: false, edited: true, quiet: false });
-        Ok((self.comment(project, &issue, id).await?, handoff))
+        Ok((self.comment(scoped, &issue, id).await?, handoff))
     }
 
     /// Deletes the comment: the owner's only by them, and a member's (or their agents') only by them or the owner.
-    pub async fn delete(&mut self, project: &str, sent: &str, id: i64, actor: &Actor) -> Result<()> {
+    pub async fn delete(&mut self, scoped: &ScopedProject, sent: &str, id: i64, actor: &Actor) -> Result<()> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let whose = self.whose(project, &issue, id).await?;
@@ -400,7 +408,7 @@ impl IssueWrites<'_> {
         self.leave_their_words(&whose, actor, &action).await?;
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            sqlx::query(&sql("DELETE FROM comments WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
+            sqlx::query(sql("DELETE FROM comments WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
             self.touch_issue(project, &issue).await
         }
         .await;
@@ -409,7 +417,7 @@ impl IssueWrites<'_> {
     }
 
     async fn whose(&mut self, project: &str, issue: &str, id: i64) -> Result<Whose> {
-        let row = sqlx::query(&sql(
+        let row = sqlx::query(sql(
             "SELECT body, CAST(owned AS BIGINT) AS owned, person, CAST(by_agent AS BIGINT) AS by_agent FROM comments WHERE project = ? AND issue = ? AND id = ?",
         ))
         .bind(project)
@@ -442,7 +450,7 @@ impl IssueWrites<'_> {
     /// Who asked the issue's latest question the owner hasn't answered (`OPEN_ASK`).
     async fn open_asker(&mut self, project: &str, issue: &str) -> Result<Option<String>> {
         let query = format!("SELECT c.created_by FROM comments c WHERE c.project = ? AND c.issue = ? AND c.asks IS NOT NULL AND c.owned = 0 AND NOT {SINCE} ORDER BY c.id DESC LIMIT 1");
-        let row = sqlx::query(&sql(&query)).bind(project).bind(issue).fetch_optional(&mut *self.conn).await?;
+        let row = sqlx::query(sql(&query)).bind(project).bind(issue).fetch_optional(&mut *self.conn).await?;
         Ok(row.map(|r| r.get("created_by")))
     }
 

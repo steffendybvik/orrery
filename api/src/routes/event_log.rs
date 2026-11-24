@@ -1,6 +1,7 @@
 // The event log: the handlers and the routes they answer (ORR-1088). A page's error report (`POST /api/events/log`)
 // stays the Nuxt server's, as it counts each sender in memory and scrubs secrets' values out; the line it makes of it,
 // and each of its own, comes here (`PUT /api/events/log/lines`), as does its call to let old ones go.
+use crate::access::scope::{Across, Workspace};
 use crate::access::seen::Seen;
 use crate::error::{ApiError, Result};
 use crate::reply::reply;
@@ -60,10 +61,17 @@ async fn write_line(State(app): Shared, headers: HeaderMap, body: Bytes) -> Resu
     local_app_only(&headers)?;
     let actor = actor_of(&headers);
     let mut conn = app.pool.acquire().await?;
-    let workspace = Seen::workspace(&mut conn, &headers).await?;
+    let line = body_of(&body);
+    // A line about a request names the asker's workspace (ORR-1377), which the local app checked: it goes in that
+    // workspace's log, whatever project it names, so a member's refusal on another's project isn't the owner's to read.
+    let named = line.get("workspace").and_then(serde_json::Value::as_str).map(str::trim).filter(|w| !w.is_empty());
+    let workspace = match named {
+        Some(named) => Seen::of(&mut conn, &headers).await?.pick(Some(named))?,
+        None => Seen::workspace(&mut conn, &headers).await?,
+    };
     let mut log = EventLog::of(&mut conn, workspace);
     log.outbox = Some(Outbox::new(actor));
-    let written = log.write(&body_of(&body)).await?;
+    let written = log.write(&line).await?;
     Ok(reply(StatusCode::CREATED, Some(written), log.effects()))
 }
 
@@ -71,7 +79,7 @@ async fn write_line(State(app): Shared, headers: HeaderMap, body: Bytes) -> Resu
 async fn prune_events(State(app): Shared, headers: HeaderMap) -> Result<Response> {
     local_app_only(&headers)?;
     let mut conn = app.pool.acquire().await?;
-    let pruned = EventLog::new(&mut conn).prune().await?;
+    let pruned = EventLog::of(&mut conn, Workspace::across(Across::Server, "default")).prune().await?;
     Ok(Json(serde_json::json!({"pruned": pruned})).into_response())
 }
 
@@ -81,6 +89,14 @@ async fn resolve_event(State(app): Shared, Path(event): Path<String>, headers: H
     let actor = actor_of(&headers);
     let mut conn = app.pool.acquire().await?;
     let workspace = Seen::workspace(&mut conn, &headers).await?;
+    // A line about a project the asker can't see is theirs no more than the list shows it (ORR-1352): one kept in this
+    // workspace from before its project moved to another.
+    let project = EventLog::of(&mut conn, workspace.clone()).project_of(id).await?;
+    if let Some(Some(project)) = project {
+        if Seen::listed(&mut conn, &headers).await?.hidden(&mut conn).await?.contains(&project) {
+            return Err(ApiError::not_found(format!("No event {id}")));
+        }
+    }
     let mut log = EventLog::of(&mut conn, workspace);
     log.outbox = Some(Outbox::new(actor.clone()));
     let resolved = log.resolve(id, &actor).await?;

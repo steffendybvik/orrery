@@ -58,7 +58,7 @@ impl<'c> Signals<'c> {
 
     /// The project's latest `limit` signals, newest first (`sessionWork`'s, ORR-1174).
     pub(crate) async fn recent(&mut self, project: &str, limit: i64) -> Result<Vec<Value>> {
-        let rows = sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM signals WHERE project = ? ORDER BY id DESC LIMIT ?")))
+        let rows = sqlx::query(sql(&format!("SELECT {COLUMNS} FROM signals WHERE project = ? ORDER BY id DESC LIMIT ?")))
             .bind(project)
             .bind(limit)
             .fetch_all(&mut *self.conn)
@@ -70,7 +70,7 @@ impl<'c> Signals<'c> {
     /// isn't (ORR-1133).
     pub(crate) async fn last(&mut self, project: &str) -> Result<i64> {
         Issues::new(self.conn).project(project).await?;
-        let row = sqlx::query(&sql("SELECT CAST(MAX(id) AS BIGINT) AS id FROM signals WHERE project = ?")).bind(project).fetch_one(&mut *self.conn).await?;
+        let row = sqlx::query(sql("SELECT CAST(MAX(id) AS BIGINT) AS id FROM signals WHERE project = ?")).bind(project).fetch_one(&mut *self.conn).await?;
         Ok(row.get::<Option<i64>, _>("id").unwrap_or(0))
     }
 
@@ -81,7 +81,7 @@ impl<'c> Signals<'c> {
         issues.project(project).await?;
         let rows: Vec<AnyRow> = match which {
             Which::After(after) => {
-                sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM signals WHERE project = ? AND id > ? ORDER BY id LIMIT ?")))
+                sqlx::query(sql(&format!("SELECT {COLUMNS} FROM signals WHERE project = ? AND id > ? ORDER BY id LIMIT ?")))
                     .bind(project)
                     .bind(after)
                     .bind(limit)
@@ -90,7 +90,7 @@ impl<'c> Signals<'c> {
             }
             Which::Focus(sent) => {
                 let id = Issues::new(self.conn).resolve(project, sent, false).await?;
-                sqlx::query(&sql(&format!(
+                sqlx::query(sql(&format!(
                     "SELECT {COLUMNS} FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND (owned = 1 OR person IS NOT NULL) \
                      AND delivered_to = '[]' AND created_at >= ? ORDER BY id"
                 )))
@@ -106,7 +106,7 @@ impl<'c> Signals<'c> {
                 let query = sql(&format!(
                     "SELECT {COLUMNS} FROM signals WHERE project = ? AND issue = ? AND kind = 'focus' AND owned = 1 AND created_at >= ?{aimed} ORDER BY id"
                 ));
-                let mut query = sqlx::query(&query).bind(project).bind(id).bind(a_day_ago());
+                let mut query = sqlx::query(query.clone()).bind(project).bind(id).bind(a_day_ago());
                 if let Some(target) = target {
                     query = query.bind(target);
                 }
@@ -116,7 +116,7 @@ impl<'c> Signals<'c> {
                 let milestone = matches!(which, Which::Milestone(_));
                 let id = Issues::new(self.conn).resolve(project, sent, milestone).await?;
                 let column = if milestone { "milestone" } else { "issue" };
-                let mut rows = sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM signals WHERE project = ? AND {column} = ? ORDER BY id DESC LIMIT ?")))
+                let mut rows = sqlx::query(sql(&format!("SELECT {COLUMNS} FROM signals WHERE project = ? AND {column} = ? ORDER BY id DESC LIMIT ?")))
                     .bind(project)
                     .bind(id)
                     .bind(limit)
@@ -128,7 +128,7 @@ impl<'c> Signals<'c> {
             // A focus on an issue closed since it was sent isn't handed out (ORR-1317): one made when a P0 was new could
             // otherwise wait most of a day for a session, and reach it after the issue was done or canceled.
             Which::Pooled => {
-                sqlx::query(&sql(&format!(
+                sqlx::query(sql(&format!(
                     "SELECT {COLUMNS} FROM signals s WHERE s.project = ? AND (s.owned = 1 OR s.person IS NOT NULL) AND s.delivered_to = '[]' \
                      AND s.target IS NULL AND s.created_at >= ? \
                      AND NOT (s.kind = 'focus' AND EXISTS (SELECT 1 FROM issues i WHERE i.project = s.project AND i.id = s.issue \
@@ -140,7 +140,7 @@ impl<'c> Signals<'c> {
                 .await?
             }
             Which::Scheduled => {
-                sqlx::query(&sql(&format!(
+                sqlx::query(sql(&format!(
                     "SELECT {COLUMNS} FROM signals WHERE id IN (SELECT s.id FROM signals s LEFT JOIN issues i ON i.project = s.project AND i.id = s.issue \
                      WHERE s.project = ? AND s.owned = 1 AND s.delivered_to = '[]' AND s.created_at >= ? \
                        AND ((s.kind = 'focus' AND i.schedule IS NOT NULL AND i.status NOT IN (SELECT id FROM statuses WHERE kind IN ('done', 'canceled'))) OR s.kind = 'message')) \
@@ -189,7 +189,7 @@ impl Signals<'_> {
         let owned = sent.get("owned").and_then(Value::as_bool).unwrap_or(false);
         crate::changes::begin(self.conn).await?;
         let done: Result<Value> = async {
-            let row = sqlx::query(&sql(&format!(
+            let row = sqlx::query(sql(&format!(
                 "INSERT INTO signals (project, issue, milestone, status, release, epic, schedule, kind, note, preset, via, target, person, \
              instructions, model, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING {COLUMNS}"
             )))
@@ -228,7 +228,7 @@ impl Signals<'_> {
     /// every race.
     pub(crate) async fn receipt(&mut self, project: &str, id: i64, to: &str) -> Result<Value> {
         for _ in 0..TRIES {
-            let row = sqlx::query(&sql(&format!("SELECT {COLUMNS} FROM signals WHERE project = ? AND id = ?")))
+            let row = sqlx::query(sql(&format!("SELECT {COLUMNS} FROM signals WHERE project = ? AND id = ?")))
                 .bind(project)
                 .bind(id)
                 .fetch_optional(&mut *self.conn)
@@ -242,7 +242,7 @@ impl Signals<'_> {
             let now = Value::from(names.clone()).to_string();
             crate::changes::begin(self.conn).await?;
             let done: Result<u64> = async {
-                let changed = sqlx::query(&sql("UPDATE signals SET delivered_to = ? WHERE id = ? AND delivered_to = ?"))
+                let changed = sqlx::query(sql("UPDATE signals SET delivered_to = ? WHERE id = ? AND delivered_to = ?"))
                     .bind(&now)
                     .bind(id)
                     .bind(&was)
@@ -269,7 +269,7 @@ impl Signals<'_> {
     /// A session's new id (after a `/clear`) takes over the signals sent to its old one, as `renameSession` does. How
     /// many moved.
     pub(crate) async fn retarget(&mut self, project: &str, from: &str, to: &str) -> Result<u64> {
-        Ok(sqlx::query(&sql("UPDATE signals SET target = ? WHERE project = ? AND target = ?"))
+        Ok(sqlx::query(sql("UPDATE signals SET target = ? WHERE project = ? AND target = ?"))
             .bind(to)
             .bind(project)
             .bind(from)
@@ -281,7 +281,7 @@ impl Signals<'_> {
     /// Lets go of signals past KEEP_DAYS, heard or not (ORR-778), as `pruneSignals` does. How many went.
     pub(crate) async fn prune(&mut self) -> Result<u64> {
         let before = (chrono::Utc::now() - chrono::Duration::days(KEEP_DAYS)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        Ok(sqlx::query(&sql("DELETE FROM signals WHERE created_at < ?")).bind(before).execute(&mut *self.conn).await?.rows_affected())
+        Ok(sqlx::query(sql("DELETE FROM signals WHERE created_at < ?")).bind(before).execute(&mut *self.conn).await?.rows_affected())
     }
 }
 

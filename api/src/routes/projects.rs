@@ -1,5 +1,7 @@
 // Projects: the handlers and the routes they answer (ORR-1048).
 use super::P;
+use crate::access::scope::ScopedProject;
+use crate::access::scope::{Across, Workspace};
 use crate::access::seen::Seen;
 use crate::board::board_upload::{self, Upload};
 use crate::board::imports::check_roadmap;
@@ -13,7 +15,7 @@ use crate::reply::reply;
 use crate::request::{actor_of, body_of, came_of, who_of};
 use crate::{App, Shared};
 use axum::body::{to_bytes, Bytes};
-use axum::extract::{Path, Query, Request, State};
+use axum::extract::{Query, Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
@@ -56,8 +58,8 @@ async fn upload_board(State(app): Shared, request: Request) -> Result<Response> 
     let mut conn = app.pool.acquire().await?;
     let workspace = Seen::workspace(&mut conn, &headers).await?;
     // The local app makes the board for whoever uploaded it: it goes only into a workspace they're in (ORR-1195).
-    let theirs = sqlx::query(&sql("SELECT 1 FROM workspace_members WHERE workspace = ? AND person = ?"))
-        .bind(&workspace)
+    let theirs = sqlx::query(sql("SELECT 1 FROM workspace_members WHERE workspace = ? AND person = ?"))
+        .bind(workspace.id())
         .bind(holder)
         .fetch_optional(&mut *conn)
         .await?;
@@ -71,9 +73,11 @@ async fn upload_board(State(app): Shared, request: Request) -> Result<Response> 
     }
     // The rest of a board too big for one request, sent after it in parts (ORR-1257).
     let into = body.get("into").and_then(Value::as_bool).unwrap_or(false);
-    let upload = Upload { id, key, name: text("name"), holder, body: &body, workspace: &workspace, own, into };
+    // A new board's id is its workspace's to have: one only another workspace has gets `-2` (ORR-1350).
+    let id = if into { id.to_string() } else { projects::free_project_id(&mut conn, workspace.id(), id).await? };
+    let upload = Upload { id: &id, key, name: text("name"), holder, body: &body, workspace: workspace.id(), own, into };
     let effects = board_upload::upload_board(&mut conn, &upload, &actor).await?;
-    let value = Projects::new(&mut conn).project(id).await?;
+    let value = Projects::of(&mut conn, workspace.clone()).project(&id).await?;
     Ok(reply(if into { StatusCode::OK } else { StatusCode::CREATED }, Some(value), effects))
 }
 
@@ -85,9 +89,8 @@ async fn upload_board(State(app): Shared, request: Request) -> Result<Response> 
 async fn list_projects(State(app): Shared, headers: HeaderMap, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let boards = query.get("expand").is_some_and(|e| e == "board");
-    let mut value = Projects::new(&mut conn).list(boards).await?;
     let seen = if query.get("every").is_some_and(|e| e == "1") { Seen::of(&mut conn, &headers).await? } else { Seen::listed(&mut conn, &headers).await? };
-    seen.keep(&mut conn, &mut value, "id").await?;
+    let mut value = Projects::of(&mut conn, Workspace::across(Across::Listed, "default")).list(boards, &seen).await?;
     if boards {
         let dropped = |key: &str| query.get(key).is_some_and(|v| v == "0");
         let whole: Vec<&str> = query.get("whole").map(|w| w.split(',').collect()).unwrap_or_default();
@@ -102,9 +105,13 @@ async fn list_projects(State(app): Shared, headers: HeaderMap, Query(query): Que
 /// `GET /api/projects/{project}` → the project with its board (`project`), without the events stream's `rev`, which the
 /// Nuxt server adds; `?notes=0` leaves the issues' notes out (`withoutNotes`), and `?closed=0` the closed issues with no
 /// open sub-issue (`withoutClosed`).
-async fn get_project(State(app): Shared, Path(project): Path<String>, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+async fn get_project(State(app): Shared, scoped: ScopedProject, headers: HeaderMap, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
-    let mut value = Projects::new(&mut conn).project(&project).await?;
+    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
+    let mut projects = Projects::for_project(&mut conn, &project).await?;
+    projects.hidden = hidden;
+    let mut value = projects.project(&project).await?;
     let dropped = |key: &str| query.get(key).is_some_and(|v| v == "0");
     projects::trim_board(&mut value, !dropped("notes"), !dropped("closed"));
     Ok(Json(value).into_response())
@@ -113,8 +120,7 @@ async fn get_project(State(app): Shared, Path(project): Path<String>, Query(quer
 async fn create_project(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let workspace = Seen::workspace(&mut conn, &headers).await?;
-    let mut projects = Projects::new(&mut conn);
-    projects.workspace = workspace;
+    let mut projects = Projects::of(&mut conn, workspace);
     projects.outbox = Some(Outbox::new(actor_of(&headers)));
     let id = projects.create(&body_of(&body), who_of(&headers).as_ref(), &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut projects.effects);
@@ -122,9 +128,12 @@ async fn create_project(State(app): Shared, headers: HeaderMap, body: Bytes) -> 
     Ok(reply(StatusCode::CREATED, Some(value), effects))
 }
 
-async fn patch_project(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn patch_project(State(app): Shared, scoped: ScopedProject, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
-    let mut projects = Projects::new(&mut conn);
+    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
+    let mut projects = Projects::for_project(&mut conn, &project).await?;
+    projects.hidden = hidden;
     projects.outbox = Some(Outbox::new(actor_of(&headers)));
     projects.update(&project, &body_of(&body), &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut projects.effects);
@@ -135,7 +144,8 @@ async fn patch_project(State(app): Shared, Path(project): Path<String>, headers:
 /// `PUT /api/projects/{project}/moved` {to} → the project, marked as moved to the orrery at `to` (ORR-1225). While it's
 /// marked, every write a request makes to the board is a 409 saying where it went (the rails); reads still work. The
 /// owner's alone, from their page.
-async fn mark_moved(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn mark_moved(State(app): Shared, scoped: ScopedProject, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let project = scoped.id().to_string();
     let body = body_of(&body);
     let Some(to) = body.get("to").and_then(Value::as_str) else {
         return Err(ApiError::bad_request("to: the address of the orrery the board went to, e.g. https://orrery.example.com"));
@@ -144,13 +154,14 @@ async fn mark_moved(State(app): Shared, Path(project): Path<String>, headers: He
 }
 
 /// `DELETE /api/projects/{project}/moved` → the project, its mark as moved lifted (ORR-1225).
-async fn unmark_moved(State(app): Shared, Path(project): Path<String>, headers: HeaderMap) -> Result<Response> {
+async fn unmark_moved(State(app): Shared, scoped: ScopedProject, headers: HeaderMap) -> Result<Response> {
+    let project = scoped.id().to_string();
     moved(&app, &project, &headers, None).await
 }
 
 async fn moved(app: &App, project: &str, headers: &HeaderMap, to: Option<&str>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
-    let mut projects = Projects::new(&mut conn);
+    let mut projects = Projects::for_project(&mut conn, project).await?;
     projects.outbox = Some(Outbox::new(actor_of(headers)));
     projects.mark_moved(project, to, &actor_of(headers)).await?;
     let effects = std::mem::take(&mut projects.effects);
@@ -160,9 +171,10 @@ async fn moved(app: &App, project: &str, headers: &HeaderMap, to: Option<&str>) 
 
 /// `DELETE /api/projects/{project}/picks-held` → the project, its sessions let pick from it (ORR-1224): a board uploaded
 /// from a file starts held out of pick lists, Todo hand-outs and `next`. The owner's alone, from their page; logged.
-async fn let_pick(State(app): Shared, Path(project): Path<String>, headers: HeaderMap) -> Result<Response> {
+async fn let_pick(State(app): Shared, scoped: ScopedProject, headers: HeaderMap) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
-    let mut projects = Projects::new(&mut conn);
+    let mut projects = Projects::for_project(&mut conn, &project).await?;
     projects.outbox = Some(Outbox::new(actor_of(&headers)));
     projects.let_pick(&project, &actor_of(&headers)).await?;
     let effects = std::mem::take(&mut projects.effects);
@@ -171,9 +183,10 @@ async fn let_pick(State(app): Shared, Path(project): Path<String>, headers: Head
 }
 
 /// `DELETE /api/projects/{project}` → 204; everything in it goes too, for good (`deleteProject`).
-async fn delete_project(State(app): Shared, Path(project): Path<String>, headers: HeaderMap) -> Result<Response> {
+async fn delete_project(State(app): Shared, scoped: ScopedProject, headers: HeaderMap) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
-    let mut projects = Projects::new(&mut conn);
+    let mut projects = Projects::for_project(&mut conn, &project).await?;
     projects.outbox = Some(Outbox::new(actor_of(&headers)));
     projects.delete(&project, &actor_of(&headers)).await?;
     Ok(reply(StatusCode::NO_CONTENT, None, std::mem::take(&mut projects.effects)))
@@ -181,7 +194,8 @@ async fn delete_project(State(app): Shared, Path(project): Path<String>, headers
 
 /// `GET /api/projects/{project}/export?uploads=1` → the board as one file (`board::export`), named for the project and the
 /// day, so a browser saves it; its images only with `uploads=1`.
-async fn export_project(State(app): Shared, Path(project): Path<String>, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+async fn export_project(State(app): Shared, scoped: ScopedProject, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     let with_uploads = query.get("uploads").is_some_and(|u| u == "1" || u == "true");
     let board = export::export(&mut conn, &project, with_uploads).await?;
@@ -198,11 +212,12 @@ async fn export_project(State(app): Shared, Path(project): Path<String>, Query(q
 /// has milestones or issues already, unless `?replace=true` (`importRoadmap`).
 async fn import_project(
     State(app): Shared,
-    Path(project): Path<String>,
+    scoped: ScopedProject,
     Query(query): Query<HashMap<String, String>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response> {
+    let project = scoped.id().to_string();
     let roadmap = check_roadmap(&body_of(&body))?;
     let mut conn = app.pool.acquire().await?;
     let actor = actor_of(&headers);
@@ -210,7 +225,7 @@ async fn import_project(
     writes.outbox = Some(Outbox::new(actor.clone()));
     writes.import_roadmap(&project, &roadmap, query.get("replace").is_some_and(|r| r == "true"), &actor).await?;
     let effects = std::mem::take(&mut writes.effects);
-    let value = Projects::new(&mut conn).project(&project).await?;
+    let value = Projects::for_project(&mut conn, &project).await?.project(&project).await?;
     Ok(reply(StatusCode::OK, Some(value), effects))
 }
 
@@ -221,23 +236,26 @@ mod tests;
 /// `GET …/release-peers` → the ids of the projects sharing releases with this one: those drawing on it, and the one it
 /// draws on (ORR-1174). The local app's own call, which tells their open pages when this one changes, as a source counts
 /// the issues of those drawing on it and they show its releases. None for a project there isn't, as the store read it.
-async fn release_peers(State(app): Shared, Path(project): Path<String>, headers: HeaderMap) -> Result<Response> {
+async fn release_peers(State(app): Shared, scoped: Option<ScopedProject>, headers: HeaderMap) -> Result<Response> {
     if !came_of(&headers).server {
         return Err(ApiError::forbidden("Only the local app asks which projects share releases"));
     }
+    // The local app's own call, which names the project it's for: none there shares nothing.
+    let Some(scoped) = scoped else { return Ok(Json(Value::Array(Vec::new())).into_response()) };
     let mut conn = app.pool.acquire().await?;
-    Ok(Json(Projects::new(&mut conn).release_peers(&project).await?).into_response())
+    Ok(Json(Projects::of(&mut conn, Workspace::across(Across::Server, scoped.workspace().id())).release_peers(scoped.id()).await?).into_response())
 }
 
 /// `GET …/row` → the project's row as it's stored (ORR-1174), for the local app's store, whose helpers read it to check
 /// a project is there and for its prompts, instructions and release mode, without building its board. A 404 for a
 /// project there isn't, as the store says it.
-async fn project_row(State(app): Shared, Path(project): Path<String>, headers: HeaderMap) -> Result<Response> {
+async fn project_row(State(app): Shared, scoped: ScopedProject, headers: HeaderMap) -> Result<Response> {
+    let project = scoped.id().to_string();
     if !came_of(&headers).server {
         return Err(ApiError::forbidden("Only the local app reads a project's row"));
     }
     let mut conn = app.pool.acquire().await?;
-    let row = sqlx::query(&crate::db::sql("SELECT * FROM projects WHERE id = ?"))
+    let row = sqlx::query(crate::db::sql("SELECT * FROM projects WHERE id = ?"))
         .bind(&project)
         .fetch_optional(&mut *conn)
         .await?

@@ -7,6 +7,8 @@
 // ORR-1130), once the Nuxt server has checked its claim, as only that knows which sessions are there to hear. The rails are the
 // store's: an agent changes only its person's issue, or its own proposal, moves one only under an issue that's its
 // person's too, and hands one on only back to the owner.
+use crate::access::scope::ScopedProject;
+use crate::access::scope::Workspace;
 use crate::board::issue_writes::IssueWrites;
 use crate::board::issues::{github_issue_of, github_repo, link_ref, Issues, GITHUB_OWN};
 use crate::changes;
@@ -328,18 +330,19 @@ impl IssueWrites<'_> {
     /// `remove` taken off, each once, as one edit. Gives back its id when that made it urgent open work, as `edit_words`.
     pub async fn edit_one_of_many(
         &mut self,
-        project: &str,
+        scoped: &ScopedProject,
         sent: &str,
         set: &serde_json::Map<String, Value>,
         add: &[String],
         remove: &[String],
         actor: &Actor,
     ) -> Result<Option<String>> {
+        let project = scoped.id();
         let mut edit = set.clone();
         if !add.is_empty() || !remove.is_empty() {
             let issue = self.issue_id(project, sent).await?;
             self.issue_there(project, &issue).await?;
-            let row = sqlx::query(&sql("SELECT labels FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&issue).fetch_one(&mut *self.conn).await?;
+            let row = sqlx::query(sql("SELECT labels FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&issue).fetch_one(&mut *self.conn).await?;
             let now: Vec<String> = row.get::<Option<String>, _>("labels").and_then(|l| serde_json::from_str(&l).ok()).unwrap_or_default();
             let mut labels: Vec<String> = vec![];
             for label in now.into_iter().filter(|l| !remove.contains(l)).chain(add.iter().cloned()) {
@@ -349,14 +352,15 @@ impl IssueWrites<'_> {
             }
             edit.insert("labels".into(), Value::from(labels));
         }
-        self.edit_words(project, sent, &Value::Object(edit), actor).await
+        self.edit_words(scoped, sent, &Value::Object(edit), actor).await
     }
 
     /// Makes an issue (`createIssue`) from an edit's words, with the project's next id, and notes it as `created`.
     /// An agent on the rails files a sub-issue only under its person's issue, and it's then theirs (taken up, when it's
     /// started), unless it's a proposal; one at the top stays nobody's, so it's refused started, closed or given to
     /// anyone but the owner. Gives back its id, and whether it's urgent open work (P0) to push, as `edit_words` does.
-    pub async fn create_issue(&mut self, project: &str, body: &Value, actor: &Actor) -> Result<(String, bool)> {
+    pub async fn create_issue(&mut self, scoped: &ScopedProject, body: &Value, actor: &Actor) -> Result<(String, bool)> {
+        let project = scoped.id();
         let row = Issues::new(&mut *self.conn).project(project).await?;
         let words = check_new(&in_its_project(body, project)?)?;
         let parent = match words.parent.as_ref().and_then(|p| p.as_deref()).filter(|p| !p.is_empty()) {
@@ -386,7 +390,7 @@ impl IssueWrites<'_> {
             None => None,
         };
         let epic = match words.epic.as_ref().and_then(|e| e.as_deref()) {
-            Some(sent) => Some(self.epic_id(sent).await?),
+            Some(sent) => Some(self.epic_id(project, sent).await?),
             None => None,
         };
         let github = match &words.github_issues {
@@ -394,7 +398,7 @@ impl IssueWrites<'_> {
             None => vec![],
         };
         let depends = match &words.depends_on {
-            Some(refs) => Some(self.links_from(project, "", refs).await?),
+            Some(refs) => Some(self.links_from(scoped, "", refs).await?),
             None => None,
         };
         if let (Some(parent), Some(depends)) = (&parent, &depends) {
@@ -457,7 +461,7 @@ impl IssueWrites<'_> {
             let position = match words.position {
                 Some(position) => position,
                 None => {
-                    let found = sqlx::query(&sql("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM issues WHERE project = ?"))
+                    let found = sqlx::query(sql("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM issues WHERE project = ?"))
                         .bind(project)
                         .fetch_one(&mut *self.conn)
                         .await?;
@@ -468,7 +472,7 @@ impl IssueWrites<'_> {
             let query = sql("INSERT INTO issues (project, id, title, status, priority, assignee, labels, external, github_issues, notes, proposal, choices, parent, milestone, ships_in, epic, \
                 position, created_by, session_name, owned, created_at, updated_at, created_person, claimed_by, claimed_at, model, effort) \
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            let insert = sqlx::query(&query)
+            let insert = sqlx::query(query.clone())
                 .bind(project)
                 .bind(&id)
                 .bind(words.title.clone().unwrap_or_default())
@@ -523,21 +527,20 @@ impl IssueWrites<'_> {
     /// The project's next issue id, `KEY-n`, its number taken in one statement so two writers never get the same one;
     /// one that's still an issue's id or an old one is skipped (`nextId`).
     async fn next_issue_id(&mut self, project: &str) -> Result<String> {
-        let key: String = sqlx::query(&sql("SELECT key FROM projects WHERE id = ?")).bind(project).fetch_one(&mut *self.conn).await?.get("key");
+        let key: String = sqlx::query(sql("SELECT key FROM projects WHERE id = ?")).bind(project).fetch_one(&mut *self.conn).await?.get("key");
         loop {
-            let row = sqlx::query(&sql("UPDATE projects SET next_number = next_number + 1 WHERE id = ? RETURNING CAST(next_number - 1 AS BIGINT) AS n"))
+            let row = sqlx::query(sql("UPDATE projects SET next_number = next_number + 1 WHERE id = ? RETURNING CAST(next_number - 1 AS BIGINT) AS n"))
                 .bind(project)
                 .fetch_one(&mut *self.conn)
                 .await?;
             let id = format!("{key}-{}", row.get::<i64, _>("n"));
-            let taken =
-                sqlx::query(&sql("SELECT 1 FROM issues WHERE project = ? AND id = ? UNION SELECT 1 FROM issue_aliases WHERE project = ? AND alias = ?"))
-                    .bind(project)
-                    .bind(&id)
-                    .bind(project)
-                    .bind(&id)
-                    .fetch_optional(&mut *self.conn)
-                    .await?;
+            let taken = sqlx::query(sql("SELECT 1 FROM issues WHERE project = ? AND id = ? UNION SELECT 1 FROM issue_aliases WHERE project = ? AND alias = ?"))
+                .bind(project)
+                .bind(&id)
+                .bind(project)
+                .bind(&id)
+                .fetch_optional(&mut *self.conn)
+                .await?;
             if taken.is_none() {
                 return Ok(id);
             }
@@ -548,11 +551,12 @@ impl IssueWrites<'_> {
     /// telling it, without a title's or a link's words, as an outsider may have written them. 409 for an agent on one
     /// that isn't its person's, unless it's its own proposal. Gives back the issue's id when the edit made it urgent open
     /// work it wasn't (P0, `urgent`), for the Nuxt server to push to the sessions, as only it reaches them.
-    pub async fn edit_words(&mut self, project: &str, sent: &str, body: &Value, actor: &Actor) -> Result<Option<String>> {
+    pub async fn edit_words(&mut self, scoped: &ScopedProject, sent: &str, body: &Value, actor: &Actor) -> Result<Option<String>> {
+        let project = scoped.id();
         let issue = self.issue_id(project, sent).await?;
         self.issue_there(project, &issue).await?;
         let words = check_words(body)?;
-        let row = sqlx::query(&sql(
+        let row = sqlx::query(sql(
             "SELECT title, status, priority, labels, external, github_issues, notes, model, effort, assignee, proposal, created_person, parent, milestone, ships_in, CAST(epic AS BIGINT) AS epic FROM issues WHERE project = ? AND id = ?",
         ))
         .bind(project)
@@ -617,7 +621,7 @@ impl IssueWrites<'_> {
         let epic = match &words.epic {
             None => None,
             Some(None) => Some(None),
-            Some(Some(sent)) => Some(Some(self.epic_id(sent).await?)),
+            Some(Some(sent)) => Some(Some(self.epic_id(project, sent).await?)),
         };
         let statuses = Issues::new(&mut *self.conn).statuses(project).await?;
         let status = if words.status.is_some() || words.plan.is_some() {
@@ -666,7 +670,7 @@ impl IssueWrites<'_> {
         let listed = |list: &Option<Vec<String>>| list.as_ref().map(|l| serde_json::to_string(l).unwrap_or_default());
         let (labels, external, github) = (listed(&words.labels), listed(&words.external), listed(&github));
         let depends = match &words.depends_on {
-            Some(refs) => Some(self.links_from(project, &issue, refs).await?),
+            Some(refs) => Some(self.links_from(scoped, &issue, refs).await?),
             None => None,
         };
         // The projects whose boards show this issue's links, those it's to depend on too: theirs change with it.
@@ -759,7 +763,7 @@ impl IssueWrites<'_> {
             }
             columns.push("updated_at = ?".into());
             let query = sql(&format!("UPDATE issues SET {} WHERE project = ? AND id = ?", columns.join(", ")));
-            let mut update = sqlx::query(&query);
+            let mut update = sqlx::query(query.clone());
             for (_, value) in &set {
                 update = update.bind(value.clone());
             }
@@ -802,27 +806,29 @@ impl IssueWrites<'_> {
     /// lands under `parent` or in `milestone` there, or at the top in neither. It keeps its release only when both
     /// projects take their releases from the same place. An agent moves one only when every issue in it is its
     /// person's, and hands it on (`assignee`, the edit's) only as an edit may, both refused before anything moves.
-    /// Gives back its id in `to`.
+    /// Gives back its id in `to`, and `to` as the request may act on it (`scope::reach`).
     #[allow(clippy::too_many_arguments)]
     pub async fn move_issue(
         &mut self,
-        from: &str,
+        scoped: &ScopedProject,
         sent: &str,
         to: &str,
         parent: Option<&str>,
         milestone: Option<&str>,
         assignee: Option<Option<String>>,
         actor: &Actor,
-    ) -> Result<String> {
+    ) -> Result<(String, ScopedProject)> {
+        let from = scoped.id();
         let issue = self.issue_id(from, sent).await?;
         self.issue_there(from, &issue).await?;
         let rails = self.rails_for(actor).await?;
         if let Some(rails) = &rails {
             self.railed_assignee(rails.as_deref(), &issue, assignee).await?;
         }
+        // Only into a project of its own workspace, and not a board marked as moved, which only reads (ORR-1229).
+        let there_scoped = crate::access::scope::reach(self.conn, scoped, to).await?;
+        self.reaches(from, to).await?;
         let there = Issues::new(&mut *self.conn).project(to).await?;
-        // A board marked as moved only reads, so nothing moves into it either (ORR-1229).
-        crate::board::projects::not_moved(self.conn, to).await?;
         let parent = match parent.filter(|p| !p.is_empty()) {
             Some(sent) => Some(self.issue_id(to, sent).await?),
             None => None,
@@ -870,24 +876,24 @@ impl IssueWrites<'_> {
             }
             let renamed = |old: &str| names.iter().find(|(o, _)| o == old).map(|(_, n)| n.clone());
             let query = sql(&format!("SELECT id, parent FROM issues WHERE project = ? AND id IN ({marks})"));
-            let mut find = sqlx::query(&query).bind(from);
+            let mut find = sqlx::query(query.clone()).bind(from);
             for id in &subtree {
                 find = find.bind(id);
             }
             let links: Vec<(String, Option<String>)> = find.fetch_all(&mut *self.conn).await?.iter().map(|r| (r.get("id"), r.get("parent"))).collect();
             let query = sql(&format!("SELECT CAST(id AS BIGINT) AS id, issue FROM comments WHERE project = ? AND issue IN ({marks})"));
-            let mut find = sqlx::query(&query).bind(from);
+            let mut find = sqlx::query(query.clone()).bind(from);
             for id in &subtree {
                 find = find.bind(id);
             }
             let comments: Vec<(i64, String)> = find.fetch_all(&mut *self.conn).await?.iter().map(|r| (r.get("id"), r.get("issue"))).collect();
             let query = sql(&format!("SELECT alias, issue FROM issue_aliases WHERE project = ? AND issue IN ({marks})"));
-            let mut find = sqlx::query(&query).bind(from);
+            let mut find = sqlx::query(query.clone()).bind(from);
             for id in &subtree {
                 find = find.bind(id);
             }
             let aliases: Vec<(String, String)> = find.fetch_all(&mut *self.conn).await?.iter().map(|r| (r.get("alias"), r.get("issue"))).collect();
-            let row = sqlx::query(&sql("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM issues WHERE project = ?"))
+            let row = sqlx::query(sql("SELECT CAST(max(position) AS DOUBLE PRECISION) AS n FROM issues WHERE project = ?"))
                 .bind(to)
                 .fetch_one(&mut *self.conn)
                 .await?;
@@ -901,10 +907,19 @@ impl IssueWrites<'_> {
                 } else {
                     (up.as_deref().and_then(renamed), None)
                 };
-                sqlx::query(&query).bind(to).bind(renamed(id)).bind(under).bind(kept).bind(position).bind(from).bind(id).execute(&mut *self.conn).await?;
+                sqlx::query(query.clone())
+                    .bind(to)
+                    .bind(renamed(id))
+                    .bind(under)
+                    .bind(kept)
+                    .bind(position)
+                    .bind(from)
+                    .bind(id)
+                    .execute(&mut *self.conn)
+                    .await?;
             }
             for (id, on) in &comments {
-                sqlx::query(&sql("UPDATE comments SET project = ?, issue = ? WHERE id = ?"))
+                sqlx::query(sql("UPDATE comments SET project = ?, issue = ? WHERE id = ?"))
                     .bind(to)
                     .bind(renamed(on))
                     .bind(id)
@@ -912,7 +927,7 @@ impl IssueWrites<'_> {
                     .await?;
             }
             for (old, next) in &names {
-                sqlx::query(&sql("UPDATE issue_events SET project = ?, issue = ? WHERE project = ? AND issue = ?"))
+                sqlx::query(sql("UPDATE issue_events SET project = ?, issue = ? WHERE project = ? AND issue = ?"))
                     .bind(to)
                     .bind(next)
                     .bind(from)
@@ -923,14 +938,14 @@ impl IssueWrites<'_> {
             let moved = renamed(&issue).unwrap_or_default();
             self.record_field(to, &moved, actor, "project", Some(from), Some(to)).await?;
             let query = sql(&format!("DELETE FROM issue_aliases WHERE project = ? AND issue IN ({marks})"));
-            let mut drop = sqlx::query(&query).bind(from);
+            let mut drop = sqlx::query(query.clone()).bind(from);
             for id in &subtree {
                 drop = drop.bind(id);
             }
             drop.execute(&mut *self.conn).await?;
             let kept = aliases.iter().map(|(alias, on)| (alias.clone(), renamed(on).unwrap_or_default())).chain(names.iter().cloned());
             for (alias, on) in kept {
-                sqlx::query(&sql(UPSERT_ISSUE_ALIAS)).bind(to).bind(&alias).bind(&on).execute(&mut *self.conn).await?;
+                sqlx::query(sql(UPSERT_ISSUE_ALIAS)).bind(to).bind(&alias).bind(&on).execute(&mut *self.conn).await?;
             }
             // What names an issue without a foreign key to it follows it (`issuesMoved`): its signals and its links.
             for (old, next) in &names {
@@ -939,10 +954,10 @@ impl IssueWrites<'_> {
                     "UPDATE issue_links SET project = ?, issue = ? WHERE project = ? AND issue = ?",
                     "UPDATE issue_links SET on_project = ?, on_issue = ? WHERE on_project = ? AND on_issue = ?",
                 ] {
-                    sqlx::query(&sql(query)).bind(to).bind(next).bind(from).bind(old).execute(&mut *self.conn).await?;
+                    sqlx::query(sql(query)).bind(to).bind(next).bind(from).bind(old).execute(&mut *self.conn).await?;
                 }
             }
-            sqlx::query(&sql("UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?"))
+            sqlx::query(sql("UPDATE issues SET updated_at = ? WHERE project = ? AND id = ?"))
                 .bind(stamp())
                 .bind(to)
                 .bind(&moved)
@@ -954,7 +969,8 @@ impl IssueWrites<'_> {
         }
         .await;
         self.effects.changed = vec![from.to_string(), to.to_string()];
-        changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await
+        let moved = changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
+        Ok((moved, there_scoped))
     }
 
     /// An agent's assignee (`railedAssignee`): what it may hand on, back to the owner or letting go, with `claude` and
@@ -977,7 +993,7 @@ impl IssueWrites<'_> {
     /// one is refused (409). Another's mark only counts for a moment before its status lands, after which the claim
     /// goes by whether it has the issue started and is there to hear, which the Nuxt server checked (`claim`).
     async fn lock_for(&mut self, project: &str, issue: &str, session: &str) -> Result<()> {
-        let row = sqlx::query(&sql("SELECT claimed_session, claimed_at FROM issues WHERE project = ? AND id = ?"))
+        let row = sqlx::query(sql("SELECT claimed_session, claimed_at FROM issues WHERE project = ? AND id = ?"))
             .bind(project)
             .bind(issue)
             .fetch_optional(&mut *self.conn)
@@ -989,7 +1005,7 @@ impl IssueWrites<'_> {
         let changed = if landing {
             0
         } else {
-            sqlx::query(&sql("UPDATE issues SET claimed_session = ?, claimed_at = ? WHERE project = ? AND id = ? AND coalesce(claimed_session, '') = ?"))
+            sqlx::query(sql("UPDATE issues SET claimed_session = ?, claimed_at = ? WHERE project = ? AND id = ? AND coalesce(claimed_session, '') = ?"))
                 .bind(session)
                 .bind(stamp())
                 .bind(project)
@@ -1009,7 +1025,7 @@ impl IssueWrites<'_> {
     /// Takes up an issue for `person`, only if it's still assigned as the rails read it and nobody else holds it
     /// (`claimFor`): one conditional write, so a reassignment or another server can't get in between.
     async fn claim_for(&mut self, project: &str, issue: &str, person: &str, assignee: Option<&str>) -> Result<()> {
-        let done = sqlx::query(&sql(
+        let done = sqlx::query(sql(
             "UPDATE issues SET claimed_by = ?, claimed_at = ? WHERE project = ? AND id = ? AND coalesce(assignee, '') = ? AND (claimed_by IS NULL OR claimed_by = ?)",
         ))
         .bind(person)
@@ -1062,11 +1078,8 @@ impl IssueWrites<'_> {
             while let Some(up) = self.parent_of(project, &root).await?.filter(|u| !u.is_empty()) {
                 root = up;
             }
-            let found = sqlx::query(&sql("SELECT milestone FROM issues WHERE project = ? AND id = ?"))
-                .bind(project)
-                .bind(&root)
-                .fetch_optional(&mut *self.conn)
-                .await?;
+            let found =
+                sqlx::query(sql("SELECT milestone FROM issues WHERE project = ? AND id = ?")).bind(project).bind(&root).fetch_optional(&mut *self.conn).await?;
             let found = found.ok_or_else(|| ApiError::not_found(format!("No issue {root} in {project}")))?;
             milestone = Some(found.get("milestone"));
         }
@@ -1084,11 +1097,18 @@ impl IssueWrites<'_> {
         Ok(Placement { parent, moved, sent_parent: words.parent.is_some(), milestone, release: words.release.clone() })
     }
 
-    /// The epic sent as its number, `EPC-1` or its full id (`epicRow`, ORR-995), 404 when there's none.
-    async fn epic_id(&mut self, sent: &str) -> Result<i64> {
-        let settings = crate::work::settings::Settings::new(&mut *self.conn).get().await?;
-        let found = match epic_number(sent, settings["uid"].as_str().unwrap_or_default()).and_then(|n| n.parse::<i64>().ok()) {
-            Some(id) => sqlx::query(&sql("SELECT id FROM epics WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?.map(|_| id),
+    /// The epic sent as its number, `EPC-1` or its full id (`epicRow`, ORR-995), 404 when there's none in `project`'s
+    /// workspace: another workspace's epic is as if it weren't here (ORR-1355).
+    async fn epic_id(&mut self, project: &str, sent: &str) -> Result<i64> {
+        let uid = crate::work::presets::uid(&mut *self.conn).await?;
+        let workspace = Workspace::of_project(&mut *self.conn, project).await?;
+        let found = match epic_number(sent, &uid).and_then(|n| n.parse::<i64>().ok()) {
+            Some(id) => sqlx::query(sql("SELECT id FROM epics WHERE id = ? AND workspace = ?"))
+                .bind(id)
+                .bind(workspace.id())
+                .fetch_optional(&mut *self.conn)
+                .await?
+                .map(|_| id),
             None => None,
         };
         found.ok_or_else(|| ApiError::not_found(format!("No epic {sent}: GET /api/epics lists them")))
@@ -1096,20 +1116,20 @@ impl IssueWrites<'_> {
 
     /// The issue's parent, or `None` at the top.
     async fn parent_of(&mut self, project: &str, issue: &str) -> Result<Option<String>> {
-        let row = sqlx::query(&sql("SELECT parent FROM issues WHERE project = ? AND id = ?")).bind(project).bind(issue).fetch_optional(&mut *self.conn).await?;
+        let row = sqlx::query(sql("SELECT parent FROM issues WHERE project = ? AND id = ?")).bind(project).bind(issue).fetch_optional(&mut *self.conn).await?;
         Ok(row.and_then(|r| r.get("parent")))
     }
 
     /// Whom the issue is assigned to.
     async fn assignee_of(&mut self, project: &str, issue: &str) -> Result<Option<String>> {
-        let row = sqlx::query(&sql("SELECT assignee FROM issues WHERE project = ? AND id = ?")).bind(project).bind(issue).fetch_one(&mut *self.conn).await?;
+        let row = sqlx::query(sql("SELECT assignee FROM issues WHERE project = ? AND id = ?")).bind(project).bind(issue).fetch_one(&mut *self.conn).await?;
         Ok(row.get("assignee"))
     }
 
     /// The GitHub issues as they're kept (`githubIssuesOf`): each `owner/name#523`, once whatever its case, refused
     /// when one isn't a GitHub issue.
     async fn github_issues_of(&mut self, project: &str, sent: &[String]) -> Result<Vec<String>> {
-        let repo = sqlx::query(&sql("SELECT repo FROM projects WHERE id = ?")).bind(project).fetch_one(&mut *self.conn).await?;
+        let repo = sqlx::query(sql("SELECT repo FROM projects WHERE id = ?")).bind(project).fetch_one(&mut *self.conn).await?;
         let repo = github_repo(repo.get::<Option<String>, _>("repo").as_deref());
         let mut kept: Vec<String> = vec![];
         for issue in sent {
@@ -1133,7 +1153,8 @@ impl IssueWrites<'_> {
     /// The issues `depends_on` names, checked (`linksFrom`, ORR-601): each there (an id it had before finds it), in this
     /// project or another, not the issue itself, not its parent or a sub-issue, and not one that already depends on it,
     /// however far down, which would make a loop nothing could start.
-    async fn links_from(&mut self, project: &str, issue: &str, refs: &[String]) -> Result<Vec<(String, String)>> {
+    async fn links_from(&mut self, scoped: &ScopedProject, issue: &str, refs: &[String]) -> Result<Vec<(String, String)>> {
+        let project = scoped.id();
         let mut links: Vec<(String, String)> = vec![];
         for sent in refs {
             let (on_project, on_id) = match sent.split_once('/') {
@@ -1143,12 +1164,14 @@ impl IssueWrites<'_> {
             if on_project.is_empty() || on_id.is_empty() {
                 return Err(ApiError::bad_request(format!("\"{sent}\" in \"depends_on\" isn't an issue: use its id, or project/ID for another project's")));
             }
+            // Another project's only in this one's workspace, and not on a board marked as moved, which can't change any
+            // more, so nothing new waits on it (ORR-1229); and only on a board the asker is on (ORR-1383).
+            crate::access::scope::reach(self.conn, scoped, &on_project).await?;
+            if on_project != project {
+                self.reaches(project, &on_project).await?;
+            }
             let on_id = self.issue_id(&on_project, &on_id).await?;
             self.issue_there(&on_project, &on_id).await?;
-            // One on a board marked as moved can't change any more, so nothing new waits on it (ORR-1229).
-            if on_project != project {
-                crate::board::projects::not_moved(self.conn, &on_project).await?;
-            }
             if on_project == project && on_id == issue {
                 return Err(ApiError::bad_request("An issue can't depend on itself"));
             }
@@ -1165,7 +1188,7 @@ impl IssueWrites<'_> {
         }
         // A sub-issue and its parent already go together: one waiting on the other could never start.
         let parent_of = async |conn: &mut sqlx::AnyConnection, id: &str| -> Result<Option<String>> {
-            let row = sqlx::query(&sql("SELECT parent FROM issues WHERE project = ? AND id = ?")).bind(project).bind(id).fetch_one(&mut *conn).await?;
+            let row = sqlx::query(sql("SELECT parent FROM issues WHERE project = ? AND id = ?")).bind(project).bind(id).fetch_one(&mut *conn).await?;
             Ok(row.get("parent"))
         };
         let parent = parent_of(&mut *self.conn, issue).await?;
@@ -1205,7 +1228,7 @@ impl IssueWrites<'_> {
                 }
                 return Ok(Some(path));
             }
-            let next = sqlx::query(&sql("SELECT on_project AS project, on_issue AS id FROM issue_links WHERE project = ? AND issue = ?"))
+            let next = sqlx::query(sql("SELECT on_project AS project, on_issue AS id FROM issue_links WHERE project = ? AND issue = ?"))
                 .bind(&at.0)
                 .bind(&at.1)
                 .fetch_all(&mut *self.conn)
@@ -1224,7 +1247,7 @@ impl IssueWrites<'_> {
 
     /// Makes `links` what the issue depends on, each one added or dropped once, in its activity as `depends` (`setLinks`).
     async fn set_links(&mut self, project: &str, issue: &str, links: &[(String, String)], actor: &Actor) -> Result<()> {
-        let before: Vec<(String, String)> = sqlx::query(&sql(
+        let before: Vec<(String, String)> = sqlx::query(sql(
             "SELECT on_project AS project, on_issue AS id FROM issue_links WHERE project = ? AND issue = ? ORDER BY created_at, on_project, on_issue",
         ))
         .bind(project)
@@ -1236,7 +1259,7 @@ impl IssueWrites<'_> {
         .collect();
         let now = stamp();
         for gone in before.iter().filter(|b| !links.contains(b)) {
-            sqlx::query(&sql("DELETE FROM issue_links WHERE project = ? AND issue = ? AND on_project = ? AND on_issue = ?"))
+            sqlx::query(sql("DELETE FROM issue_links WHERE project = ? AND issue = ? AND on_project = ? AND on_issue = ?"))
                 .bind(project)
                 .bind(issue)
                 .bind(&gone.0)
@@ -1246,7 +1269,7 @@ impl IssueWrites<'_> {
         }
         let added: Vec<&(String, String)> = links.iter().filter(|l| !before.contains(l)).collect();
         for (on_project, on_id) in &added {
-            sqlx::query(&sql("INSERT INTO issue_links (project, issue, on_project, on_issue, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"))
+            sqlx::query(sql("INSERT INTO issue_links (project, issue, on_project, on_issue, created_by, owned, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"))
                 .bind(project)
                 .bind(issue)
                 .bind(on_project)
@@ -1272,7 +1295,7 @@ impl IssueWrites<'_> {
 
     /// The projects whose boards show this issue's links (`linkedProjects`): theirs change with it, as its own does.
     async fn linked_projects(&mut self, project: &str, issue: &str) -> Result<Vec<String>> {
-        let rows = sqlx::query(&sql(
+        let rows = sqlx::query(sql(
             "SELECT on_project AS project FROM issue_links WHERE project = ? AND issue = ? UNION SELECT project FROM issue_links WHERE on_project = ? AND on_issue = ?",
         ))
         .bind(project)

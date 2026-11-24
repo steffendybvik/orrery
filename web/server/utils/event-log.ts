@@ -26,6 +26,9 @@ export interface EventEntry {
     details?: Record<string, unknown>
     /** About what an untrusted schedule's session did (a write of its refused): no schedule hears it. */
     untrusted?: boolean
+    /** The workspace whose log it goes in (ORR-1377): the asker's, for a line about their request, even one naming a
+     * project of another. Without it, its project's workspace, or the API's `default` for one naming none. */
+    workspace?: string
 }
 
 /** A finished line, as it's sent to the API: its texts scrubbed and cut. `activity`: a change to the roadmap, always news. */
@@ -37,6 +40,7 @@ interface Line {
     message: string
     details?: Record<string, unknown>
     activity?: true
+    workspace?: string
 }
 
 /** Sends a write to the Rust API (`writeToApi`): its reply, or undefined with no API set up; throws a 503 while it can't
@@ -130,7 +134,8 @@ export class EventLog {
         const said = at ? {...entry.details, held: at} : entry.details
         const details = said ? clean(said, scrub) as Record<string, unknown> : undefined
         const project = entry.project || null
-        const written = await this.keep({level: entry.level, kind: entry.kind, ...project ? {project} : {}, message, ...details ? {details} : {}})
+        const written = await this.keep({level: entry.level, kind: entry.kind, ...project ? {project} : {}, message, ...details ? {details} : {},
+            ...entry.workspace ? {workspace: entry.workspace} : {}})
         const {event, fresh} = written
         // Its message isn't passed on: an error's can hold what a page or another site sent. Its row is, to read.
         // What orrery did is passed on each time: each is news.
@@ -259,28 +264,69 @@ function clean(value: unknown, scrub: (text: string) => string, depth = 0): unkn
     return Object.fromEntries(Object.entries(value).slice(0, 50).map(([k, v]) => [k, clean(v, scrub, depth + 1)]))
 }
 
+/** Who a refused request was, as far as it was checked (ORR-1377): with login on, the credential's person, the name
+ * they act under (theirs, or their agent's label), the workspace they act in and the projects they see; with it off,
+ * the name sent, which nobody checked. */
+export interface Asker {
+    name: string
+    person?: string
+    workspace?: string
+    sees?: Set<string>
+}
+
 /** A request the server refused (403: not theirs to do, e.g. an untrusted session's write, a proposal's move or the
  * owner's own; 409: not now, e.g. an issue another session is on) as a warning: who asked, the route without its
- * query, and why, with the permissions table's row that refused it when `authorize` did (ORR-512). Null for what isn't one, and for a start the launches route logs itself (`session.refused`). */
-export function refusal(status: number, method: string, path: string, message: string, actor?: string, permission?: string): EventEntry | null {
+ * query, and why, with the permissions table's row that refused it when `authorize` did (ORR-512). Null for what isn't
+ * one, and for a start the launches route logs itself (`session.refused`). It goes in the asker's workspace's log, and
+ * names a project only when they see it, so a member's try at another's project stays theirs (ORR-1377). */
+export function refusal(status: number, method: string, path: string, message: string, asker?: string | Asker, permission?: string): EventEntry | null {
     if (status !== 403 && status !== 409) return null
     const route = path.split('?')[0] ?? path
     if (status === 409 && method === 'POST' && /^\/api\/projects\/[^/]+\/launches\/?$/.test(route)) return null
-    const project = /^\/api\/projects\/([^/]+)/.exec(route)?.[1]
+    const who: Asker = typeof asker === 'string' ? {name: asker || 'agent'} : asker ?? {name: 'agent'}
+    const named = /^\/api\/projects\/([^/]+)/.exec(route)?.[1]
+    const project = named && (() => {
+        try {
+            return decodeURIComponent(named)
+        } catch {
+            return named
+        }
+    })()
+    const seen = project && (!who.sees || who.sees.has(project)) ? project : undefined
+    const by = who.person && who.person !== who.name ? `${who.name} (${who.person}'s agent)` : who.name
     return {
-        level: 'warn', kind: 'request.refused', ...project ? {project: decodeURIComponent(project)} : {},
-        message: `Refused ${actor || 'agent'} ${method} ${route}: ${message}`,
-        details: {route: `${method} ${route}`, status, by: actor || 'agent', ...permission ? {permission} : {}},
+        level: 'warn', kind: 'request.refused', ...seen ? {project: seen} : {}, ...who.workspace ? {workspace: who.workspace} : {},
+        message: `Refused ${by} ${method} ${route}: ${message}`,
+        details: {route: `${method} ${route}`, status, by: who.name, ...who.person ? {person: who.person} : {}, ...permission ? {permission} : {}},
     }
 }
 
+/** Values to keep out of the log wherever they show, whatever their shape: the token this server gave the API it
+ * started (ORR-1392). */
+const kept = new Set<string>()
+
+/** Keeps `value` out of every line from now on (`redact`); gives back what lets it in again. */
+export function keepOutOfLog(value: string | undefined | null): () => void {
+    if (!value || value.length < 8) return () => {}
+    kept.add(value)
+    return () => kept.delete(value)
+}
+
 /** Passwords in addresses (`postgres://me:…@host`, with no user or an `@` in the password too), as a setting
- * (`?password=…`, `host=db password=…`), and bearer tokens, whoever's they are. */
+ * (`?password=…`, `host=db password=…`), bearer tokens, whoever's they are, and orrery's own credentials (ORR-1392):
+ * agent and person keys, the login cookie, the phone link's `?t=` and an invite's, the API's token (named, in its header,
+ * or as `keepOutOfLog` was told it). */
 export function redact(text: string): string {
-    return text
+    const out = text
         .replace(/(\b[a-z][a-z0-9+.-]*:\/\/[^\s:/@]*:)[^\s/]+@/gi, '$1…@')
         .replace(/\b(password\s*=\s*)('[^']*'|"[^"]*"|[^\s&'"]+)/gi, '$1…')
         .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 …')
+        .replace(/\b(orrery_(?:agent|person)_)[A-Za-z0-9_-]{8,}/gi, '$1…')
+        .replace(/\b(orrery_login(?:_\d+)?\s*=\s*)[^;\s,'"]+/gi, '$1…')
+        .replace(/([?&](?:t|token|invite)=)[^&#\s'"]+/gi, '$1…')
+        .replace(/\b((?:NUXT_API_TOKEN|ORRERY_KEY)\s*[=:]\s*['"]?)[^\s'"&]+/gi, '$1…')
+        .replace(/\b(Orrery-Api-Token['"]?\s*[:=]\s*['"]?)[^\s'",}]+/gi, '$1…')
+    return [...kept].reduce((line, value) => line.replaceAll(value, '…'), out)
 }
 
 /** A change to the roadmap in a line: who did what to which, and what it went from and to. */

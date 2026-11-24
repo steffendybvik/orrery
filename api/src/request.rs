@@ -121,7 +121,8 @@ fn key_of(headers: &HeaderMap) -> Option<String> {
 
 /// What a login isn't asked for, as `OPEN` in web/server/middleware/auth.ts: the login's own routes, a phone's
 /// one-time link among them, which can't hold data.
-const OPEN: [&str; 6] = ["/api/auth/status", "/api/auth/login", "/api/auth/logout", "/api/auth/link", "/api/auth/oidc/start", "/api/auth/oidc/callback"];
+const OPEN: [&str; 7] =
+    ["/api/auth/status", "/api/auth/login", "/api/auth/logout", "/api/auth/link", "/api/auth/oidc/start", "/api/auth/oidc/callback", "/api/auth/oidc/logout"];
 
 const WHO: [&str; 4] = ["orrery-who", "orrery-who-person", "orrery-who-owner", "orrery-who-workspace"];
 
@@ -240,7 +241,8 @@ pub(crate) async fn guard(State(app): Shared, mut request: Request, next: Next) 
         }
         say_who(request.headers_mut(), who.as_ref());
     }
-    let said = app.log.then(|| format!("{} {}", request.method(), request.uri()));
+    // The path alone: a query can carry an invite or a sign-in link's token (ORR-1392).
+    let said = app.log.then(|| format!("{} {}", request.method(), request.uri().path()));
     let response = too_large(next.run(request).await);
     if let Some(said) = said {
         eprintln!("[orrery-api] {said} {}", response.status().as_u16());

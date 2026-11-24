@@ -27,7 +27,7 @@ async fn schedule(api: &TestApi, project: &str, columns: &[(&str, &str)]) -> i64
         all.iter().map(|(c, _)| *c).collect::<Vec<_>>().join(", "),
         all.iter().map(|(_, v)| v.as_str()).collect::<Vec<_>>().join(", ")
     );
-    sqlx::query_scalar::<_, i64>(&query).fetch_one(&api.app.pool).await.unwrap()
+    sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(query)).fetch_one(&api.app.pool).await.unwrap()
 }
 
 #[tokio::test]
@@ -47,7 +47,7 @@ async fn each_schedule_is_a_line_as_the_channel_writes_it() {
         &[("title", "'Weekly review'"), ("cron", "'0 9 * * 1'"), ("timezone", "'Europe/Oslo'"), ("next_run", "'2026-11-16T08:00:00.000Z'")],
     )
     .await;
-    sqlx::query(&crate::db::sql("INSERT INTO schedule_runs (schedule, at, outcome, issue, note) VALUES (?, ?, ?, ?, ?)"))
+    sqlx::query(crate::db::sql("INSERT INTO schedule_runs (schedule, at, outcome, issue, note) VALUES (?, ?, ?, ?, ?)"))
         .bind(weekly)
         .bind("2026-11-09T08:00:00.000Z")
         .bind("made")

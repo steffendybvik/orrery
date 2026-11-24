@@ -4,6 +4,7 @@
 // page's reports in memory and checks Advanced, then sends the finished line here. Only while this API can't be
 // reached does it write the line itself, marked `details.local`. Each line written or resolved goes in the outbox
 // (`event.logged`), so the local app pushes it to open pages' bells: a new one with `fresh`, when it's news.
+use crate::access::scope::Workspace;
 use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
@@ -15,7 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 /// `EVENT_LEVELS` in web/shared/roadmap/events.ts.
 pub(crate) const LEVELS: [&str; 3] = ["error", "warn", "info"];
-/// `ACTIVITY_FAMILIES`: the kinds under these are changes to the roadmap, kept apart from the rest when pruning.
+/// The kinds under these families (`issue.status`, `comment.added`, `release.frozen`…) are changes to the roadmap (ORR-378), kept apart from the rest when pruning.
 const ACTIVITY_FAMILIES: [&str; 5] = ["issue", "comment", "milestone", "doc", "release"];
 /// How long what orrery did is kept, and how long warnings and errors are, in days.
 const KEEP_INFO: i64 = 7;
@@ -137,17 +138,13 @@ pub(crate) struct EventLog<'c> {
     pub outbox: Option<Outbox>,
     /// The workspace whose lines these are (ORR-1107): a line naming a project is its project's workspace's, one
     /// naming none this one's. Listing and resolving keep to it.
-    pub workspace: String,
+    pub workspace: Workspace,
 }
 
 impl<'c> EventLog<'c> {
-    pub fn new(conn: &'c mut AnyConnection) -> Self {
-        EventLog { conn, effects: Effects::default(), outbox: None, workspace: "default".into() }
-    }
-
     /// The lines of `workspace`.
-    pub fn of(conn: &'c mut AnyConnection, workspace: String) -> Self {
-        EventLog { workspace, ..EventLog::new(conn) }
+    pub fn of(conn: &'c mut AnyConnection, workspace: Workspace) -> Self {
+        EventLog { conn, effects: Effects::default(), outbox: None, workspace }
     }
 
     /// What the last resolve set off, for its reply.
@@ -156,7 +153,8 @@ impl<'c> EventLog<'c> {
     }
 
     /// Writes a line the local app made (`PUT /api/events/log/lines`): `{level, kind, project?, subject?, message,
-    /// details?, activity?}`, its texts scrubbed and cut there already. `{event, fresh}`: fresh unless it repeats one
+    /// details?, activity?, workspace?}`, its texts scrubbed and cut there already. With `workspace` (this log's, which
+    /// the route made of it) the line is this log's even when it names a project of another (ORR-1377). `{event, fresh}`: fresh unless it repeats one
     /// not resolved yet (same level, kind, project and message), which is a line too but no news. A change to the
     /// roadmap (`activity`) is always news. It goes into the outbox, and every PRUNE_EVERY lines old ones go.
     pub(crate) async fn write(&mut self, line: &Value) -> Result<Value> {
@@ -173,13 +171,17 @@ impl<'c> EventLog<'c> {
         let message = cut(text("message").unwrap_or(kind), MESSAGE);
         let project = text("project");
         let subject = text("subject");
+        let held = text("workspace").is_some();
+        if held && sqlx::query(sql("SELECT 1 FROM workspaces WHERE id = ?")).bind(self.workspace.id()).fetch_optional(&mut *self.conn).await?.is_none() {
+            return Err(ApiError::not_found(format!("No workspace {}", self.workspace.id())));
+        }
         let details = match line.get("details") {
             Some(Value::Object(details)) if !details.is_empty() => Some(Value::Object(details.clone()).to_string()),
             None | Some(Value::Null) | Some(Value::Object(_)) => None,
             Some(_) => return Err(ApiError::bad_request("\"details\" is an object")),
         };
         changes::begin(self.conn).await?;
-        let done = self.writing(level, kind, project, subject, &message, details, activity).await;
+        let done = self.writing(level, kind, project, subject, &message, details, activity, held).await;
         let written = changes::finish(self.conn, self.outbox.as_mut(), &self.effects, done).await?;
         if WRITTEN.fetch_add(1, Ordering::Relaxed) % PRUNE_EVERY == PRUNE_EVERY - 1 {
             self.prune().await?;
@@ -197,10 +199,11 @@ impl<'c> EventLog<'c> {
         message: &str,
         details: Option<String>,
         activity: bool,
+        held: bool,
     ) -> Result<Value> {
-        let workspace = self.workspace_of(project).await?;
+        let workspace = if held { self.workspace.id().to_string() } else { self.workspace_of(project).await? };
         let again = !activity
-            && sqlx::query(&sql(
+            && sqlx::query(sql(
                 "SELECT id FROM events WHERE workspace = ? AND level = ? AND kind = ? AND coalesce(project, '') = ? AND message = ? AND resolved_at IS NULL LIMIT 1",
             ))
             .bind(&workspace)
@@ -212,7 +215,7 @@ impl<'c> EventLog<'c> {
             .await?
             .is_some();
         let at = stamp();
-        let row = sqlx::query(&sql(&format!(
+        let row = sqlx::query(sql(&format!(
             "INSERT INTO events (level, kind, project, subject, message, details, count, first_seen, last_seen, workspace) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?) \
              RETURNING {COLUMNS}"
         )))
@@ -232,34 +235,46 @@ impl<'c> EventLog<'c> {
         if !again {
             told["fresh"] = json!(true);
         }
+        // Whose log it's in (ORR-1386), so the local app pushes it to that workspace's pages alone.
+        told["workspace"] = json!(workspace);
         self.effects.logged.push(told);
         Ok(json!({"event": event, "fresh": !again}))
     }
 
+    /// The project line `id` of this workspace names: `None` when there's no such line here, `Some(None)` for one naming
+    /// no project.
+    pub(crate) async fn project_of(&mut self, id: i64) -> Result<Option<Option<String>>> {
+        Ok(sqlx::query_scalar(sql("SELECT project FROM events WHERE id = ? AND workspace = ?"))
+            .bind(id)
+            .bind(self.workspace.id())
+            .fetch_optional(&mut *self.conn)
+            .await?)
+    }
+
     /// The workspace a line about `project` is in: the project's, or this log's for one naming none (or one gone).
     async fn workspace_of(&mut self, project: Option<&str>) -> Result<String> {
-        let Some(project) = project else { return Ok(self.workspace.clone()) };
-        let row = sqlx::query(&sql("SELECT workspace FROM projects WHERE id = ?")).bind(project).fetch_optional(&mut *self.conn).await?;
-        Ok(row.map(|r| r.get::<String, _>("workspace")).unwrap_or_else(|| self.workspace.clone()))
+        let Some(project) = project else { return Ok(self.workspace.id().to_string()) };
+        let row = Workspace::of_project_or_none(&mut *self.conn, project).await?;
+        Ok(row.unwrap_or_else(|| self.workspace.clone()).id().to_string())
     }
 
     /// Lets go of what's old: info after KEEP_INFO days, the rest after KEEP_PROBLEMS, and the oldest past MAX_ACTIVITY
     /// changes to the roadmap and past MAX_ROWS of the rest, so many changes can't push an error out. How many went.
     pub(crate) async fn prune(&mut self) -> Result<u64> {
         let before = |days: i64| (chrono::Utc::now() - chrono::Duration::days(days)).format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
-        let mut gone = sqlx::query(&sql("DELETE FROM events WHERE level = 'info' AND last_seen < ?"))
+        let mut gone = sqlx::query(sql("DELETE FROM events WHERE level = 'info' AND last_seen < ?"))
             .bind(before(KEEP_INFO))
             .execute(&mut *self.conn)
             .await?
             .rows_affected();
-        gone += sqlx::query(&sql("DELETE FROM events WHERE level <> 'info' AND last_seen < ?"))
+        gone += sqlx::query(sql("DELETE FROM events WHERE level <> 'info' AND last_seen < ?"))
             .bind(before(KEEP_PROBLEMS))
             .execute(&mut *self.conn)
             .await?
             .rows_affected();
         let activity = activity_sql();
         for (which, most) in [(activity.clone(), MAX_ACTIVITY), (format!("NOT {activity}"), MAX_ROWS)] {
-            gone += sqlx::query(&sql(&format!(
+            gone += sqlx::query(sql(&format!(
                 "DELETE FROM events WHERE {which} AND id NOT IN (SELECT id FROM events WHERE {which} ORDER BY last_seen DESC, id DESC LIMIT {most})"
             )))
             .execute(&mut *self.conn)
@@ -272,7 +287,7 @@ impl<'c> EventLog<'c> {
     /// The lines that match, newest first (by when they were last seen).
     pub(crate) async fn list(&mut self, filter: &Filter<'_>) -> Result<Value> {
         let mut wheres: Vec<String> = vec!["workspace = ?".into()];
-        let mut binds: Vec<String> = vec![self.workspace.clone()];
+        let mut binds: Vec<String> = vec![self.workspace.id().to_string()];
         if let Some(level) = filter.level.filter(|l| !l.is_empty()) {
             let levels: Vec<&str> = level.split(',').map(str::trim).filter(|l| !l.is_empty()).collect();
             if let Some(wrong) = levels.iter().find(|l| !LEVELS.contains(l)) {
@@ -305,7 +320,7 @@ impl<'c> EventLog<'c> {
         }
         let wheres = format!("WHERE {}", wheres.join(" AND "));
         let statement = sql(&format!("SELECT {COLUMNS} FROM events {wheres} ORDER BY last_seen DESC, id DESC LIMIT {}", limit_of(filter.limit)));
-        let mut query = sqlx::query(&statement);
+        let mut query = sqlx::query(statement.clone());
         for bind in &binds {
             query = query.bind(bind);
         }
@@ -324,21 +339,21 @@ impl<'c> EventLog<'c> {
     async fn resolving(&mut self, id: i64, by: &Actor) -> Result<Value> {
         let at = stamp();
         let who = (!by.owner).then(|| by.name.clone());
-        let row = sqlx::query(&sql(&format!(
+        let row = sqlx::query(sql(&format!(
             "UPDATE events SET resolved_by = CASE WHEN resolved_at IS NULL THEN ? ELSE resolved_by END, resolved_at = coalesce(resolved_at, ?) \
              WHERE id = ? AND workspace = ? RETURNING {COLUMNS}"
         )))
         .bind(who.clone())
         .bind(&at)
         .bind(id)
-        .bind(&self.workspace)
+        .bind(self.workspace.id())
         .fetch_optional(&mut *self.conn)
         .await?
         .ok_or_else(|| ApiError::not_found(format!("No event {id}")))?;
         let event = event_of(&row);
         let (level, kind, project, message): (String, String, Option<String>, String) =
             (row.get("level"), row.get("kind"), row.get("project"), row.get("message"));
-        let repeats = sqlx::query(&sql(&format!(
+        let repeats = sqlx::query(sql(&format!(
             "UPDATE events SET resolved_at = ?, resolved_by = ? WHERE resolved_at IS NULL AND level = ? AND kind = ? \
              AND coalesce(project, '') = ? AND message = ? AND workspace = ? RETURNING {COLUMNS}"
         )))
@@ -348,12 +363,17 @@ impl<'c> EventLog<'c> {
         .bind(&kind)
         .bind(project.unwrap_or_default())
         .bind(&message)
-        .bind(&self.workspace)
+        .bind(self.workspace.id())
         .fetch_all(&mut *self.conn)
         .await?;
         // In the order the store hears them: the repeats, then the line itself.
-        self.effects.logged.extend(repeats.iter().map(event_of));
-        self.effects.logged.push(event.clone());
+        let workspace = self.workspace.id().to_string();
+        let told = |mut line: Value| {
+            line["workspace"] = json!(workspace);
+            line
+        };
+        self.effects.logged.extend(repeats.iter().map(event_of).map(told));
+        self.effects.logged.push(told(event.clone()));
         Ok(event)
     }
 }

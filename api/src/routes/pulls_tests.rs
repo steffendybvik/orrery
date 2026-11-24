@@ -35,7 +35,7 @@ fn issue_ids(reply: &Value) -> Vec<&str> {
 }
 
 async fn scalar(api: &TestApi, query: &str) -> Option<String> {
-    sqlx::query_scalar::<_, Option<String>>(query).fetch_optional(&api.app.pool).await.unwrap().flatten()
+    sqlx::query_scalar::<_, Option<String>>(sqlx::AssertSqlSafe(query)).fetch_optional(&api.app.pool).await.unwrap().flatten()
 }
 
 fn risk_path(project: &str, issue: &str, number: &str) -> String {
@@ -107,7 +107,7 @@ async fn a_pr_it_doesnt_keep_is_a_404_and_a_bad_number_a_400() {
 async fn a_pr_is_kept_on_an_issue_by_its_old_id_and_its_state_follows() {
     let api = TestApi::new().await;
     let (project, issue) = api.board().await;
-    sqlx::query(&crate::db::sql("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-7', ?)"))
+    sqlx::query(crate::db::sql("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-7', ?)"))
         .bind(&project)
         .bind(&issue)
         .execute(&api.app.pool)
@@ -157,12 +157,12 @@ async fn a_release_pr_is_on_every_issue_in_its_release() {
     let (project, first) = api.board().await;
     let second = api.issue(&project, json!({"title": "Wheel"})).await;
     api.issue(&project, json!({"title": "Not shipping"})).await;
-    sqlx::query(&crate::db::sql("INSERT INTO releases (project, version, branch, created_by, created_at, updated_at) VALUES (?, 'v1.0', 'release/v1', 'owner', '2026-11-01', '2026-11-01')"))
+    sqlx::query(crate::db::sql("INSERT INTO releases (project, version, branch, created_by, created_at, updated_at) VALUES (?, 'v1.0', 'release/v1', 'owner', '2026-11-01', '2026-11-01')"))
         .bind(&project)
         .execute(&api.app.pool)
         .await
         .unwrap();
-    sqlx::query(&crate::db::sql("UPDATE issues SET ships_in = 'v1.0' WHERE project = ? AND id IN (?, ?)"))
+    sqlx::query(crate::db::sql("UPDATE issues SET ships_in = 'v1.0' WHERE project = ? AND id IN (?, ?)"))
         .bind(&project)
         .bind(&first)
         .bind(&second)
@@ -281,7 +281,7 @@ async fn rating_a_pr_orrery_doesnt_keep_on_the_issue_is_a_404() {
 async fn a_pr_is_rated_by_its_issue_old_id_and_its_repo_in_any_case() {
     let api = TestApi::new().await;
     let (project, issue) = api.board().await;
-    sqlx::query(&crate::db::sql("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-7', ?)"))
+    sqlx::query(crate::db::sql("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-7', ?)"))
         .bind(&project)
         .bind(&issue)
         .execute(&api.app.pool)
@@ -482,7 +482,7 @@ async fn an_issue_is_named_by_its_id_or_an_old_one_with_its_statuss_kind() {
     let read = api.get(&named(&project, &format!("NOPE-1,{issue}"))).send().await;
     assert_eq!(read.status, 200, "{}", read.body);
     assert_eq!(read.body, json!({"issue": {"project": project, "id": issue, "title": "Sieve", "kind": "backlog"}}), "the first id that's an issue");
-    sqlx::query(&crate::db::sql("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-7', ?)"))
+    sqlx::query(crate::db::sql("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-7', ?)"))
         .bind(&project)
         .bind(&issue)
         .execute(&api.app.pool)
@@ -507,7 +507,7 @@ async fn an_issues_kept_prs_read_back_with_its_old_ids_and_their_ratings() {
     keep(&api, 13, later).await;
     let rated = api.put(&risk_path(&project, &issue, "12"), json!({"level": "high", "why": "touches the sieve"})).send().await;
     assert_eq!(rated.status, 200, "{}", rated.body);
-    sqlx::query(&crate::db::sql("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-7', ?)"))
+    sqlx::query(crate::db::sql("INSERT INTO issue_aliases (project, alias, issue) VALUES (?, 'OLD-7', ?)"))
         .bind(&project)
         .bind(&issue)
         .execute(&api.app.pool)

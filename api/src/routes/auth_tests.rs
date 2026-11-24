@@ -83,7 +83,7 @@ async fn an_agent_key_a_revoked_key_or_a_removed_persons_never_logs_in() {
     let revoke = api.delete(&format!("/api/keys/{revoked_id}")).header("orrery-actor-name", "Sam").header("orrery-came", "server");
     assert_eq!(revoke.send().await.status, 204);
     let (_, adas) = key(&api, "ada", "person").await;
-    sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'ada'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
+    sqlx::query(crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'ada'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
     for body in
         [json!({"key": agent}), json!({"key": revoked}), json!({"key": adas}), json!({"key": "orrery_person_nope"}), json!({}), json!({"key": 1}), Value::Null]
     {
@@ -173,7 +173,7 @@ async fn a_second_person_turns_login_on_for_good() {
     api.owner().await;
     api.member("ada", "ada").await;
     assert_eq!(status(api.get("/api/auth/status")).await["mode"], "on");
-    sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'ada'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
+    sqlx::query(crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'ada'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
     assert_eq!(status(api.get("/api/auth/status")).await["mode"], "on", "it stays on after they go");
 }
 
@@ -449,7 +449,7 @@ async fn the_local_app_asks_whether_the_owner_has_a_key_and_whether_login_stays_
     assert_eq!(ways().await["owner_has_key"], true);
     api.member("ada", "ada").await;
     assert_eq!(ways().await["stays_on"], true);
-    sqlx::query(&crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'ada'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
+    sqlx::query(crate::db::sql("UPDATE people SET removed_at = ? WHERE id = 'ada'")).bind(stamp()).execute(&api.app.pool).await.unwrap();
     assert_eq!(ways().await["stays_on"], true, "it stays on after they go");
 }
 

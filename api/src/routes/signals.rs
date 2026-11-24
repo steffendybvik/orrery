@@ -2,6 +2,7 @@
 // them is the local app's own call alone (`Orrery-Came: server`), as it picks which session each goes to, tells it,
 // and runs the stream and the listeners.
 use super::P;
+use crate::access::scope::ScopedProject;
 use crate::error::{ApiError, Result};
 use crate::request::{body_of, came_of};
 use crate::work::signals::{Signals, Which, LIMIT};
@@ -40,7 +41,8 @@ fn text_of<'a>(body: &'a Value, key: &str) -> Result<&'a str> {
 }
 
 /// The signal, written, as `signalOf` gives it.
-async fn write_signal(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn write_signal(State(app): Shared, scoped: ScopedProject, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let project = scoped.id().to_string();
     local_app_only(&headers)?;
     let mut conn = app.pool.acquire().await?;
     let signal = Signals::new(&mut conn).write(&project, &body_of(&body)).await?;
@@ -48,7 +50,8 @@ async fn write_signal(State(app): Shared, Path(project): Path<String>, headers: 
 }
 
 /// `{to}`, the session's name: the signal, with it among those that heard it.
-async fn receipt(State(app): Shared, Path((project, signal)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn receipt(State(app): Shared, scoped: ScopedProject, Path((_, signal)): Path<(String, String)>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let project = scoped.id().to_string();
     local_app_only(&headers)?;
     let id: i64 = signal.parse().map_err(|_| ApiError::not_found(format!("No signal {signal} in {project}")))?;
     let body = body_of(&body);
@@ -57,7 +60,8 @@ async fn receipt(State(app): Shared, Path((project, signal)): Path<(String, Stri
 }
 
 /// `{from, to}`, a session's old id and its new one: `{moved}`, how many signals went to the new one.
-async fn retarget(State(app): Shared, Path(project): Path<String>, headers: HeaderMap, body: Bytes) -> Result<Response> {
+async fn retarget(State(app): Shared, scoped: ScopedProject, headers: HeaderMap, body: Bytes) -> Result<Response> {
+    let project = scoped.id().to_string();
     local_app_only(&headers)?;
     let body = body_of(&body);
     let mut conn = app.pool.acquire().await?;
@@ -74,7 +78,8 @@ async fn prune(State(app): Shared, headers: HeaderMap) -> Result<Response> {
 
 /// `{id}`, the project's latest signal's id, 0 before its first: where the local app starts a session's stream from
 /// (`lastSignal`, ORR-1133).
-async fn last_signal(State(app): Shared, Path(project): Path<String>) -> Result<Response> {
+async fn last_signal(State(app): Shared, scoped: ScopedProject) -> Result<Response> {
+    let project = scoped.id().to_string();
     let mut conn = app.pool.acquire().await?;
     Ok(Json(json!({"id": Signals::new(&mut conn).last(&project).await?})).into_response())
 }
@@ -84,7 +89,8 @@ async fn last_signal(State(app): Shared, Path(project): Path<String>) -> Result<
 /// from the last day no session has heard yet, for the one orrery picks or scheduled (ORR-1141); `?waiting=focus&issue=`
 /// the owner's or a member's focus on that issue from the last ten minutes not heard yet (ORR-1131); `?focused=` the
 /// owner's focus on that issue from the last day, heard or not, and with `&target=` only one aimed at that session (ORR-1159).
-async fn list_signals(State(app): Shared, Path(project): Path<String>, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+async fn list_signals(State(app): Shared, scoped: ScopedProject, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
+    let project = scoped.id().to_string();
     let text = |key: &str| query.get(key).map(String::as_str).filter(|v| !v.is_empty());
     let which = match (text("waiting"), text("issue"), text("milestone"), text("focused")) {
         (None, _, _, Some(issue)) => Which::Focused(issue, text("target")),

@@ -41,7 +41,7 @@ async fn sqlite_at(step: u32) -> (String, AnyConnection) {
 }
 
 async fn rows(conn: &mut AnyConnection, query: &str) -> Vec<Vec<Option<String>>> {
-    let rows = sqlx::query(query).fetch_all(&mut *conn).await.unwrap();
+    let rows = sqlx::query(sqlx::AssertSqlSafe(query)).fetch_all(&mut *conn).await.unwrap();
     rows.iter().map(|r| (0..r.len()).map(|i| r.try_get::<Option<String>, _>(i).unwrap()).collect()).collect()
 }
 
@@ -176,6 +176,61 @@ async fn step_94_puts_an_owner_in_no_workspace_in_default_and_nobody_else() {
 }
 
 #[tokio::test]
+async fn step_100_gives_a_board_sharing_another_workspaces_releases_none() {
+    // Shop takes its releases from Rockets in Acme, a link a board upload kept unchecked; Till takes its from Shop, in
+    // the same workspace, and keeps them (ORR-1382).
+    let (path, mut conn) = sqlite_at(99).await;
+    exec(
+        &mut conn,
+        "INSERT INTO workspaces (id, name, created_at) VALUES ('acme', 'Acme', '2026-01-01T00:00:00.000Z');
+         INSERT INTO projects (id, name, key, created_by, created_at, updated_at, workspace, release_mode, releases_from) VALUES
+            ('rockets', 'Rockets', 'ROC', 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'acme', 'own', NULL),
+            ('shop', 'Shop', 'SHO', 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'default', 'shared', 'rockets'),
+            ('mall', 'Mall', 'MAL', 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'default', 'own', NULL),
+            ('till', 'Till', 'TIL', 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'default', 'shared', 'mall');
+         INSERT INTO issues (project, id, title, status, position, created_by, created_at, updated_at, ships_in) VALUES
+            ('shop', 'SHO-1', 'Pay', 'todo', 0, 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '1.0'),
+            ('till', 'TIL-1', 'Count', 'todo', 0, 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '2.0');",
+    )
+    .await
+    .unwrap();
+    conn.close().await.unwrap();
+
+    assert_eq!(migrate(&path, None).await.unwrap().from, 99);
+    let mut conn = AnyConnection::connect(&format!("sqlite://{path}")).await.unwrap();
+    assert_eq!(
+        rows(&mut conn, "SELECT id, release_mode, releases_from FROM projects WHERE id IN ('shop', 'till') ORDER BY id").await,
+        vec![vec![Some("shop".into()), Some("none".into()), None], some(&["till", "shared", "mall"])],
+    );
+    assert_eq!(rows(&mut conn, "SELECT id, ships_in FROM issues ORDER BY id").await, vec![vec![Some("SHO-1".into()), None], some(&["TIL-1", "2.0"])]);
+}
+
+#[tokio::test]
+async fn step_101_takes_away_dependencies_on_another_workspaces_issues() {
+    // SHO-1 depends on Acme's ROC-1, a link depends_on took before ORR-1383, and on MAL-1 in its own workspace (ORR-1409).
+    let (path, mut conn) = sqlite_at(100).await;
+    exec(
+        &mut conn,
+        "INSERT INTO workspaces (id, name, created_at) VALUES ('acme', 'Acme', '2026-01-01T00:00:00.000Z');
+         INSERT INTO projects (id, name, key, created_by, created_at, updated_at, workspace) VALUES
+            ('rockets', 'Rockets', 'ROC', 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'acme'),
+            ('shop', 'Shop', 'SHO', 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'default'),
+            ('mall', 'Mall', 'MAL', 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'default');
+         INSERT INTO issue_links (project, issue, on_project, on_issue, created_by, created_at) VALUES
+            ('shop', 'SHO-1', 'rockets', 'ROC-1', 'ziggy', '2026-01-01T00:00:00.000Z'),
+            ('shop', 'SHO-1', 'mall', 'MAL-1', 'ziggy', '2026-01-01T00:00:00.000Z'),
+            ('rockets', 'ROC-2', 'shop', 'SHO-1', 'ziggy', '2026-01-01T00:00:00.000Z');",
+    )
+    .await
+    .unwrap();
+    conn.close().await.unwrap();
+
+    assert_eq!(migrate(&path, None).await.unwrap().from, 100);
+    let mut conn = AnyConnection::connect(&format!("sqlite://{path}")).await.unwrap();
+    assert_eq!(rows(&mut conn, "SELECT project, issue, on_project, on_issue FROM issue_links").await, vec![some(&["shop", "SHO-1", "mall", "MAL-1"])],);
+}
+
+#[tokio::test]
 async fn a_new_orrery_has_the_default_workspace_with_nobody_in_it_yet() {
     let (path, conn) = sqlite_at(0).await;
     conn.close().await.unwrap();
@@ -297,8 +352,12 @@ async fn on_postgres_one_at_the_latest_runs_nothing_and_one_from_a_newer_orrery_
     exec(&mut conn, &format!("UPDATE \"{schema}\".schema_version SET version = {}", latest + 1)).await.unwrap();
     let Err(refused) = migrate(&url, Some(&schema)).await else { panic!("it should be refused") };
     assert!(refused.contains("written by a newer orrery") && refused.contains(&format!("schema step {}", latest + 1)), "{refused}");
-    let version: i64 =
-        sqlx::query(&format!("SELECT CAST(version AS bigint) FROM \"{schema}\".schema_version")).fetch_one(&mut conn).await.unwrap().try_get(0).unwrap();
+    let version: i64 = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT CAST(version AS bigint) FROM \"{schema}\".schema_version")))
+        .fetch_one(&mut conn)
+        .await
+        .unwrap()
+        .try_get(0)
+        .unwrap();
     assert_eq!(version, (latest + 1) as i64, "and left as it was");
 }
 

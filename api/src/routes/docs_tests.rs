@@ -437,7 +437,7 @@ async fn sections_are_listed_as_arranged_then_a_to_z() {
     }
     assert_eq!(api.get(&path).send().await.body, json!(["Zeta", "Beta", "Alpha"]), "each new one at the end");
     // Those the arrangement leaves out go after it, A to Z.
-    sqlx::query(&crate::db::sql("UPDATE projects SET doc_section_order = ? WHERE id = ?"))
+    sqlx::query(crate::db::sql("UPDATE projects SET doc_section_order = ? WHERE id = ?"))
         .bind(r#"["Beta"]"#)
         .bind(&project)
         .execute(&api.app.pool)

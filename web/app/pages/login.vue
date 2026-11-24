@@ -10,13 +10,17 @@ const route = useRoute()
 const invite = computed(() => typeof route.query.invite === 'string' ? route.query.invite : '')
 // A page hosted apart from its server (ORR-667) asks the provider's way back to come here, which the server allows only for
 // an origin it lists.
-const provider = computed(() => {
+// `someoneElse` asks the provider for its login form even while it's signed in (ORR-1319), to pick another account.
+function providerUrl(someoneElse: boolean) {
     const query = new URLSearchParams({
         ...invite.value ? {invite: invite.value} : {},
         ...import.meta.client && apiCrossOrigin('/auth/oidc/start') ? {back: location.origin} : {},
+        ...someoneElse ? {someone_else: '1'} : {},
     }).toString()
     return apiUrl(`/auth/oidc/start${query ? `?${query}` : ''}`)
-})
+}
+const provider = computed(() => providerUrl(false))
+const someoneElse = computed(() => providerUrl(true))
 const key = ref('')
 const busy = ref(false)
 const failed = ref('')
@@ -121,6 +125,7 @@ async function submit() {
           <UiButton :to="provider" variant="primary" size="md" class="w-full" external>{{ status.sign_up ? 'Sign in or sign up' : 'Log in with your provider' }}</UiButton>
           <p v-if="status.sign_up && !invite" class="text-center text-xs text-balance text-faint">New here? Signing in makes you a workspace of your own.</p>
           <p v-else-if="invite" class="text-center text-xs text-faint">You've been invited: sign in to join.</p>
+          <a :href="someoneElse" class="text-center text-xs text-muted underline-offset-2 hover:text-fg hover:underline">Sign in as someone else</a>
         </div>
         <form v-if="status?.mode !== 'closed' && !status?.oidc" class="flex flex-col gap-2" @submit.prevent="submit">
           <input
