@@ -16,7 +16,7 @@ const BOARDS: Record<string, unknown[]> = {
     cellar: [{person: 'skoll', role: 'owner'}, {person: 'hati', role: 'member'}],
     attic: [{person: 'hati', role: 'owner'}],
 }
-const store = {ownerOf: vi.fn(), people: vi.fn(), members: vi.fn(), listProjects: vi.fn(), issue: vi.fn()}
+const store = {ownerOf: vi.fn(), people: vi.fn(), members: vi.fn(), listProjects: vi.fn(), issue: vi.fn(), projectWorkspace: vi.fn()}
 
 beforeAll(async () => {
     vi.stubGlobal('databaseSetting', () => 'sqlite:test')
@@ -97,5 +97,18 @@ describe('the roster with no API', () => {
         expect(await isShared()).toBe(true)
         expect(await personFor('nobody')).toBeUndefined()
         expect(asked).toEqual([])
+    })
+})
+
+describe("a project's key, per workspace (ORR-1367)", () => {
+    it("names only the workspace's own project with that key, and the id itself whatever the workspace", async () => {
+        apiStarted(null)
+        store.listProjects.mockResolvedValue([{id: 'greenhouse', key: 'GRE'}, {id: 'greenery', key: 'GRE'}])
+        store.projectWorkspace.mockImplementation(async (id: string) => id === 'greenhouse' ? 'default' : 'theirs')
+        expect(await projectNamed('GRE', 'theirs')).toBe('greenery')
+        expect(await projectNamed('gre', 'default')).toBe('greenhouse')
+        expect(await projectNamed('GRE', 'nobodys')).toBe('GRE')
+        expect(await projectNamed('greenery', 'default')).toBe('greenery')
+        expect(await projectNamed('GRE')).toBe('greenhouse')
     })
 })
