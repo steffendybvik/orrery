@@ -20,6 +20,8 @@ export default defineEventHandler(async event => {
     const own = untrustedProject(sessionHeader(event))
     const named = projectIn(event.path)
     if (!own || !named) return
-    const project = await projectNamed(decodeURIComponent(named))
+    // A key is the session's own workspace's (ORR-1367): another workspace's `GRE` mustn't stand in for it.
+    const within = await useStore().projectWorkspace(own).catch(() => undefined)
+    const project = await projectNamed(decodeURIComponent(named), within)
     if (project !== own) throw createError({statusCode: 403, statusMessage: 'Forbidden', message: `This session reads what others wrote (an untrusted schedule) for ${own}, so it only writes there`})
 })
