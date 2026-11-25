@@ -51,6 +51,8 @@ inside the asker's own workspace and boards. Idle sessions also go back to the w
 - **CI audits the dependencies:** `cargo audit` and `pnpm audit` run on every push and pull request.
 - **Dependencies:** nuxt 4.7.0 and marked 18.3.0, and the minimatch advisory is cleared.
 - **Tests:** the members a board file brings on upload, Start session's Folder picker, and a steadier signup spec.
+- **The playground's demo has a second person, Hate,** as an assignee has to be someone in the workspace. The README's
+  images are retaken for this release.
 
 ## 1.0.0-rc.23 (2026-11-23)
 
