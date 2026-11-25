@@ -780,7 +780,10 @@ async fn a_move_takes_a_status_only_as_text_and_an_assignee_as_a_name_or_nobody(
     let named = ask(json!({"move": {"ids": ["PRI-1"], "assignee": " bo "}})).await;
     assert_eq!(named.status, 201, "{}", named.body);
     assert_eq!(named.body["move"]["body"]["assignee"], "bo");
-    api.patch(&format!("/api/projects/{project}/issues/PRI-2"), json!({"assignee": "bo"})).send().await;
+    api.run("INSERT INTO people (id, name, role, created_at) VALUES ('bo', 'bo', 'member', '2026-11-01T10:00:00.000Z')", &[]).await;
+    api.run("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('default', 'bo', 'member', '2026-11-01T10:00:00.000Z')", &[]).await;
+    let given = api.patch(&format!("/api/projects/{project}/issues/PRI-2"), json!({"assignee": "bo"})).send().await;
+    assert_eq!(given.status, 200, "{}", given.body);
     let blank = ask(json!({"move": {"ids": ["PRI-2"], "assignee": "  "}})).await;
     assert_eq!(blank.status, 201, "{}", blank.body);
     assert_eq!(blank.body["move"]["changes"][0], json!({"issue": "PRI-2", "title": "Wheel", "field": "assignee", "from": "bo", "to": null}));

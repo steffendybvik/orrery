@@ -1240,7 +1240,9 @@ async fn an_agent_cant_change_another_persons_issue() {
     let claudes = board.assigned("Wheel", "claude").await;
     let reply = api.patch(&board.at(&claudes), json!({"priority": "P1"})).agent_of("ana").send().await;
     assert!(message(&reply).starts_with("PRI-2 is assigned to sam"), "{}", reply.body);
-    let strangers = board.assigned("Gap", "zed").await;
+    // Nobody can be given one now (ORR-1401), but older boards and imports still hold such names.
+    let strangers = board.assigned("Gap", "bo").await;
+    api.run("UPDATE issues SET assignee = 'zed' WHERE id = ?", &[&strangers]).await;
     let reply = api.patch(&board.at(&strangers), json!({"priority": "P1"})).agent_of("ana").send().await;
     assert!(message(&reply).starts_with("PRI-3 is assigned to nobody"), "{}", reply.body);
 }
@@ -1249,10 +1251,10 @@ async fn an_agent_cant_change_another_persons_issue() {
 async fn with_one_person_there_are_no_rails() {
     let api = TestApi::new().await;
     let board = Board::new(&api).await;
-    let id = board.assigned("Sieve", "bo").await;
-    let reply = api.patch(&board.at(&id), json!({"priority": "P1", "assignee": "zed"})).agent_of("ana").send().await;
+    let id = board.assigned("Sieve", "claude").await;
+    let reply = api.patch(&board.at(&id), json!({"priority": "P1", "assignee": "owner"})).agent_of("ana").send().await;
     assert_eq!(reply.status, 200, "{}", reply.body);
-    assert_eq!(reply.body["assignee"], json!("zed"));
+    assert_eq!(reply.body["assignee"], json!("owner"));
 }
 
 #[tokio::test]
@@ -1739,4 +1741,31 @@ async fn nothing_new_waits_on_an_issue_of_a_board_marked_as_moved() {
     let made =
         api.post(&format!("/api/projects/{}/issues", board.project), json!({"title": "Wheel", "depends_on": [format!("{other}/{theirs}")]})).send().await;
     assert_eq!(made.status, 409, "a new issue too: {}", made.body);
+}
+
+// Whom an issue may be given to (ORR-1401).
+
+#[tokio::test]
+async fn an_assignee_is_someone_in_the_issues_workspace_and_anyone_else_is_nobody() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let board = Board::new(&api).await;
+    // zoe is a person on the server, but in Acme only.
+    api.run("INSERT INTO people (id, name, role, created_at) VALUES ('zoe', 'zoe', 'member', '2026-11-01T10:00:00.000Z')", &[]).await;
+    api.acme(&["zoe"]).await;
+    // A member here is kept by their id, whatever case and spacing they're sent in; `claude` and `owner` are as ever.
+    let ana = board.assigned("Sieve", " Ana ").await;
+    assert_eq!(board.read(&ana).await["assignee"], json!("ana"));
+    assert_eq!(board.read(&board.assigned("Wheel", "claude").await).await["assignee"], json!("claude"));
+    assert_eq!(board.read(&board.assigned("Gap", "owner").await).await["assignee"], json!("sam"));
+    // Someone in another workspace is answered as someone who doesn't exist: on create, on an edit and in bulk.
+    for name in ["zoe", "nemo"] {
+        let made = api.post(&board.issues(), json!({"title": "Probe", "assignee": name})).send().await;
+        assert_eq!((made.status.as_u16(), made.body["message"].clone()), (404, json!(format!("No person \"{name}\""))));
+        let edited = api.patch(&board.at(&ana), json!({"assignee": name})).send().await;
+        assert_eq!((edited.status.as_u16(), edited.body["message"].clone()), (404, json!(format!("No person \"{name}\""))));
+        let many = api.patch(&board.issues(), json!({"ids": [ana], "set": {"assignee": name}})).send().await;
+        assert_eq!(many.body, json!([{"id": ana, "ok": false, "error": format!("No person \"{name}\"")}]));
+    }
+    assert_eq!(board.read(&ana).await["assignee"], json!("ana"));
 }

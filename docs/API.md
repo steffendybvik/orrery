@@ -281,7 +281,7 @@ board's export leaves epics out, as they're the server's: uploading one clears i
 - `status`: a status's id (see [Statuses](#statuses)), `backlog` by default. A kind works too and picks its
   first status: `{"status": "started"}` is In progress. The words from before statuses still work:
   `doing` is started, and `todo` with a `plan` (`now`, `next`, `later`) is Todo, with `plan: null` Backlog
-- `priority`: `P0` (urgent, listed under Urgent until done) · `P1` · `P2` · `P3`; `labels`: a list of strings; `assignee`: a name, or `owner` for the owner
+- `priority`: `P0` (urgent, listed under Urgent until done) · `P1` · `P2` · `P3`; `labels`: a list of strings; `assignee`: `claude`, `owner` for the owner, or a person in the project's workspace, by id or name (kept as their id); anyone else is a 404 `No person "…"`, as for someone who doesn't exist
   (stored as their id, so it shows under their My issues; `?assignee=owner` finds theirs too)
 - A top-level issue is in a `milestone`; a sub-issue (`parent`) is in its parent's milestone, so it takes no `milestone`
 - `parent: null` lifts a sub-issue to the top, into the milestone it was in
