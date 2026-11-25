@@ -18,6 +18,8 @@ const SESSIONS = [
 ]
 const VERSION = JSON.parse(readFileSync(repo('web/package.json'), 'utf8')).version
 const OWNER = {'Orrery-Actor': 'skoll'}
+// The demo has two people, so a session says whose it is (ORR-1429).
+const PERSON = {'Orrery-Person': 'skoll'}
 let streams: ReturnType<typeof hold>[] = []
 
 test.beforeAll(async ({request, baseURL}) => {
@@ -25,8 +27,8 @@ test.beforeAll(async ({request, baseURL}) => {
     // Its repo is made up, so the issue's page would say GitHub doesn't have it.
     expect((await request.patch('/api/projects/primes', {data: {repo: null}, headers: OWNER})).ok()).toBeTruthy()
     streams = [
-        hold(baseURL!, `/api/projects/primes/launches/stream?version=${VERSION}`),
-        ...SESSIONS.map(s => hold(baseURL!, `/api/projects/${s.project}/signals/stream?session=${s.id}&name=${s.name}&version=${VERSION}&format=text`)),
+        hold(baseURL!, `/api/projects/primes/launches/stream?version=${VERSION}`, PERSON),
+        ...SESSIONS.map(s => hold(baseURL!, `/api/projects/${s.project}/signals/stream?session=${s.id}&name=${s.name}&version=${VERSION}&format=text`, PERSON)),
     ]
     await expect.poll(async () => (await (await request.get('/api/sessions')).json()).filter((s: {listening: boolean}) => s.listening).length).toBe(SESSIONS.length)
     const focus = await request.post('/api/projects/primes/issues/PRM-3/focus', {data: {session: 'readme-nordre'}, headers: OWNER})
