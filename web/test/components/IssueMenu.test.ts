@@ -6,7 +6,7 @@ import {getHeader, getMethod, readBody, setResponseStatus} from 'h3'
 import type {Project} from '#shared/roadmap'
 import IssueMenu from '~/components/IssueMenu.vue'
 
-// Right-clicking an issue: what each action sends and as whom, the milestone list, asking the sessions, removing only
+// Right-clicking an issue: what each action sends and as whom, the milestone and release lists, asking the sessions, removing only
 // once asked again, and an error keeping it open.
 let sent: {method: string, path: string, actor?: string, body?: unknown}[] = []
 let failing = false
@@ -31,6 +31,11 @@ const GREENHOUSE = {
         {id: 'shelves', title: 'Shelves', tasks: []},
         {id: '', title: 'No milestone', tasks: []},
     ]},
+    releases: [
+        {version: '2.0', frozen_on: null, shipped_on: null},
+        {version: '1.1', frozen_on: '2026-11-20', shipped_on: null},
+        {version: '1.0', frozen_on: '2026-11-01', shipped_on: '2026-11-10'},
+    ],
 } as unknown as Project
 
 const mounted: VueWrapper[] = []
@@ -80,6 +85,30 @@ describe('IssueMenu', () => {
         await button('No milestone').trigger('click')
         await closed()
         expect(sent).toEqual([{method: 'PATCH', path: 'GRE-1', actor: 'skoll', body: {milestone: null}}])
+    })
+
+    it('offers only the releases not yet shipped, checks the current one, and No release takes it out', async () => {
+        const project = useRoadmaps().projects.value[0]!
+        project.board.milestones[0]!.tasks[0]!.release = '1.1'
+        try {
+            const {wrapper, button, closed} = await mount()
+            expect(button('Release').text()).toContain('1.1')
+            await button('Release').trigger('click')
+            const items = wrapper.findAll('button')
+            expect(items.map(b => b.text())).toEqual(['‹ Back', 'No release', '2.0', '1.1frozen'])
+            expect(items.map(b => b.find('svg').exists())).toEqual([false, false, false, true])
+            await button('2.0').trigger('click')
+            await closed()
+            expect(sent).toEqual([{method: 'PATCH', path: 'GRE-1', actor: 'skoll', body: {release: '2.0'}}])
+
+            const again = await mount()
+            await again.button('Release').trigger('click')
+            await again.button('No release').trigger('click')
+            await again.closed()
+            expect(sent[1]).toEqual({method: 'PATCH', path: 'GRE-1', actor: 'skoll', body: {release: null}})
+        } finally {
+            delete project.board.milestones[0]!.tasks[0]!.release
+        }
     })
 
     it('asks one listening session, never all of them, and says so', async () => {
