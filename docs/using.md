@@ -39,7 +39,7 @@ Right-click only opens orrery's own menus. Anywhere else the browser's menu is h
 
 | On | Menu |
 |---|---|
-| An issue (a row in the list, a card on the board) | Move to a column · set its priority · move to a milestone · **ask a listening session to focus on it** · copy id, in its full form · open · remove (with its sub-issues, asked once more) |
+| An issue (a row in the list, a card on the board) | Move to a column · set its priority · move to a milestone · set its release (one not yet shipped, the current one ticked) · **ask a listening session to focus on it** · copy id, in its full form · open · remove (with its sub-issues, asked once more) |
 | A milestone's card on the roadmap | Set its priority · **ask the listening session(s) to work through it** · new issue in it · copy id, in its full form · open · remove (its issues stay, in no milestone) |
 | An epic in the Epics list | **Ask a session in each of its projects to work through it** (starts one where nobody's listening) · **ask all the listening sessions** · copy id, in its full form · open |
 | A schedule (or its ⋯) | Run now (not one that moves issues: it needs its event), which stays on the page and confirms what it did · run now instead of its next run, which it then skips · pause or resume · edit · remove (the issues it made stay; its dialog has Remove too) |
