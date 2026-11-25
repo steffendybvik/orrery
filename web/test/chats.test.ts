@@ -816,14 +816,14 @@ describe("the owner's chat moving issues", () => {
         expect(await state('GRE-2')).toEqual(['todo', null])
         expect(messages.length).toBe(told)
         // Changed further since it was shown: it shows that, and still waits.
-        await store.updateIssue('greenhouse', 'GRE-2', {assignee: 'freya'}, {name: 'skoll', owner: true})
+        await store.updateIssue('greenhouse', 'GRE-2', {assignee: 'owner'}, {name: 'skoll', owner: true})
         await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true}, true)
-        expect(asked.move).toMatchObject({state: 'asked', drifted: [{issue: 'GRE-1', field: 'status'}, {issue: 'GRE-2', field: 'assignee', from: null, to: 'freya'}]})
-        expect(await state('GRE-2')).toEqual(['todo', 'freya'])
+        expect(asked.move).toMatchObject({state: 'asked', drifted: [{issue: 'GRE-1', field: 'status'}, {issue: 'GRE-2', field: 'assignee', from: null, to: 'skoll'}]})
+        expect(await state('GRE-2')).toEqual(['todo', 'skoll'])
         await chats.answer('c1c2c3c4c5c6', asked.id, true, {name: 'skoll', owner: true}, true)
         expect(asked.move!.state).toBe('allowed')
         expect([await state('GRE-1'), await state('GRE-2')]).toEqual([['todo', 'claude'], ['todo', 'claude']])
-        expect(messages.at(-1)!.text).toBe('(I allowed your request: GRE-1, GRE-2 are now in todo, assigned to claude, saved. Before that, GRE-1 was in todo when you asked and is in done now. GRE-2 was assigned to nobody when you asked and is assigned to freya now.)')
+        expect(messages.at(-1)!.text).toBe('(I allowed your request: GRE-1, GRE-2 are now in todo, assigned to claude, saved. Before that, GRE-1 was in todo when you asked and is in done now. GRE-2 was assigned to nobody when you asked and is assigned to skoll now.)')
     })
 
     it('tells the session what had changed when the owner denies it, and shows the change as it happens', async () => {

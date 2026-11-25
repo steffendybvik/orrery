@@ -96,7 +96,7 @@ export abstract class IssueStore extends ClaimStore {
         if (parent && depends?.some(l => l.project === project && l.id === parent)) throw badRequest(`${parent} is this issue's parent, so it can't depend on it`)
         const status = await this.resolveStatus(input.status, input.plan, project)
         const proposed = input.proposal === 'pending'
-        let assigned = proposed ? await this.ownerId() : nullable(await this.assigneeOf(input.assignee))
+        let assigned = proposed ? await this.ownerId() : nullable(await this.assigneeOf(input.assignee, project))
         const rails = await this.railsFor(actor)
         const person = rails?.person
         const kind = (await this.statusesOf(project)).find(s => s.id === status)?.kind
@@ -186,7 +186,7 @@ export abstract class IssueStore extends ClaimStore {
 
         const title = input.title === undefined ? undefined : String(input.title).trim()
         const status = input.status === undefined && input.plan === undefined ? undefined : await this.resolveStatus(input.status, input.plan, project)
-        let assignee = input.proposal === 'pending' ? (await this.ownerId()) : await this.assigneeOf(input.assignee)
+        let assignee = input.proposal === 'pending' ? (await this.ownerId()) : await this.assigneeOf(input.assignee, project)
         const rails = await this.railsFor(actor)
         // An agent's own proposal is its to edit and put up again, though it waits on the owner.
         const ownProposal = rails?.person && row.proposal && row.created_person === rails.person
