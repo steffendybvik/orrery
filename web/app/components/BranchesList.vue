@@ -58,7 +58,7 @@ const short = (branch: RepoBranch) => branch.sha.slice(0, 7)
     <p v-if="failed" class="text-xs text-rose-700 dark:text-rose-400">{{ failed }}</p>
     <p v-if="got && !got.repos.length" class="text-[13px] text-muted">No project points at a repo on GitHub.</p>
     <ul v-if="got?.repos.length" class="flex flex-col gap-3" aria-label="Repos">
-      <li v-for="repo in got.repos" :key="repo.repo" class="rounded-xl border border-line dark:bg-panel">
+      <li v-for="repo in got.repos" :key="repo.repo" class="rounded-xl card">
         <div class="flex flex-wrap items-baseline gap-x-2 border-b border-line px-3 py-2 text-xs text-faint">
           <span class="font-mono text-[13px] text-fg">{{ repo.repo }}</span>
           <span v-if="repo.base">commits counted against {{ repo.base }}</span>

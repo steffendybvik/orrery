@@ -71,7 +71,7 @@ async function sendBack(pull: PullRequest) {
       <span v-if="total" class="font-mono normal-case">{{ total }}</span>
       <RiskChip v-if="risk" :risk="risk" class="normal-case tracking-normal" />
     </h2>
-    <ul v-if="total" class="overflow-hidden rounded-xl border border-line dark:bg-panel">
+    <ul v-if="total" class="overflow-hidden rounded-xl card">
       <li v-for="pull in got.pulls" :key="pull.number" class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2 text-sm last:border-b-0">
         <svg class="size-4 shrink-0 text-faint" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5" /><circle cx="6" cy="18" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4m2-2-2 2 2 2" /></svg>
         <NuxtLink v-if="page(pull)" :to="page(pull)!" class="min-w-0 flex-1 truncate text-fg hover:underline" :title="`#${pull.number}'s linked issues`">

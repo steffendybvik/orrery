@@ -253,7 +253,7 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
           <span>{{ release.issues }} {{ release.issues === 1 ? 'issue' : 'issues' }}<template v-if="progress(release.kinds).total !== release.issues"> · {{ progress(release.kinds).total }} with sub-issues</template></span>
         </div>
 
-        <details v-if="release.issues" class="group rounded-xl border border-line dark:bg-panel">
+        <details v-if="release.issues" class="group rounded-xl card">
           <summary class="flex list-none items-center gap-2 px-4 py-3 text-[13px] font-medium text-fg">
             <svg class="size-3 text-faint transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6" /></svg>
             Changelog draft
@@ -274,7 +274,7 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
               <ProgressRing :kinds="part.kinds" :size="13" />
               <span class="font-mono normal-case">{{ part.issues }} {{ part.issues === 1 ? 'issue' : 'issues' }}</span>
             </h2>
-            <div v-if="part.milestones.length" class="overflow-clip rounded-xl border border-line dark:bg-panel">
+            <div v-if="part.milestones.length" class="overflow-clip rounded-xl card">
               <ListView :milestones="part.milestones" :project="part.project.id" group="status" risk-first />
             </div>
             <p v-else class="px-4 py-6 text-center text-xs text-faint">None of {{ part.project.name }}'s issues are set for it yet.</p>
@@ -282,7 +282,7 @@ useHead(() => ({title: release.value && project.value ? `${release.value.version
         </template>
         <section v-else class="flex flex-col gap-2" aria-label="Issues">
           <h2 class="label">Issues</h2>
-          <div v-if="milestones.length" class="overflow-clip rounded-xl border border-line dark:bg-panel">
+          <div v-if="milestones.length" class="overflow-clip rounded-xl card">
             <ListView :milestones="milestones" :project="project.id" group="status" risk-first />
           </div>
           <p v-else class="px-4 py-16 text-center text-sm text-muted">No issues set for this release yet. Pick it under Release on an issue’s page.</p>

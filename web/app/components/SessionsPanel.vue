@@ -105,7 +105,7 @@ const aimed = (signal: Signal) => signal.target === '*' || !signal.target && sig
 </script>
 
 <template>
-  <section class="flex flex-col gap-3 rounded-2xl bg-well/50 p-4 ring-1 ring-line dark:bg-panel">
+  <section class="flex flex-col gap-3 rounded-2xl card p-4">
     <!-- Wraps on a phone: the buttons take a line of their own rather than running off the screen (ORR-1215). -->
     <div class="flex flex-wrap items-center gap-x-2 gap-y-3">
       <svg class="size-4 text-accent-fill" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>

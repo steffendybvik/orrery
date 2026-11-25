@@ -395,7 +395,7 @@ async function pick(tint: string | null) {
             A hidden one folds away under Hidden at the foot of the list. Its issues, sessions and schedules carry on, and its pages still open.
           </p>
         </header>
-        <ul v-if="allProjects.length" class="flex flex-col divide-y divide-line rounded-xl ring-1 ring-line" data-testid="settings-projects">
+        <ul v-if="allProjects.length" class="flex flex-col divide-y divide-line rounded-xl card" data-testid="settings-projects">
           <li v-for="project in allProjects" :key="project.id" class="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
             <NuxtLink :to="`/p/${project.id}`" class="flex min-w-0 flex-1 items-center gap-2 text-[13px] hover:underline" :class="isHidden(project.id) ? 'text-muted' : 'text-fg'">
               <ProjectIcon v-if="project.icon && heroicon(project.icon)" :icon="project.icon" :color="project.icon_color" class="size-3.5" />
