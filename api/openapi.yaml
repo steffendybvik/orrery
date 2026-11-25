@@ -347,9 +347,9 @@ paths:
         `Orrery-Worked-By`), and a session's new id after a `/clear` takes it on (`…/issue-sessions/rename`).
       requestBody:
         required: true
-        content: {application/json: {schema: {type: object, required: [kind], properties: {kind: {type: string, enum: [untrusted, chat]}, project: {type: [string, 'null']}}}}}
+        content: {application/json: {schema: {type: object, required: [kind], properties: {kind: {type: string, enum: [untrusted, chat]}, project: {type: [string, 'null']}, person: {type: [string, 'null'], description: 'Whose session it is: the credential''s person, none with login off (ORR-1402)'}}}}}
       responses:
-        '200': {description: 'The record as it stands', content: {application/json: {schema: {type: object, properties: {session: {type: string}, kind: {type: string}, project: {type: [string, 'null']}, workspace: {type: string}, at: {type: string}}}}}}
+        '200': {description: 'The record as it stands', content: {application/json: {schema: {type: object, properties: {session: {type: string}, kind: {type: string}, project: {type: [string, 'null']}, workspace: {type: string}, person: {type: [string, 'null']}, at: {type: string}}}}}}
         '400': {$ref: '#/components/responses/BadRequest'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '409': {$ref: '#/components/responses/Conflict'}

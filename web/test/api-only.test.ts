@@ -206,8 +206,8 @@ describe('what a session is, kept in the API for its rails (ORR-1171)', () => {
         await recordSession(naming('plain'), {name: 'claude', owner: false})
         await recordSession(eventOf('/api/projects/orrery/issues', 'POST'), {name: 'outsider', owner: false, untrusted: true})
         expect(api.sent).toEqual([
-            {path: '/api/session-records/run%201', body: {kind: 'untrusted', project: null}, came: 'server'},
-            {path: '/api/session-records/chat-1', body: {kind: 'chat', project: null}, came: 'server'},
+            {path: '/api/session-records/run%201', body: {kind: 'untrusted', project: null, person: null}, came: 'server'},
+            {path: '/api/session-records/chat-1', body: {kind: 'chat', project: null, person: null}, came: 'server'},
         ])
         await api.close()
     })

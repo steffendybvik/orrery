@@ -57,10 +57,10 @@ export async function dragCard(page: Page, card: Locator, column: Locator) {
 }
 
 /** A stream held open the way a channel or launcher holds it, keeping what arrives; `stop` lets it go. */
-export function hold(baseURL: string, path: string) {
+export function hold(baseURL: string, path: string, headers?: Record<string, string>) {
     const controller = new AbortController()
     const said = {text: ''}
-    fetch(`${baseURL}${path}`, {signal: controller.signal}).then(async response => {
+    fetch(`${baseURL}${path}`, {signal: controller.signal, headers}).then(async response => {
         const reader = response.body!.getReader()
         for (;;) {
             const {done, value} = await reader.read()

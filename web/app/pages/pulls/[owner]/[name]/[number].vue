@@ -26,7 +26,7 @@ useHead({title: () => `#${number.value}${data.value ? ` ${data.value.pull.title}
         {{ errorMessage(error, 'read') }}
       </p>
       <template v-else-if="data">
-        <section class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-line px-3 py-2 text-sm dark:bg-panel" aria-label="The pull request">
+        <section class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl card px-3 py-2 text-sm" aria-label="The pull request">
           <a :href="data.pull.url" target="_blank" rel="noopener" class="min-w-0 flex-1 truncate font-mono text-[13px] text-fg hover:underline">{{ data.repo }}#{{ data.pull.number }}</a>
           <PullStateChip :state="data.pull.state" />
           <span class="w-full truncate font-mono text-[11px] text-faint">
@@ -34,7 +34,7 @@ useHead({title: () => `#${number.value}${data.value ? ` ${data.value.pull.title}
           </span>
         </section>
         <h2 class="text-xs font-medium text-muted">{{ data.issues.length }} linked issue{{ data.issues.length === 1 ? '' : 's' }}</h2>
-        <ul class="flex flex-col rounded-xl border border-line dark:bg-panel" aria-label="Linked issues">
+        <ul class="flex flex-col rounded-xl card" aria-label="Linked issues">
           <li v-for="issue in data.issues" :key="`${issue.project}/${issue.id}`" class="flex items-center gap-3 border-b border-line px-3 py-2 text-sm last:border-b-0">
             <NuxtLink :to="`/p/${issue.project}/issues/${issue.id}`" class="flex min-w-0 flex-1 items-center gap-2 hover:underline">
               <span class="shrink-0 font-mono text-xs text-muted">{{ issue.id }}</span>

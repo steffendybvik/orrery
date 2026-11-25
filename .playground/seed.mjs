@@ -8,13 +8,13 @@
 //   node .playground/seed.mjs [http://localhost:9001]
 const base = (process.argv[2] ?? 'http://localhost:9001').replace(/\/+$/, '')
 const OWNER = 'skoll'
-const HATE = 'hate'
+let HATE = 'hate'
 const daysAgo = days => new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10)
 
 async function call(method, path, body, actor = OWNER) {
     const response = await fetch(`${base}/api${path}`, {
         method,
-        headers: {'Content-Type': 'application/json', 'Orrery-Actor': actor},
+        headers: {'Content-Type': 'application/json', 'Orrery-Actor': actor, 'Orrery-Person': actor === 'claude' ? OWNER : actor},
         body: body === undefined ? undefined : JSON.stringify(body),
     })
     if (!response.ok) throw new Error(`${method} ${path}: ${response.status} ${await response.text()}`)
@@ -27,10 +27,22 @@ if ((await call('GET', '/projects')).length) {
 }
 
 await call('PUT', '/owner', {name: 'Skoll'})
+// A second person to assign work to, as an assignee has to be someone in the issue's workspace (ORR-1401). Adding one
+// turns login on, so an orrery nobody has claimed refuses it (409): there, the owner takes Hate's issues.
+const hate = await fetch(`${base}/api/people`, {method: 'POST', headers: {'Content-Type': 'application/json', 'Orrery-Actor': OWNER}, body: JSON.stringify({name: 'Hate'})})
+if (!hate.ok) {
+    HATE = OWNER
+    console.log(`No second person (${hate.status}): Skoll takes Hate's issues. Claim it, or run it with ORRERY_AUTH=off, for both`)
+}
+// A board, with Hate on it to comment and write docs.
+const board = async body => {
+    await call('POST', '/projects', body)
+    if (HATE !== OWNER) await call('POST', `/projects/${body.id}/members`, {person: HATE})
+}
 await call('PATCH', '/settings', {handle: 'skoll', tracker: 'https://tracker.example.com/issue/{id}', starts: {limit: 2, minutes: 30}})
 
 // Primes: its own releases and milestones.
-await call('POST', '/projects', {name: 'Primes', id: 'primes', key: 'PRM', description: 'A library for finding and testing prime numbers'})
+await board({name: 'Primes', id: 'primes', key: 'PRM', description: 'A library for finding and testing prime numbers'})
 await call('PATCH', '/projects/primes', {release_mode: 'own', repo: 'https://github.com/demo/primes'})
 const primes = (path, body, actor) => call('POST', `/projects/primes${path}`, body, actor)
 const sieves = await primes('/milestones', {title: 'Sieves', summary: 'Every prime up to n, fast.'})
@@ -138,7 +150,7 @@ await primes('/schedules', {kind: 'message', title: 'Write up what shipped', on:
 await primes(`/schedules/${triage.id}/run`, {})
 
 // Primes CLI: the library's command line, in the same repo, shipping in its releases.
-await call('POST', '/projects', {name: 'Primes CLI', id: 'primes-cli', key: 'CLI', description: 'The primes library on the command line'})
+await board({name: 'Primes CLI', id: 'primes-cli', key: 'CLI', description: 'The primes library on the command line'})
 await call('PATCH', '/projects/primes-cli', {release_mode: 'shared', releases_from: 'primes'})
 const cli = (path, body, actor) => call('POST', `/projects/primes-cli${path}`, body, actor)
 await cli('/issues', {title: '`primes count <n>`', status: 'in-progress', release: '1.0.0', assignee: 'claude'}, 'claude')
@@ -156,7 +168,7 @@ await cli('/docs', {id: 'commands', section: 'Using it', title: 'Commands', body
 await cli('/schedules', {title: 'Try the commands on a clean machine', cron: '0 7 * * 6', timezone: 'Europe/Oslo', labels: ['packaging'], notes: 'Install it from nothing, and run every example in Commands.'})
 
 // Graphs: a smaller project, with releases of its own.
-await call('POST', '/projects', {name: 'Graphs', id: 'graphs', key: 'GRA', description: 'Graph algorithms, one at a time'})
+await board({name: 'Graphs', id: 'graphs', key: 'GRA', description: 'Graph algorithms, one at a time'})
 await call('PATCH', '/projects/graphs', {release_mode: 'own'})
 const graphs = (path, body, actor) => call('POST', `/projects/graphs${path}`, body, actor)
 await graphs('/releases', {version: '0.2.0', notes: 'Shortest paths, weighted and not.'})

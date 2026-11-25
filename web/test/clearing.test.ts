@@ -117,6 +117,35 @@ describe('a session orrery started, gone idle', () => {
         expect(picked).toEqual(['w'])
     })
 
+    it('is sent back to the most urgent issue it still has in progress, once while it is unchanged (ORR-1421)', async () => {
+        working = [{id: 'ORR-1', status: 'in-progress', priority: 'P2'} as never, {id: 'ORR-2', status: 'in-progress', priority: 'P0'} as never, {id: 'ORR-3', status: 'in-review', priority: 'P0'} as never]
+        clearing.considerClear('orrery', 'w')
+        await after()
+        expect(sent).toEqual([])
+        expect(picked).toEqual([])
+        expect(carried).toEqual([['orrery', 'ORR-2', {session: 'w', note: clearing.STILL_YOURS}, {name: 'sam', owner: true}]])
+        session = {...session!, idleAt: 2}
+        clearing.considerClear('orrery', 'w')
+        await after()
+        expect(carried).toHaveLength(1)
+    })
+
+    it("isn't sent back with a signal waiting for it, a sub-issue to carry on with, or as an untrusted run", async () => {
+        working = [{id: 'ORR-1', status: 'in-progress'}]
+        waiting = true
+        clearing.considerClear('orrery', 'w')
+        await after()
+        waiting = false
+        untrusted = true
+        clearing.considerClear('orrery', 'w')
+        await after()
+        untrusted = false
+        issues = [{id: 'ORR-4', parent: 'ORR-1', kind: 'todo', column: 'todo', updated_at: ''}]
+        clearing.considerClear('orrery', 'w')
+        await after()
+        expect(carried).toEqual([])
+    })
+
     it("isn't cleared when it's the owner's chat, which keeps its conversation", async () => {
         session = {...session!, started: {launch: 'l1', chat: true} as {launch: string}}
         clearing.considerClear('orrery', 'w')

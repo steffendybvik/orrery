@@ -436,7 +436,7 @@ export function askerHeaders(event: H3Event, actor: Actor): Record<string, strin
 const recorded = new Set<string>()
 
 /** Keeps what the session a request names is in the API, once, before its request goes on (ORR-1171): an untrusted
- * schedule's, held to the project it was started for, or the owner's chat. The API's rails then hold it by its record,
+ * schedule's, held to the project it was started for, or the owner's chat, as the credential's person's. The API's rails then hold it by its record,
  * whatever a later request says, and a restart here doesn't loosen it. A record the API keeps tighter already (409)
  * holds as it is; one that can't be written fails the request, as the rails couldn't hold it. */
 export async function recordSession(event: H3Event, actor: Actor) {
@@ -444,10 +444,12 @@ export async function recordSession(event: H3Event, actor: Actor) {
     if (!session || !(actor.untrusted || actor.chat)) return
     const kind = actor.untrusted ? 'untrusted' : 'chat'
     const project = actor.untrusted ? untrustedProject(session) ?? null : null
-    const key = `${session}\n${kind}\n${project ?? ''}`
+    // Whose session it is (ORR-1402): the credential's person, so the API counts the record only for them.
+    const person = (event.context?.who as Who | undefined)?.person ?? null
+    const key = `${session}\n${kind}\n${project ?? ''}\n${person ?? ''}`
     if (recorded.has(key)) return
     try {
-        await writeToApi('PUT', `/api/session-records/${encodeURIComponent(session)}`, {kind, project}, ORRERY, {always: true})
+        await writeToApi('PUT', `/api/session-records/${encodeURIComponent(session)}`, {kind, project, person}, ORRERY, {always: true})
     } catch (error) {
         if ((error as {statusCode?: number}).statusCode !== 409) throw error
     }

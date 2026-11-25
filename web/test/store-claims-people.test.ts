@@ -87,7 +87,9 @@ describe('with two people', () => {
         })
 
         it('counts an assignee who isn\'t a person as nobody\'s', async () => {
-            const id = await add({assignee: 'somebody'})
+            // Nobody can be given one now (ORR-1401), but older boards and imports still hold such names.
+            const id = await add()
+            await store.db.run("UPDATE issues SET assignee = 'somebody' WHERE project = 'greenhouse' AND id = ?", id)
             await refused(() => store.updateIssue('greenhouse', id, {status: 'in-progress'}, hatis), 'assigned to nobody')
         })
 
@@ -154,7 +156,8 @@ describe('with two people', () => {
             const mine = await add({assignee: 'hati'})
             const theirs = await add({assignee: 'skoll'})
             await refused(() => store.updateIssue('greenhouse', theirs, {assignee: 'hati'}, hatis))
-            await refused(() => store.updateIssue('greenhouse', mine, {assignee: 'somebody'}, hatis), 'Only people assign')
+            const {status, message} = await failure(() => store.updateIssue('greenhouse', mine, {assignee: 'somebody'}, hatis))
+            expect([status, message]).toEqual([404, 'No person "somebody"'])
             await refused(() => store.updateIssue('greenhouse', mine, {parent: theirs}, hatis), 'assigned to skoll')
             expect((await store.updateIssue('greenhouse', mine, {assignee: 'owner'}, hatis)).assignee).toBe('skoll')
         })

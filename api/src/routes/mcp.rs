@@ -2,6 +2,7 @@
 // message gets is mcp/mod.rs's; this is the HTTP around it.
 use crate::error::{ApiError, Result};
 use crate::mcp::relay::Relay;
+use crate::mcp::sessions::held;
 use crate::mcp::tools::Kind;
 use crate::mcp::Call;
 use crate::request::{actor_of, header, who_of};
@@ -27,6 +28,11 @@ fn agents_only(headers: &HeaderMap) -> Result<()> {
         return Err(ApiError::forbidden("orrery's MCP tools are for agents: give the session an agent key as its bearer"));
     }
     Ok(())
+}
+
+/// Who a session is kept for: the person asking, as the router found them; nobody (`""`) with login off.
+fn holder_of(headers: &HeaderMap) -> String {
+    who_of(headers).map(|who| who.person).unwrap_or_default()
 }
 
 fn kind_of(headers: &HeaderMap) -> Kind {
@@ -62,9 +68,12 @@ async fn post_mcp(State(app): Shared, headers: HeaderMap, body: Bytes) -> Result
     };
     let initializes = messages.iter().any(|m| m["method"] == "initialize");
     // A new session's id on `initialize`, whatever it came with; else the one it came with.
-    let session = if initializes { Some(app.mcp.begin()) } else { header(&headers, SESSION).filter(|s| !s.is_empty()) };
+    let holder = holder_of(&headers);
+    let session = if initializes { Some(app.mcp.begin(&holder)) } else { header(&headers, SESSION).filter(|s| !s.is_empty()) };
+    // Kept under who began it, so another person who has its id gets a session this doesn't know (ORR-1388).
+    let key = session.as_deref().map(|id| held(&holder, id));
     let relay = Relay::default();
-    let call = Call { app: &app, headers: &headers, kind: kind_of(&headers), session: session.as_deref(), relay: &relay };
+    let call = Call { app: &app, headers: &headers, kind: kind_of(&headers), session: key.as_deref(), relay: &relay };
     let mut conn = app.pool.acquire().await?;
     let mut answers = Vec::new();
     let mut changed = false;
@@ -106,7 +115,7 @@ async fn delete_mcp(State(app): Shared, headers: HeaderMap) -> Result<Response> 
     let Some(session) = header(&headers, SESSION).filter(|s| !s.is_empty()) else {
         return Err(ApiError::bad_request("Say which session: Mcp-Session-Id"));
     };
-    Ok(if app.mcp.end(&session) { StatusCode::NO_CONTENT } else { StatusCode::NOT_FOUND }.into_response())
+    Ok(if app.mcp.end(&held(&holder_of(&headers), &session)) { StatusCode::NO_CONTENT } else { StatusCode::NOT_FOUND }.into_response())
 }
 
 #[cfg(test)]

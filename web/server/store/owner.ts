@@ -2,7 +2,7 @@
 import type {Notice, NoticeChange, NoticeList, Owner} from '#shared/roadmap'
 import {NOTICE_LISTS} from '#shared/roadmap'
 import type {Input} from '../utils/input'
-import {badRequest, checkInput, conflict, forbidden} from '../utils/input'
+import {badRequest, checkInput, conflict, forbidden, notFound} from '../utils/input'
 import type {CommentRow, EventRow} from './schema'
 import {AGENT, OWNER_FIELDS, actorId, ANSWERED, PERSONS_WORDS, SINCE, commentOf, eventOf, stamp} from './schema'
 import {StatusStore} from './statuses'
@@ -37,11 +37,20 @@ export abstract class OwnerStore extends StatusStore {
         return (await this.ownerOf()).name
     }
 
-    /** An assignee as stored: `owner` is the owner's id, whatever their name, so an agent needn't know it. */
-    protected async assigneeOf(value: Input[string]): Promise<string | null | undefined> {
+    /** An assignee as stored: `owner` is the owner's id, whatever their name, so an agent needn't know it. Given to an
+     * issue in `project`, anyone but `claude` and the owner must be a person in its workspace, kept by their id, and
+     * whoever isn't is the same 404 as nobody (ORR-1401); a filter names anyone. */
+    protected async assigneeOf(value: Input[string], project?: string): Promise<string | null | undefined> {
         if (value === undefined) return undefined
         const name = String(value ?? '').trim()
-        return name.toLowerCase() === 'owner' ? await this.ownerId() : name || null
+        if (name.toLowerCase() === 'owner') return await this.ownerId()
+        if (!name || project === undefined) return name || null
+        const id = actorId(name)
+        if (id === 'claude' || id === await this.ownerId()) return id
+        const here = await this.get(`SELECT 1 AS one FROM workspace_members m JOIN projects p ON p.workspace = m.workspace JOIN people w ON w.id = m.person
+            WHERE p.id = ? AND m.person = ? AND w.removed_at IS NULL`, project, id)
+        if (!here) throw notFound(`No person "${name}"`)
+        return id
     }
 
     /** The owner: their name as the page shows it, their `Orrery-Actor` id, and whether they've given it. */

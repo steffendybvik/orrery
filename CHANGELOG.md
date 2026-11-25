@@ -7,6 +7,53 @@ Each version's changes are grouped under **Features**, **Changes** and **Fixes**
 **Internal** where they help, with **Upgrading** first when an update needs a step of you. A group with nothing
 in it is left out. 1.0.0, the first release's overview, is one list.
 
+## 1.0.0-rc.24 (2026-11-25)
+
+This release finishes the workspace audit: sessions, connects, notices, MCP sessions, keys and assignees each stay
+inside the asker's own workspace and boards. Idle sessions also go back to the work they hold.
+
+### Upgrading
+
+- **An issue's assignee must be `claude`, the owner, or someone in the issue's workspace.** A free-text name that's
+  nobody on the server is now refused with a 404 on create, edit, bulk and the MCP tools. Assignees already stored stay
+  as they are and still count as nobody.
+
+### Changes
+
+- **An idle session goes back to the work it holds:** a session orrery started that ends a turn with an issue still
+  in progress is sent back to it once. Ten minutes past its stop time, it's stopped and the issue returns to Todo, so
+  the project's Todo isn't left waiting.
+- **A project's key is its workspace's alone:** creating or changing a project with a key another project in the
+  workspace has is a 409. A key made from the name steps on to `PRI2`, `PRI3` and so on. Another workspace's key isn't
+  a clash.
+- **Cards stand out from the page:** epic, release, settings, project, session and pull request cards have a surface
+  of their own in both themes.
+
+### Fixes
+
+- **The owner can't act on another workspace's sessions:** registering a session checks its project against the
+  asker's workspace, and an unknown session's calls are a 404.
+- **A session record is bound to its person,** so naming someone else's session id gets nothing of theirs.
+- **An issue's assignee can't be someone outside its workspace,** and asking about one says nothing of who else is
+  on the server.
+- **An issue the owner's agent files in Todo stays unassigned** unless it names someone, so the owner's sessions pick
+  it up.
+- **An MCP session belongs to the person who began it:** anyone else sending its id gets a fresh session.
+- **Connecting a folder finds projects only in the asker's workspace.**
+- **Clearing the bell or marking it read** counts only comments the asker can see.
+- **Members who aren't on a board** no longer see its secrets' uses or its images.
+- **Moving a project and removing images are the owner's alone,** for agent keys and sessions too.
+- **An untrusted session's project key is looked up in its own workspace,** so two workspaces' `GRE` no longer give a
+  needless 403.
+
+### Internal
+
+- **CI audits the dependencies:** `cargo audit` and `pnpm audit` run on every push and pull request.
+- **Dependencies:** nuxt 4.7.0 and marked 18.3.0, and the minimatch advisory is cleared.
+- **Tests:** the members a board file brings on upload, Start session's Folder picker, and a steadier signup spec.
+- **The playground's demo has a second person, Hate,** as an assignee has to be someone in the workspace. The README's
+  images are retaken for this release.
+
 ## 1.0.0-rc.23 (2026-11-23)
 
 This release keeps every person and workspace to their own rows: the server's owner included, nobody sees, reaches or

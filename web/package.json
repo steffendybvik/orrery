@@ -1,6 +1,6 @@
 {
   "name": "orrery",
-  "version": "1.0.0-rc.23",
+  "version": "1.0.0-rc.24",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -34,8 +34,8 @@
     "dompurify": "3.5.0",
     "h3": "1.15.11",
     "jose": "^6.2.18",
-    "marked": "18.2.1",
-    "nuxt": "4.6.4",
+    "marked": "18.3.0",
+    "nuxt": "4.7.0",
     "pg": "8.23.1",
     "sharp": "0.35.5",
     "uqr": "0.1.3",

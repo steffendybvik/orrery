@@ -4,7 +4,7 @@ use super::Sessions;
 #[test]
 fn a_session_keeps_each_group_it_loads_once_in_order() {
     let sessions = Sessions::default();
-    let id = sessions.begin();
+    let id = super::held("sam", &sessions.begin("sam"));
     sessions.load(Some(&id), "docs");
     sessions.load(Some(&id), "plans");
     sessions.load(Some(&id), "docs");
@@ -23,7 +23,7 @@ fn an_unknown_session_or_none_has_nothing_loaded_and_keeps_nothing() {
 #[test]
 fn ending_a_session_forgets_it_once() {
     let sessions = Sessions::default();
-    let id = sessions.begin();
+    let id = super::held("sam", &sessions.begin("sam"));
     sessions.load(Some(&id), "docs");
     assert!(sessions.end(&id));
     assert!(!sessions.end(&id));
@@ -34,11 +34,11 @@ fn ending_a_session_forgets_it_once() {
 #[test]
 fn past_the_cap_the_oldest_session_goes_first() {
     let sessions = Sessions::default();
-    let ids: Vec<String> = (0..3).map(|_| sessions.begin_within(3)).collect();
+    let ids: Vec<String> = (0..3).map(|_| super::held("sam", &sessions.begin_within("sam", 3))).collect();
     for id in &ids {
         sessions.load(Some(id), "docs");
     }
-    let newest = sessions.begin_within(3);
+    let newest = super::held("sam", &sessions.begin_within("sam", 3));
     assert!(sessions.loaded(Some(&ids[0])).is_empty(), "the oldest went");
     assert_eq!(sessions.loaded(Some(&ids[1])), ["docs"]);
     assert_eq!(sessions.loaded(Some(&ids[2])), ["docs"]);
@@ -49,11 +49,11 @@ fn past_the_cap_the_oldest_session_goes_first() {
 #[test]
 fn a_session_ended_early_doesnt_count_toward_the_cap() {
     let sessions = Sessions::default();
-    let first = sessions.begin_within(2);
-    let second = sessions.begin_within(2);
+    let first = super::held("sam", &sessions.begin_within("sam", 2));
+    let second = super::held("sam", &sessions.begin_within("sam", 2));
     sessions.load(Some(&first), "docs");
     assert!(sessions.end(&second));
-    sessions.begin_within(2);
+    sessions.begin_within("sam", 2);
     assert_eq!(sessions.loaded(Some(&first)), ["docs"], "still room for it");
 }
 
@@ -77,4 +77,16 @@ fn past_the_cap_the_oldest_choice_goes_first() {
     assert!(sessions.other_choice(Some("c1")).is_none(), "the oldest went");
     assert!(sessions.other_choice(Some("c2")).is_some());
     assert!(sessions.other_choice(Some("c3")).is_some());
+}
+
+#[test]
+fn a_session_is_kept_for_who_began_it_so_its_id_from_anyone_else_is_unknown() {
+    let sessions = Sessions::default();
+    let id = sessions.begin("sam");
+    sessions.load(Some(&super::held("sam", &id)), "docs");
+    sessions.load(Some(&super::held("bo", &id)), "plans");
+    assert_eq!(sessions.loaded(Some(&super::held("sam", &id))), ["docs"]);
+    assert!(sessions.loaded(Some(&super::held("bo", &id))).is_empty(), "bo can't see what sam's session loaded");
+    assert!(!sessions.end(&super::held("bo", &id)), "nor end it");
+    assert!(sessions.end(&super::held("sam", &id)));
 }

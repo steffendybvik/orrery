@@ -413,12 +413,7 @@ impl IssueWrites<'_> {
             Some(self.owner_id().await?)
         } else {
             let name = words.assignee.clone().flatten().unwrap_or_default();
-            let name = name.trim();
-            if name.eq_ignore_ascii_case("owner") {
-                Some(self.owner_id().await?)
-            } else {
-                (!name.is_empty()).then(|| name.to_string())
-            }
+            self.assignee_here(project, &name).await?
         };
         let rails = self.rails_for(actor).await?;
         let person = rails.clone().flatten();
@@ -429,8 +424,16 @@ impl IssueWrites<'_> {
             if let Some(parent) = &parent {
                 let holder = self.assignee_of(project, parent).await?;
                 self.must_hold(rails.as_deref(), parent, holder.as_deref(), "file a sub-issue under it").await?;
+                // The owner's own is work for their sessions only while it's nobody's (`forSessions`), so the owner's
+                // agent leaves one it doesn't start unassigned unless it names someone (ORR-1400). A member's sessions
+                // pick only what's the member's, so theirs goes to them.
+                let owners = person == Some(self.owner_id().await?);
                 if !proposed {
-                    assigned = person.clone();
+                    assigned = if owners && kind.as_deref() != Some("started") {
+                        self.railed_assignee(rails.as_deref(), parent, Some(assigned.clone())).await?.flatten()
+                    } else {
+                        person.clone()
+                    };
                 }
             } else {
                 if rails.is_none() {
@@ -634,10 +637,7 @@ impl IssueWrites<'_> {
         } else {
             match &words.assignee {
                 None => None,
-                Some(sent) => {
-                    let name = sent.as_deref().unwrap_or_default().trim();
-                    Some(if name.eq_ignore_ascii_case("owner") { Some(self.owner_id().await?) } else { (!name.is_empty()).then(|| name.to_string()) })
-                }
+                Some(sent) => Some(self.assignee_here(project, sent.as_deref().unwrap_or_default()).await?),
             }
         };
         let rails = self.rails_for(actor).await?;
@@ -1118,6 +1118,34 @@ impl IssueWrites<'_> {
     async fn parent_of(&mut self, project: &str, issue: &str) -> Result<Option<String>> {
         let row = sqlx::query(sql("SELECT parent FROM issues WHERE project = ? AND id = ?")).bind(project).bind(issue).fetch_optional(&mut *self.conn).await?;
         Ok(row.and_then(|r| r.get("parent")))
+    }
+
+    /// Whom an issue in `project` may be given to, as sent (`assigneeOf`): blank is nobody, `owner` the owner's id,
+    /// and `claude` stays itself. Anyone else must be a person in the project's workspace, kept by their id, and
+    /// whoever isn't is the same 404 as nobody, so a writer learns nothing of who else is on the server (ORR-1401).
+    async fn assignee_here(&mut self, project: &str, sent: &str) -> Result<Option<String>> {
+        let name = sent.trim();
+        if name.is_empty() {
+            return Ok(None);
+        }
+        let owner = self.owner_id().await?;
+        let id = crate::migrate::actor_id(name);
+        if name.eq_ignore_ascii_case("owner") || id == owner {
+            return Ok(Some(owner));
+        }
+        if id == "claude" {
+            return Ok(Some(id));
+        }
+        let here = sqlx::query(sql("SELECT 1 AS one FROM workspace_members m JOIN projects p ON p.workspace = m.workspace JOIN people w ON w.id = m.person \
+             WHERE p.id = ? AND m.person = ? AND w.removed_at IS NULL"))
+        .bind(project)
+        .bind(&id)
+        .fetch_optional(&mut *self.conn)
+        .await?;
+        if here.is_none() {
+            return Err(ApiError::not_found(format!("No person \"{name}\"")));
+        }
+        Ok(Some(id))
     }
 
     /// Whom the issue is assigned to.

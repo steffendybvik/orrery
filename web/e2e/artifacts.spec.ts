@@ -8,7 +8,7 @@ const put = async (request: import('@playwright/test').APIRequestContext, id: st
     expect((await request.put(`/api/projects/atelier/docs/${id}`, {data: {title, body, kind: 'artifact'}, headers: AGENT})).ok()).toBeTruthy()
 
 test.beforeAll(async ({request}) => {
-    await makeProject(request, {name: 'Atelier', key: 'ATL'})
+    await makeProject(request, {name: 'Atelier', key: 'ATE'})
 })
 
 const TRIES = `<pre id="out">waiting</pre><script>

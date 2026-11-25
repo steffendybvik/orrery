@@ -117,13 +117,15 @@ async fn read_all_sealed(State(app): Shared, headers: HeaderMap) -> Result<Respo
 async fn list_secrets(State(app): Shared, headers: HeaderMap, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let workspace = workspace_of(&mut conn, &headers, &query).await?;
-    Ok(Json(Secrets::of(&mut conn, workspace).list().await?).into_response())
+    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
+    Ok(Json(Secrets::of(&mut conn, workspace).hiding(hidden).list().await?).into_response())
 }
 
 async fn get_secret(State(app): Shared, Path(name): Path<String>, headers: HeaderMap, Query(query): Query<HashMap<String, String>>) -> Result<Response> {
     let mut conn = app.pool.acquire().await?;
     let workspace = workspace_of(&mut conn, &headers, &query).await?;
-    Ok(Json(Secrets::of(&mut conn, workspace).secret(&name).await?).into_response())
+    let hidden = Seen::of(&mut conn, &headers).await?.hidden(&mut conn).await?;
+    Ok(Json(Secrets::of(&mut conn, workspace).hiding(hidden).secret(&name).await?).into_response())
 }
 
 #[cfg(test)]

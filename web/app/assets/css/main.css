@@ -48,11 +48,12 @@
     }
 }
 
-/* The surfaces and text, one set per theme: canvas (the page), panel (sidebar, cards), raised
+/* The surfaces and text, one set per theme: canvas (the page), panel (sidebar), card (a card on the page, `card`), raised
    (popovers), line (borders), fg / muted / faint (text), hover / active (rows), well (segmented controls). */
 @theme inline {
     --color-canvas: var(--canvas);
     --color-panel: var(--panel);
+    --color-card: var(--card);
     --color-frame: var(--frame);
     --color-raised: var(--raised);
     --color-line: var(--line);
@@ -74,6 +75,7 @@
 :root {
     --canvas: #fafafa;
     --panel: #ffffff;
+    --card: #ffffff;
     --raised: #ffffff;
     /* The sidebar: the panel's colour, and the page background's tint when there is one. */
     --frame: var(--panel);
@@ -90,6 +92,8 @@
 .dark {
     --canvas: #09090b;
     --panel: #131316;
+    /* A step up from the page, so a card shows on it; the faint grey on it still reads at 6:1 (ORR-1424). */
+    --card: #18181b;
     --raised: #1c1c20;
     --frame: var(--panel);
     --line: rgb(255 255 255 / 0.08);
@@ -145,6 +149,13 @@
 
 /* The hover tint laid over what's there (`hover:tint`), for something with a solid background of its own: `hover:bg-hover`
    would put the translucent tint in its place, and a button floating over the page went see-through (ORR-537). */
+/* A card on the page (an epic, a project's releases, a settings block): its own surface, a line round it and, in the
+   light, a soft shadow, as white on the near-white page shows little on its own (ORR-1424). Its corners and padding go
+   beside it. */
+@utility card {
+    @apply border border-line bg-card shadow-sm shadow-black/5 dark:border-white/10 dark:shadow-none;
+}
+
 @utility tint {
     background-image: linear-gradient(var(--hover), var(--hover));
 }

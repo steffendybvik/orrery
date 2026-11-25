@@ -74,7 +74,7 @@ test('claims, board members and acting as someone, and none of it with one perso
 })
 
 test('the owner takes someone off a board, then off the orrery, from the page (ORR-792)', async ({page, request}) => {
-    await makeProject(request, {name: 'Tansy', key: 'TAN'})
+    await makeProject(request, {name: 'Tansy', key: 'TSY'})
     const person = await request.post('/api/people', {data: {name: 'Skoll Varg'}, headers: OWNER})
     expect(person.ok(), await person.text()).toBeTruthy()
     const added = await request.post('/api/projects/tansy/members', {data: {person: 'skoll_varg'}, headers: OWNER})

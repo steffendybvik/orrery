@@ -706,6 +706,19 @@ describe('stopping the sessions orrery started that are done', () => {
         expect(launches.overdueAfter()).toBe(30 * 60_000)
     })
 
+    it('stops one idle a while past its time even while it holds an issue in progress (ORR-1421)', async () => {
+        starts = {limit: 2, minutes: 60}
+        const sessions = [
+            started('holding', {stops_at: minutesAgo(11), since: minutesAgo(6)}),
+            started('just-idle', {stops_at: minutesAgo(11), since: minutesAgo(2)}),
+            started('just-due', {stops_at: minutesAgo(9), since: minutesAgo(30)}),
+            started('working', {stops_at: minutesAgo(20), state: 'working', since: minutesAgo(30)}),
+        ]
+        vi.stubGlobal('listSessions', () => sessions)
+        working = {'s-holding': ['GRE-1'], 's-just-idle': ['GRE-2'], 's-just-due': ['GRE-3'], 's-working': ['GRE-4']}
+        expect(await launches.stopDue(now)).toEqual(['holding'])
+    })
+
     it("stops one idle for the project's idle minutes, from when it went idle, and asks a slow launcher again later", async () => {
         starts = {limit: 2, idle_minutes: 60}
         const sessions = [started('idle', {since: minutesAgo(61)}), started('fresh', {since: minutesAgo(59)}), started('working', {state: 'working', since: minutesAgo(120)})]

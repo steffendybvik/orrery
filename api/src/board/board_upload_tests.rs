@@ -378,3 +378,52 @@ async fn a_boards_links_out_stay_inside_the_workspace_it_comes_into() {
     assert_eq!(api.count("SELECT count(*) FROM issue_links WHERE project = 'copy2'").await, 1);
     assert_eq!(api.count("SELECT count(*) FROM issues WHERE project = 'copy2' AND assignee = 'bo'").await, 2);
 }
+
+/// A file's members come onto the new board by name, and only those of the workspace it comes into (ORR-1420), as
+/// adding someone to a board goes (#1407): someone only in another workspace isn't made a member here. The uploader
+/// stays its one owner, a member keeps the file's date, one without a date gets the upload's, and nobody is doubled.
+#[tokio::test]
+async fn a_files_members_come_on_by_name_and_only_from_the_workspace_it_comes_into() {
+    let api = TestApi::new().await;
+    let (_, mut file) = primes(&api).await;
+    api.acme(&[]).await;
+    for (id, name, workspace) in [("kit", "Kit", "default"), ("lu", "Lu", "default"), ("bo", "Bo", "acme")] {
+        api.run("INSERT INTO people (id, name, role, created_at) VALUES (?, ?, 'member', ?)", &[id, name, "2026-11-23T00:00:00.000Z"]).await;
+        api.run("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES (?, ?, 'member', ?)", &[workspace, id, "2026-11-23T00:00:00.000Z"])
+            .await;
+    }
+    // The file names Kit by the id its own orrery gave them, which only its people say is Kit.
+    file["people"] = json!([{"id": "kit-there", "name": "Kit"}, {"id": "bo", "name": "Bo"}, {"id": "lu", "name": "Lu"}, {"id": "sam", "name": "Sam"}]);
+    let project = file["project"]["id"].clone();
+    file["tables"]["project_members"] = json!([
+        {"project": project, "person": "kit-there", "role": "member", "created_at": "2026-10-01T00:00:00.000Z"},
+        {"project": project, "person": "bo", "role": "member", "created_at": "2026-10-01T00:00:00.000Z"},
+        {"project": project, "person": "sam", "role": "member", "created_at": "2026-10-01T00:00:00.000Z"},
+        {"project": project, "person": "lu", "role": "member", "created_at": null},
+        {"project": project, "person": "Kit", "role": "owner", "created_at": "2026-10-02T00:00:00.000Z"},
+    ]);
+
+    let reply = api.post("/api/boards", sent(&file, "copy", "CPY")).send().await;
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert_eq!(api.count("SELECT count(*) FROM project_members WHERE project = 'copy'").await, 3, "sam, kit and lu, once each");
+    assert_eq!(api.count("SELECT count(*) FROM project_members WHERE project = 'copy' AND role = 'owner'").await, 1);
+    assert_eq!(api.count("SELECT count(*) FROM project_members WHERE project = 'copy' AND person = 'sam' AND role = 'owner'").await, 1);
+    assert_eq!(
+        api.count(
+            "SELECT count(*) FROM project_members WHERE project = 'copy' AND person = 'kit' AND role = 'member' AND created_at = '2026-10-01T00:00:00.000Z'"
+        )
+        .await,
+        1,
+        "kit, found by name, keeps the file's first date"
+    );
+    assert_eq!(api.count("SELECT count(*) FROM project_members WHERE project = 'copy' AND person = 'bo'").await, 0, "bo is only in Acme");
+    assert_eq!(
+        api.count(
+            "SELECT count(*) FROM project_members l JOIN project_members s ON s.project = l.project AND s.person = 'sam' \
+             WHERE l.project = 'copy' AND l.person = 'lu' AND l.role = 'member' AND l.created_at = s.created_at"
+        )
+        .await,
+        1,
+        "lu, with no date in the file, gets the upload's, as sam's ownership does"
+    );
+}

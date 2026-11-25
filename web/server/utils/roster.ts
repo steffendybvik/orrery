@@ -96,11 +96,18 @@ export async function holdsBoard(project: string, person: string): Promise<boole
     return (await members(project)).some(member => member.person === person && member.role === 'owner')
 }
 
-/** The id of the project `named` names, by its id or its key (`GRE`), whatever the case; `named` itself when none does. */
-export async function projectNamed(named: string): Promise<string> {
+/** The id of the project `named` names, by its id or its key (`GRE`), whatever the case; `named` itself when none does.
+ * Keys are per workspace (ORR-1367), so with `within`, a key is looked up only among that workspace's projects: two
+ * workspaces can each have a `GRE`. */
+export async function projectNamed(named: string, within?: string): Promise<string> {
     const projects = await remembered<Pick<Project, 'id' | 'key'>[]>('/api/projects', () => useStore().listProjects())
+    const exact = projects.find(project => project.id === named)
+    if (exact) return exact.id
     const asked = named.toLowerCase()
-    return projects.find(project => project.id === named)?.id ?? projects.find(project => project.id.toLowerCase() === asked || project.key.toLowerCase() === asked)?.id ?? named
+    for (const project of projects.filter(project => project.id.toLowerCase() === asked || project.key.toLowerCase() === asked)) {
+        if (within === undefined || await useStore().projectWorkspace(project.id).catch(() => undefined) === within) return project.id
+    }
+    return named
 }
 
 /** An issue as it is now, or null when there's none. Not kept: each check reads it again. */

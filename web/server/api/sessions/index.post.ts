@@ -12,17 +12,21 @@ export default defineEventHandler(async event => {
     if (!body || typeof body.project !== 'string' || typeof body.event !== 'string' || (!body.id && !body.pid)) {
         throw badRequest('Send {project, event} and the session as id or pid')
     }
-    await needsBoard(event, body.project)
+    // Signed in, only a project the asker sees, in the workspace a session works in (ORR-1373): `needsBoard` lets the
+    // owner onto any board, and `heldToWorkspace` only reads a project in the path, so a report could register a
+    // session on another person's project, get its repo back and pick its work when it stops.
+    const project = event.context?.who ? await seenProjectOf(event, body.project) : body.project
+    await needsBoard(event, project)
     if (typeof body.id === 'string') await holdSession(event, body.id)
     const text = (key: string) => typeof body[key] === 'string' && body[key] ? String(body[key]) : undefined
     // An untrusted schedule's session (by its launch, before its channel has said so) works no issue: what it runs is
     // no claim on one, whatever its text names.
     const started = text('started')
     // Read without taking the launch: its channel connecting does that, and gets what it was started as (ORR-468).
-    const untrusted = !!(started && launchUntrusted(body.project, started))
+    const untrusted = !!(started && launchUntrusted(project, started))
     const tool = body.tool && typeof body.tool === 'object' ? body.tool as Record<string, unknown> : undefined
     const session = report({
-        id: text('id'), pid: Number(body.pid) || undefined, project: body.project, name: text('name'),
+        id: text('id'), pid: Number(body.pid) || undefined, project, name: text('name'),
         cwd: text('cwd'), event: body.event, message: text('message'), command: untrusted ? undefined : text('command')?.slice(0, 4000), reason: text('reason'), source: text('source'),
         error: text('error'), errorText: text('error_text')?.slice(0, 300),
         // The model it runs on (ORR-871): an id, kept only when it looks like one.
@@ -57,7 +61,6 @@ export default defineEventHandler(async event => {
     // Back from orrery's clear with part of its run left: a focus on the rest starts its next turn.
     // With none, it picks its next issue, when the owner lets sessions (ORR-452).
     if (source === 'clear' && session.started) {
-        const project = body.project
         // A focus held for this clear (ORR-904) goes out now, and is its next turn: nothing goes on top of it.
         if (!clearDone(session.id)) {
             resumeRun(project, session.id)
@@ -65,11 +68,11 @@ export default defineEventHandler(async event => {
                 .catch(error => console.error(`[orrery] resuming ${session.id}'s run:`, error))
         }
     }
-    const api = `${getRequestURL(event).origin}/api/projects/${encodeURIComponent(body.project)}`
+    const api = `${getRequestURL(event).origin}/api/projects/${encodeURIComponent(project)}`
     // Its launch as its hook says (before its channel has connected) or as orrery knows it.
     const [brief, repo] = await Promise.all([
-        sessionBrief(useStore(), {project: body.project, session: session.id, source, launch: text('started') ?? session.started?.launch, api}),
-        projectRepo(body.project),
+        sessionBrief(useStore(), {project, session: session.id, source, launch: text('started') ?? session.started?.launch, api}),
+        projectRepo(project),
     ])
     return {...session, ...brief ? {brief} : {}, repo}
 })
