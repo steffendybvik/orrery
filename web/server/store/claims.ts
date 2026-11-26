@@ -114,7 +114,7 @@ export abstract class ClaimStore extends EpicStore {
         const run = (this.claiming.get(key) ?? Promise.resolve()).catch(() => {}).then(async () => {
             await this.claim(project, issue, status, session)
             const statuses = await this.statusesOf(project)
-            const id = resolveIn(statuses, status)
+            const id = resolveIn(statuses, status, undefined, (await this.projectRow(project)).workspace)
             if (statuses.find(s => s.id === id)?.kind === 'started') await this.lockFor(project, await this.issueId(project, issue), session)
             const written = await write()
             // One the write moved to another project is tied there by its route. The write has started it by now, so
@@ -141,8 +141,9 @@ export abstract class ClaimStore extends EpicStore {
         const read = status === undefined ? undefined : await sessionWork.blocking(project, issue)
         issue = read?.id ?? await this.issueId(project, issue)
         if (read) {
-            const statuses = await sessionWork.statuses()
-            const to = resolveIn(statuses, status)
+            // The project's workspace's, whose ids are its own (ORR-1442).
+            const statuses = await this.statusesOf(project)
+            const to = resolveIn(statuses, status, undefined, (await this.projectRow(project)).workspace)
             const kind = statuses.find(s => s.id === to)?.kind
             if (kind && CLOSED.includes(kind)) return
             if (kind === 'started') {

@@ -10,13 +10,20 @@ import {StoreBase} from './base'
 import {known} from '#shared/known'
 import {ownerOnly} from '../utils/permission'
 
-/** The status an issue gets from what was sent, among `statuses`: as `resolveStatus` gives it. */
-export function resolveIn(statuses: Pick<IssueStatus, 'id' | 'kind'>[], status: Input[string], plan?: Input[string]): string {
+/** The status `sent` names among `workspace`'s: by its id, or by the id it had outside `default` before ids were each
+ * workspace's own (`work-todo`, ORR-1442), which still finds it. */
+export function statusNamed<T extends Pick<IssueStatus, 'id'>>(statuses: T[], sent: string, workspace?: string | null): T | undefined {
+    return statuses.find(s => s.id === sent) ?? (workspace && workspace !== 'default' ? statuses.find(s => `${workspace}-${s.id}` === sent) : undefined)
+}
+
+/** The status an issue gets from what was sent, among `statuses` (`workspace`'s): as `resolveStatus` gives it. */
+export function resolveIn(statuses: Pick<IssueStatus, 'id' | 'kind'>[], status: Input[string], plan?: Input[string], workspace?: string | null): string {
     const first = (kind: Kind) => known(statuses.find(s => s.kind === kind), `a ${kind} status`).id
     if (plan !== undefined && (status === undefined || status === 'todo')) return first(plan ? 'todo' : 'backlog')
     if (status === undefined) return first('backlog')
     const text = String(status)
-    if (statuses.some(s => s.id === text)) return text
+    const named = statusNamed(statuses, text, workspace)
+    if (named) return named.id
     if (KINDS.includes(text as Kind)) return first(text as Kind)
     if (LEGACY_KINDS[text]) return first(LEGACY_KINDS[text])
     throw badRequest(`"status" is "${text}", not one of ${statuses.map(s => s.id).join(', ')} (or a kind: ${KINDS.join(', ')})`)
@@ -76,7 +83,7 @@ export abstract class StatusStore extends StoreBase {
     async statuses(workspace?: string): Promise<IssueStatus[]> {
         const read = await this.fromApi<IssueStatus[]>('/api/statuses', workspace)
         if (read) return read
-        const rows = await this.all<IssueStatus>('SELECT id, name, kind, color, position FROM statuses ORDER BY position, id')
+        const rows = await this.all<IssueStatus>('SELECT id, name, kind, color, position FROM statuses WHERE workspace = ? ORDER BY position, id', workspace ?? 'default')
         return KINDS.flatMap(kind => rows.filter(r => r.kind === kind))
     }
 
@@ -88,7 +95,7 @@ export abstract class StatusStore extends StoreBase {
         const id = input.id ? String(input.id) : slugify(name)
         if (!SLUG.test(id)) throw badRequest(`"${name}" doesn't make an id; give one in "id"`)
         if (id === 'proposed') throw badRequest('"proposed" is where proposals sit; give the status another id')
-        if (await this.get('SELECT 1 FROM statuses WHERE id = ?', id)) throw conflict(`There is already a status "${id}"`)
+        if (await this.get("SELECT 1 FROM statuses WHERE workspace = 'default' AND id = ?", id)) throw conflict(`There is already a status "${id}"`)
         const position = input.position ?? ((await this.get<{n: number | null}>('SELECT max(position) AS n FROM statuses'))?.n ?? 0) + 1
         await this.run('INSERT INTO statuses (id, name, kind, color, position) VALUES (?, ?, ?, ?, ?)', id, name, String(input.kind), String(input.color ?? 'slate'), Number(position))
         await this.statusesChanged()
@@ -102,7 +109,7 @@ export abstract class StatusStore extends StoreBase {
         const input = checkInput(body, STATUS_FIELDS, true)
         if (input.id !== undefined && input.id !== id) throw badRequest("A status's id can't change; rename it with \"name\"")
         if (input.kind !== undefined && input.kind !== before.kind) await this.keepOneOf(before)
-        await this.run('UPDATE statuses SET name = coalesce(?, name), kind = coalesce(?, kind), color = coalesce(?, color), position = coalesce(?, position) WHERE id = ?',
+        await this.run('UPDATE statuses SET name = coalesce(?, name), kind = coalesce(?, kind), color = coalesce(?, color), position = coalesce(?, position) WHERE workspace = \'default\' AND id = ?',
             input.name === undefined ? null : String(input.name).trim(), nullable(input.kind), nullable(input.color), input.position === undefined ? null : Number(input.position), id)
         await this.statusesChanged()
         return await this.status(id)
@@ -124,7 +131,7 @@ export abstract class StatusStore extends StoreBase {
                 await this.run('UPDATE schedules SET move_from = replace(move_from, ?, ?) WHERE move_from LIKE ?', `"${id}"`, `"${into}"`, `%"${id}"%`)
                 await this.run('UPDATE signals SET status = ? WHERE status = ?', into, id)
             }
-            await this.run('DELETE FROM statuses WHERE id = ?', id)
+            await this.run("DELETE FROM statuses WHERE workspace = 'default' AND id = ?", id)
         })
         await this.statusesChanged()
     }
@@ -138,22 +145,24 @@ export abstract class StatusStore extends StoreBase {
     /** The status an issue gets from what was sent: a status's id, a kind (its first status), or the words
      * from before statuses (`doing`; `todo` with a `plan`). */
     async resolveStatus(status: Input[string], plan?: Input[string], project?: string): Promise<string> {
-        return resolveIn(project ? await this.statusesOf(project) : await this.statuses(), status, plan)
+        if (!project) return resolveIn(await this.statuses(), status, plan)
+        return resolveIn(await this.statusesOf(project), status, plan, (await this.projectRow(project)).workspace)
     }
 
     /** What a status filter or focus means: the status ids it covers (an id, a kind, or an old word). */
     /** The status ids a status's id or kind stands for; several, comma-separated, stand for all of theirs. */
-    protected async statusIds(status: string, statuses?: IssueStatus[]): Promise<string[]> {
+    protected async statusIds(status: string, statuses?: IssueStatus[], workspace?: string | null): Promise<string[]> {
         statuses ??= await this.statuses()
         const of = (one: string) => {
-            if (statuses.some(s => s.id === one)) return [one]
+            const named = statusNamed(statuses, one, workspace)
+            if (named) return [named.id]
             const kind = (KINDS.includes(one as Kind) ? one : LEGACY_KINDS[one]) as Kind | undefined
             return kind ? statuses.filter(s => s.kind === kind).map(s => s.id) : []
         }
         return [...new Set(status.split(',').map(s => s.trim()).filter(Boolean).flatMap(of))]
     }
 
-    /** The statuses of `project`'s workspace (ORR-1254): another workspace's ids start with its own (`work-todo`). */
+    /** The statuses of `project`'s workspace (ORR-1254), whose ids are its own (ORR-1442). */
     protected async statusesOf(project: string): Promise<IssueStatus[]> {
         const workspace = (await this.projectRow(project)).workspace
         return await this.statuses(workspace && workspace !== 'default' ? workspace : undefined)

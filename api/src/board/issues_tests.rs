@@ -26,8 +26,11 @@ fn ids() {
 
 #[test]
 fn statuses() {
-    let statuses = [("backlog", "backlog"), ("todo", "todo"), ("in-progress", "started"), ("review", "started")]
-        .map(|(id, kind)| Status { id: id.into(), kind: kind.into() });
+    let statuses = [("backlog", "backlog"), ("todo", "todo"), ("in-progress", "started"), ("review", "started")].map(|(id, kind)| Status {
+        id: id.into(),
+        kind: kind.into(),
+        alias: None,
+    });
     assert_eq!(status_ids(&statuses, "started, todo,review"), ["in-progress", "review", "todo"]);
     assert_eq!(status_ids(&statuses, "doing"), ["in-progress", "review"]);
     assert!(status_ids(&statuses, "proposed").is_empty());

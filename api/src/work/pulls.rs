@@ -553,7 +553,7 @@ impl<'a> Pulls<'a> {
     /// kind (`issueOf`, ORR-1153): what a PR or a branch naming it is shown on. Null when none is.
     pub async fn named(&mut self, projects: &[String], ids: &[String]) -> Result<Value> {
         let Some((project, id)) = self.issue_of(projects, ids).await? else { return Ok(json!({"issue": null})) };
-        let row = sqlx::query(sql("SELECT i.title, s.kind FROM issues i LEFT JOIN statuses s ON s.id = i.status WHERE i.project = ? AND i.id = ?"))
+        let row = sqlx::query(sql("SELECT i.title, s.kind FROM issues i LEFT JOIN statuses s ON s.id = i.status AND s.workspace = (SELECT workspace FROM projects WHERE id = i.project) WHERE i.project = ? AND i.id = ?"))
             .bind(&project)
             .bind(&id)
             .fetch_one(&mut *self.conn)

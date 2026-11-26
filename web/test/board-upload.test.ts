@@ -216,7 +216,8 @@ describe('uploading a board\'s file', () => {
                 for (const row of tables[table!] ?? []) if (to! in row) [row[from!], row[to!]] = [row[to!], undefined]
                 for (const row of tables[table!] ?? []) delete row[to!]
             }
-            for (const [, from, to] of [...m.matchAll(/ALTER TABLE (\w+) RENAME TO (\w+)/g)].reverse()) if (tables[to!]) [tables[from!], tables[to!]] = [tables[to!]!, undefined!]
+            // A table rebuilt (`issues_new` renamed to `issues`) kept its name.
+            for (const [, from, to] of [...m.matchAll(/ALTER TABLE (\w+) RENAME TO (\w+)/g)].reverse()) if (tables[to!] && from !== `${to}_new`) [tables[from!], tables[to!]] = [tables[to!]!, undefined!]
             for (const name of Object.keys(tables)) if (!tables[name]) delete tables[name]
         }
         file.schema_step = step

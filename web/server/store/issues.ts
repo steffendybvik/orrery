@@ -26,8 +26,9 @@ export abstract class IssueStore extends ClaimStore {
         if (filter.parent && filter.parent !== 'none') filter = {...filter, parent: await this.issueId(project, filter.parent)}
         if (filter.release && filter.release !== 'none') await this.releaseRow(project, filter.release)
         const q = filter.q?.toLowerCase()
-        const statuses = filter.status ? await this.statusIds(filter.status, await this.statusesOf(project)) : []
-        const columns = filter.column === 'proposed' ? ['proposed'] : filter.column ? await this.statusIds(filter.column, await this.statusesOf(project)) : []
+        const workspace = (await this.projectRow(project)).workspace
+        const statuses = filter.status ? await this.statusIds(filter.status, await this.statusesOf(project), workspace) : []
+        const columns = filter.column === 'proposed' ? ['proposed'] : filter.column ? await this.statusIds(filter.column, await this.statusesOf(project), workspace) : []
         const assignee = filter.assignee && filter.assignee !== 'none' ? await this.assigneeOf(filter.assignee) : undefined
         const [github] = filter.github_issue ? (await this.githubIssuesOf(project, JSON.stringify([filter.github_issue])) ?? []).map(g => g.toLowerCase()) : []
         const handle = await this.handle()

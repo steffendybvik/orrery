@@ -8,7 +8,7 @@ use crate::access::scope::Workspace;
 use crate::board::issue_edits::resolve_status;
 use crate::board::issues::Issues;
 use crate::board::milestones::Milestones;
-use crate::board::statuses::Statuses;
+use crate::board::statuses::{self, Statuses};
 use crate::changes::{self, Outbox};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
@@ -834,22 +834,34 @@ impl<'c> Schedules<'c> {
         Ok(id)
     }
 
-    /// `move_from` as it's stored: statuses' ids or kinds, each once.
+    /// `move_from` as it's stored: statuses' ids (an old one as its id now) or kinds, each once.
     async fn move_from(&mut self, project: &str, from: &Value) -> Result<String> {
-        let from: Vec<String> = from.as_array().into_iter().flatten().filter_map(|s| s.as_str().map(String::from)).collect();
-        for status in &from {
-            if !STATUS_KINDS.contains(&status.as_str()) {
-                self.status(project, status).await?;
+        let mut out: Vec<String> = vec![];
+        for status in from.as_array().into_iter().flatten().filter_map(Value::as_str) {
+            let status = if STATUS_KINDS.contains(&status) {
+                status.to_string()
+            } else {
+                self.status(project, status).await?["id"].as_str().unwrap_or_default().to_string()
+            };
+            if !out.contains(&status) {
+                out.push(status);
             }
         }
-        Ok(json!(from).to_string())
+        Ok(json!(out).to_string())
     }
 
     /// A status of `project`'s workspace as the API gives it (`status`), or a 404.
     async fn status(&mut self, project: &str, id: &str) -> Result<Value> {
         let workspace = Workspace::of_project(&mut *self.conn, project).await?;
-        let statuses = Statuses::of(&mut *self.conn, workspace).list().await?;
-        statuses.as_array().into_iter().flatten().find(|s| s["id"] == id).cloned().ok_or_else(|| ApiError::not_found(format!("No status \"{id}\"")))
+        let statuses = Statuses::of(&mut *self.conn, workspace.clone()).list().await?;
+        let statuses = statuses.as_array().cloned().unwrap_or_default();
+        let aliased = |s: &&Value| s["id"].as_str().and_then(|own| statuses::alias(&workspace, own)).is_some_and(|a| a == id);
+        statuses
+            .iter()
+            .find(|s| s["id"] == id)
+            .or_else(|| statuses.iter().find(aliased))
+            .cloned()
+            .ok_or_else(|| ApiError::not_found(format!("No status \"{id}\"")))
     }
 
     async fn write_toggled(&mut self, sets: &[(i64, Toggled)]) -> Result<()> {

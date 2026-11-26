@@ -148,10 +148,10 @@ export function laterLinks(files, plan) {
 
 /**
  * How the source's statuses line up with the workspace's: each matched by name and kind (`map`), those to make
- * (`make`, with an id free across the server), and the workspace's that the source doesn't have (`drop`, moved into
+ * (`make`, with an id free in the workspace), and the workspace's that the source doesn't have (`drop`, moved into
  * `into`, the source's first of that kind) once every kind keeps one.
  */
-export function planStatuses(source, target, takenIds, workspace) {
+export function planStatuses(source, target, takenIds) {
     const taken = new Set(takenIds)
     const map = new Map()
     const make = []
@@ -162,8 +162,8 @@ export function planStatuses(source, target, takenIds, workspace) {
             map.set(status.id, match.id)
             continue
         }
-        // As a new workspace's own are (`acme-todo`), since a status's id is unique across the server.
-        const id = freeId(`${workspace}-${status.id}`, taken)
+        // Its own id where the workspace hasn't that one, as ids are each workspace's own (ORR-1442).
+        const id = freeId(status.id, taken)
         taken.add(id)
         make.push({...status, id})
         map.set(status.id, id)
@@ -443,8 +443,7 @@ export async function importOrrery({source, target, name, color, fromWorkspace =
 
     // Statuses: the workspace's own, before the boards that use them.
     const targetStatuses = await target.get('/statuses', to)
-    const everyStatus = existing ? targetStatuses : [...targetStatuses, ...(await target.get('/settings').catch(() => ({statuses: []}))).statuses ?? []]
-    const statusPlan = planStatuses(sourceStatuses, targetStatuses, everyStatus.map(s => s.id), workspace.id)
+    const statusPlan = planStatuses(sourceStatuses, targetStatuses, targetStatuses.map(s => s.id))
     for (const status of statusPlan.make) await target.post('/statuses', {id: status.id, name: status.name, kind: status.kind, color: status.color, position: status.position}, to)
     const dropped = []
     if (!existing) {

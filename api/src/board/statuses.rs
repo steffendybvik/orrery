@@ -102,6 +102,9 @@ impl Status {
     }
 }
 
+/// What holds a row to the statuses' workspace, as ids are unique only within one (ORR-1442).
+const HERE: &str = "project IN (SELECT id FROM projects WHERE workspace = ?)";
+
 /// The statuses orrery ships, as step 020 gave `default`: (id, name, kind, colour), in board order.
 const SHIPPED: [(&str, &str, &str, &str); 6] = [
     ("backlog", "Backlog", "backlog", "slate"),
@@ -112,13 +115,19 @@ const SHIPPED: [(&str, &str, &str, &str); 6] = [
     ("canceled", "Canceled", "canceled", "slate"),
 ];
 
+/// The id a status of `workspace` had before ids were each workspace's own (ORR-1442): outside `default`, with the
+/// workspace's id in front (`work-todo`). It still finds the status, so what was stored or scripted with it works.
+pub(crate) fn alias(workspace: &Workspace, id: &str) -> Option<String> {
+    (!workspace.is_default()).then(|| format!("{workspace}-{id}"))
+}
+
 pub struct Statuses<'c> {
     pub conn: &'c mut AnyConnection,
     pub effects: Effects,
     /// Set for a write: what it sets off goes into the outbox in its transaction (ORR-929).
     pub outbox: Option<Outbox>,
-    /// The workspace whose statuses these are (ORR-1107). Ids stay unique across the server: `default`'s are as they
-    /// always were, another workspace's start with its id (`acme-todo`), so issues keep pointing at one by its id.
+    /// The workspace whose statuses these are (ORR-1107). Ids are unique within it (ORR-1442): `in-review` is the In
+    /// review of whichever workspace a request is in.
     pub workspace: Workspace,
 }
 
@@ -128,36 +137,20 @@ impl<'c> Statuses<'c> {
         Statuses { conn, effects: Effects::default(), outbox: None, workspace }
     }
 
-    /// A new status's id in this workspace: as given in `default`, and with the workspace's id in front elsewhere.
-    fn id_here(&self, id: &str) -> String {
-        if self.workspace.is_default() || id.starts_with(&format!("{}-", self.workspace)) {
-            id.to_string()
-        } else {
-            format!("{}-{id}", self.workspace)
+    /// A 409 when this workspace has a status `id` already; another workspace's are no clash (ORR-1442).
+    async fn check_free(&mut self, id: &str) -> Result<()> {
+        let row = sqlx::query(sql("SELECT 1 FROM statuses WHERE workspace = ? AND id = ?"))
+            .bind(self.workspace.id())
+            .bind(id)
+            .fetch_optional(&mut *self.conn)
+            .await?;
+        match row {
+            Some(_) => Err(ApiError::conflict(format!("There is already a status \"{id}\""))),
+            None => Ok(()),
         }
     }
 
-    /// The id a new status asking for `id` gets here (ORR-1350): a 409 when this workspace has it already, and `-2`,
-    /// `-3`… when only another workspace has it, so another's statuses never block or show through. `default` making
-    /// `acme-review`, or a workspace `in` asking for `in-progress`, is no clash for either.
-    async fn free_id(&mut self, id: &str) -> Result<String> {
-        let row = sqlx::query(sql("SELECT workspace FROM statuses WHERE id = ?")).bind(id).fetch_optional(&mut *self.conn).await?;
-        match row.map(|r| r.get::<String, _>("workspace")) {
-            None => return Ok(id.to_string()),
-            Some(here) if here == self.workspace.id() => return Err(ApiError::conflict(format!("There is already a status \"{id}\""))),
-            Some(_) => {}
-        }
-        let mut n = 1;
-        loop {
-            n += 1;
-            let next = format!("{id}-{n}");
-            if sqlx::query(sql("SELECT 1 FROM statuses WHERE id = ?")).bind(&next).fetch_optional(&mut *self.conn).await?.is_none() {
-                return Ok(next);
-            }
-        }
-    }
-
-    /// Gives a workspace with no statuses yet the set orrery ships (ORR-1107), its ids its own (`acme-todo`), so a new
+    /// Gives a workspace with no statuses yet the set orrery ships (ORR-1107), with the same ids (ORR-1442), so a new
     /// workspace's boards can be drawn however it was made. `default` has had them since step 020.
     async fn seed(&mut self) -> Result<()> {
         if self.workspace.is_default() {
@@ -169,10 +162,8 @@ impl<'c> Statuses<'c> {
             return Ok(());
         }
         for (position, (id, name, kind, color)) in SHIPPED.iter().enumerate() {
-            let id = self.id_here(id);
-            let id = self.free_id(&id).await?;
             sqlx::query(sql("INSERT INTO statuses (id, name, kind, color, position, workspace) VALUES (?, ?, ?, ?, ?, ?)"))
-                .bind(&id)
+                .bind(*id)
                 .bind(*name)
                 .bind(*kind)
                 .bind(*color)
@@ -201,7 +192,10 @@ impl<'c> Statuses<'c> {
     }
 
     async fn status(&mut self, id: &str) -> Result<Status> {
-        self.rows().await?.into_iter().find(|s| s.id == id).ok_or_else(|| ApiError::not_found(format!("No status \"{id}\"")))
+        let rows = self.rows().await?;
+        let alias = |s: &Status| alias(&self.workspace, &s.id).is_some_and(|a| a == id);
+        // Its own id first: a status may have been made with an id that's another's alias.
+        rows.iter().find(|s| s.id == id).or_else(|| rows.iter().find(|s| alias(s))).cloned().ok_or_else(|| ApiError::not_found(format!("No status \"{id}\"")))
     }
 
     async fn keep_one_of(&mut self, status: &Status) -> Result<()> {
@@ -226,19 +220,20 @@ impl<'c> Statuses<'c> {
     pub async fn create(&mut self, body: &Value, actor: &Actor) -> Result<Value> {
         owner_only(actor)?;
         let input = check_input(body, false)?;
+        // A workspace's first status comes after the set it starts with, not instead of it.
+        self.seed().await?;
         let name = input["name"].as_str().unwrap_or_default().trim().to_string();
         let id = match input.get("id").and_then(Value::as_str).filter(|s| !s.is_empty()) {
             Some(id) => id.to_string(),
             None => slugify(&name),
         };
-        let id = if is_slug(&id) { self.id_here(&id) } else { id };
         if !is_slug(&id) {
             return Err(ApiError::bad_request(format!("\"{name}\" doesn't make an id; give one in \"id\"")));
         }
         if id == "proposed" {
             return Err(ApiError::bad_request("\"proposed\" is where proposals sit; give the status another id"));
         }
-        let id = self.free_id(&id).await?;
+        self.check_free(&id).await?;
         let position = match input.get("position").and_then(Value::as_f64) {
             Some(position) => position,
             None => {
@@ -272,7 +267,7 @@ impl<'c> Statuses<'c> {
         owner_only(actor)?;
         let before = self.status(id).await?;
         let input = check_input(body, true)?;
-        if input.get("id").and_then(Value::as_str).is_some_and(|sent| sent != id) {
+        if input.get("id").and_then(Value::as_str).is_some_and(|sent| sent != id && sent != before.id) {
             return Err(ApiError::bad_request("A status's id can't change; rename it with \"name\""));
         }
         let kind = input.get("kind").and_then(Value::as_str);
@@ -281,41 +276,47 @@ impl<'c> Statuses<'c> {
         }
         changes::begin(self.conn).await?;
         let done: Result<()> = async {
-            sqlx::query(sql("UPDATE statuses SET name = coalesce(?, name), kind = coalesce(?, kind), color = coalesce(?, color), position = ? WHERE id = ?"))
+            sqlx::query(sql("UPDATE statuses SET name = coalesce(?, name), kind = coalesce(?, kind), color = coalesce(?, color), position = ? WHERE workspace = ? AND id = ?"))
                 .bind(input.get("name").and_then(Value::as_str).map(|n| n.trim().to_string()))
                 .bind(kind.map(str::to_string))
                 .bind(input.get("color").and_then(Value::as_str).map(str::to_string))
                 // Its position as it was when none is sent, never a null: sqlx 0.8's Any driver binds a null f64 as a float4,
                 // and Postgres keeps that type for the statement, so a later real position on the same connection fails (ORR-1057).
                 .bind(input.get("position").and_then(Value::as_f64).unwrap_or(before.position))
-                .bind(id)
+                .bind(self.workspace.id())
+                .bind(&before.id)
                 .execute(&mut *self.conn)
                 .await?;
             self.changed().await
         }
         .await;
         self.finish(done).await?;
-        Ok(self.status(id).await?.json())
+        Ok(self.status(&before.id).await?.json())
     }
 
     /// Its issues and schedules move to `into`, which it needs while it has any; the last of a kind stays.
     pub async fn delete(&mut self, id: &str, into: Option<&str>, actor: &Actor) -> Result<()> {
         owner_only(actor)?;
         let status = self.status(id).await?;
+        let id = status.id.as_str();
         self.keep_one_of(&status).await?;
         let like = format!("%\"{id}\"%");
-        let row = sqlx::query(sql(
-            "SELECT CAST((SELECT count(*) FROM issues WHERE status = ?) + (SELECT count(*) FROM schedules WHERE place = ? OR move_from LIKE ?) AS BIGINT) AS n",
-        ))
+        let row = sqlx::query(sql(&format!(
+            "SELECT CAST((SELECT count(*) FROM issues WHERE status = ? AND {HERE}) + (SELECT count(*) FROM schedules WHERE (place = ? OR move_from LIKE ?) AND {HERE}) AS BIGINT) AS n",
+        )))
         .bind(id)
+        .bind(self.workspace.id())
         .bind(id)
         .bind(&like)
+        .bind(self.workspace.id())
         .fetch_one(&mut *self.conn)
         .await?;
         let used: i64 = row.get("n");
-        if let Some(into) = into {
-            self.status(into).await?;
-        }
+        let into = match into {
+            Some(into) => Some(self.status(into).await?.id),
+            None => None,
+        };
+        let into = into.as_deref();
         if into == Some(id) {
             return Err(ApiError::bad_request("Move its issues to another status"));
         }
@@ -338,20 +339,21 @@ impl<'c> Statuses<'c> {
     async fn move_and_delete(&mut self, id: &str, into: Option<&str>, like: &str) -> Result<()> {
         if let Some(into) = into {
             for query in [
-                "UPDATE issues SET status = ? WHERE status = ?",
-                "UPDATE schedules SET place = ? WHERE place = ?",
-                "UPDATE signals SET status = ? WHERE status = ?",
+                format!("UPDATE issues SET status = ? WHERE status = ? AND {HERE}"),
+                format!("UPDATE schedules SET place = ? WHERE place = ? AND {HERE}"),
+                format!("UPDATE signals SET status = ? WHERE status = ? AND {HERE}"),
             ] {
-                sqlx::query(sql(query)).bind(into).bind(id).execute(&mut *self.conn).await?;
+                sqlx::query(sql(&query)).bind(into).bind(id).bind(self.workspace.id()).execute(&mut *self.conn).await?;
             }
-            sqlx::query(sql("UPDATE schedules SET move_from = replace(move_from, ?, ?) WHERE move_from LIKE ?"))
+            sqlx::query(sql(&format!("UPDATE schedules SET move_from = replace(move_from, ?, ?) WHERE move_from LIKE ? AND {HERE}")))
                 .bind(format!("\"{id}\""))
                 .bind(format!("\"{into}\""))
                 .bind(like)
+                .bind(self.workspace.id())
                 .execute(&mut *self.conn)
                 .await?;
         }
-        sqlx::query(sql("DELETE FROM statuses WHERE id = ?")).bind(id).execute(&mut *self.conn).await?;
+        sqlx::query(sql("DELETE FROM statuses WHERE workspace = ? AND id = ?")).bind(self.workspace.id()).bind(id).execute(&mut *self.conn).await?;
         Ok(())
     }
 }
