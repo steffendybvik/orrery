@@ -166,8 +166,10 @@ export default defineNuxtPlugin(() => {
         events.addEventListener('notice', event => {
             useInbox().arrived(JSON.parse((event as MessageEvent).data) as Notice)
         })
-        events.addEventListener('settings', event => {
-            useAppSettings().heard(JSON.parse((event as MessageEvent).data) as Settings)
+        events.addEventListener('settings', () => {
+            // Read again rather than taken from the event: it carries `default`'s statuses, whatever this tab's
+            // workspace (ORR-1449), and `/settings` answers with the tab's own.
+            void apiFetch<Settings>('/settings').then(useAppSettings().heard, () => {})
             // They come with renaming the owner, whose id this tab writes as.
             useOwner().refresh()
         })
