@@ -92,6 +92,9 @@ pub(crate) fn tools_for(projects: &[String], kind: Kind, loaded: &[String]) -> V
                 properties.insert("project".into(), project.clone());
                 properties.extend(schema.get("properties").and_then(Value::as_object).cloned().unwrap_or_default());
                 schema.insert("properties".into(), Value::Object(properties));
+            } else if let Some(another) = schema.get_mut("properties").and_then(|p| p.get_mut("project")).filter(|p| **p == json!({"type": "string", "description": "Another project"})) {
+                // A chat request's `ON` (ORR-1453): which of the projects, listed.
+                another["enum"] = json!(projects);
             }
             tool
         })

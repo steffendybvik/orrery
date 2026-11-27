@@ -89,7 +89,14 @@
       },
       "status": {
        "type": "string",
-       "description": "A status id (todo, in-progress, in-review, done…) or kind (started…)"
+       "enum": [
+        "backlog",
+        "todo",
+        "started",
+        "done",
+        "canceled"
+       ],
+       "description": "A kind; it lands in the first status of that kind"
       },
       "priority": {
        "type": [
@@ -199,7 +206,14 @@
        "type": "string"
       },
       "status": {
-       "type": "string"
+       "type": "string",
+       "enum": [
+        "backlog",
+        "todo",
+        "started",
+        "done",
+        "canceled"
+       ]
       },
       "priority": {
        "type": [
@@ -547,7 +561,14 @@
       },
       "status": {
        "type": "string",
-       "description": "A status id (todo, in-progress, in-review, done…) or kind (started…)"
+       "enum": [
+        "backlog",
+        "todo",
+        "started",
+        "done",
+        "canceled"
+       ],
+       "description": "A kind; it lands in the first status of that kind"
       },
       "priority": {
        "type": [
@@ -657,7 +678,14 @@
        "type": "string"
       },
       "status": {
-       "type": "string"
+       "type": "string",
+       "enum": [
+        "backlog",
+        "todo",
+        "started",
+        "done",
+        "canceled"
+       ]
       },
       "priority": {
        "type": [
@@ -1047,7 +1075,14 @@
       },
       "status": {
        "type": "string",
-       "description": "A status id (todo, in-progress, in-review, done…) or kind (started…)"
+       "enum": [
+        "backlog",
+        "todo",
+        "started",
+        "done",
+        "canceled"
+       ],
+       "description": "A kind; it lands in the first status of that kind"
       },
       "priority": {
        "type": [
@@ -1157,7 +1192,14 @@
        "type": "string"
       },
       "status": {
-       "type": "string"
+       "type": "string",
+       "enum": [
+        "backlog",
+        "todo",
+        "started",
+        "done",
+        "canceled"
+       ]
       },
       "priority": {
        "type": [
@@ -1561,7 +1603,14 @@
       },
       "status": {
        "type": "string",
-       "description": "A status id (todo, in-progress, in-review, done…) or kind (started…)"
+       "enum": [
+        "backlog",
+        "todo",
+        "started",
+        "done",
+        "canceled"
+       ],
+       "description": "A kind; it lands in the first status of that kind"
       },
       "priority": {
        "type": [
@@ -1671,7 +1720,14 @@
        "type": "string"
       },
       "status": {
-       "type": "string"
+       "type": "string",
+       "enum": [
+        "backlog",
+        "todo",
+        "started",
+        "done",
+        "canceled"
+       ]
       },
       "priority": {
        "type": [
@@ -2052,8 +2108,15 @@
      "type": "object",
      "properties": {
       "level": {
-       "type": "string",
-       "description": "error, warn or info; several comma-separated"
+       "type": "array",
+       "items": {
+        "type": "string",
+        "enum": [
+         "error",
+         "warn",
+         "info"
+        ]
+       }
       },
       "kind": {
        "type": "string",
@@ -2486,7 +2549,14 @@
       },
       "status": {
        "type": "string",
-       "description": "A status id (todo, in-progress, in-review, done…) or kind (started…)"
+       "enum": [
+        "backlog",
+        "todo",
+        "started",
+        "done",
+        "canceled"
+       ],
+       "description": "A kind; it lands in the first status of that kind"
       },
       "priority": {
        "type": [
@@ -2900,8 +2970,15 @@
      "type": "object",
      "properties": {
       "level": {
-       "type": "string",
-       "description": "error, warn or info; several comma-separated"
+       "type": "array",
+       "items": {
+        "type": "string",
+        "enum": [
+         "error",
+         "warn",
+         "info"
+        ]
+       }
       },
       "kind": {
        "type": "string",
@@ -3068,7 +3145,7 @@
    },
    {
     "name": "move_issues",
-    "description": "Moves issues in this project to a status (an id or a kind: todo, done…), or assigns them (a name, owner, or null). At once if the owner named each in their last message or is on its page; else asks them. Not a proposal waiting on the owner.",
+    "description": "Moves issues in this project to a status (a kind: todo, done…), or assigns them (a name, owner, or null). At once if the owner named each in their last message or is on its page; else asks them. Not a proposal waiting on the owner.",
     "inputSchema": {
      "type": "object",
      "required": [
@@ -3083,7 +3160,14 @@
        "description": "The issues, e.g. [\"ORR-12\", \"ORR-14\"]"
       },
       "status": {
-       "type": "string"
+       "type": "string",
+       "enum": [
+        "backlog",
+        "todo",
+        "started",
+        "done",
+        "canceled"
+       ]
       },
       "assignee": {
        "type": [
@@ -3093,7 +3177,11 @@
       },
       "project": {
        "type": "string",
-       "description": "Another project"
+       "description": "Another project",
+       "enum": [
+        "alpha",
+        "beta"
+       ]
       },
       "why": {
        "type": "string"
@@ -3377,7 +3465,14 @@
       },
       "status": {
        "type": "string",
-       "description": "A status id (todo, in-progress, in-review, done…) or kind (started…)"
+       "enum": [
+        "backlog",
+        "todo",
+        "started",
+        "done",
+        "canceled"
+       ],
+       "description": "A kind; it lands in the first status of that kind"
       },
       "priority": {
        "type": [
