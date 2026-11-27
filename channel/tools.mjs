@@ -10,6 +10,8 @@ import {guideContents, guideSection} from './guide-sections.mjs'
 // a tool on an issue finds its project from the id's key (HUB-12 is hub's), and the others take `project`.
 
 const STATUS = {type: 'string', description: 'A status id (todo, in-progress, in-review, done…) or kind (started…)'}
+// A status's kinds (`KINDS` in web/shared/roadmap/board.ts): update_issue moves an issue to its kind's first status.
+const STATUS_KINDS = ['backlog', 'todo', 'started', 'done', 'canceled']
 const PRIORITY = {type: ['string', 'null'], enum: ['P0', 'P1', 'P2', 'P3', null], description: 'P0 is urgent; null clears it'}
 // Said in a line rather than as a schema: it rides on two tools, and orrery says what's wrong with one it can't take.
 const CHOICES = {
@@ -20,7 +22,7 @@ const CHOICES = {
 const FIELDS = {
     title: {type: 'string'},
     notes: {type: 'string', description: 'The description, in Markdown'},
-    status: STATUS,
+    status: {type: 'string', enum: STATUS_KINDS, description: 'A kind; it lands in the first status of that kind'},
     priority: PRIORITY,
     labels: {type: 'array', items: {type: 'string'}},
     external: {type: 'array', items: {type: 'string'}, description: "Team tracker task ids or URLs"},
@@ -151,7 +153,7 @@ export const TOOLS = [
         name: 'events',
         description: "The orrery's event log, newest first, for debugging it: errors, and with Advanced on what it did and each change to the roadmap. details adds stacks.",
         inputSchema: {type: 'object', properties: {
-            level: {type: 'string', description: 'error, warn or info; several comma-separated'},
+            level: {type: 'array', items: {type: 'string', enum: ['error', 'warn', 'info']}},
             kind: {type: 'string', description: 'e.g. server.error, or session for all under it'},
             project: {type: 'string'},
             subject: {type: 'string', description: 'An issue id, release version, milestone or doc id'},
@@ -176,8 +178,8 @@ const SCHEDULE_FIELDS = {
     on_filter: {type: ['object', 'null'], description: 'What the event must also say: {"to": "in-review"}, {"by": "owner"}, {"level": "error"}'},
     timezone: {type: 'string', description: "An IANA zone, e.g. Europe/Oslo; the server's when left out"},
     presets: {type: 'array', items: {type: 'number'}, description: 'Preset ids for a message or session schedule, before notes'},
-    column: {type: 'string', description: "Where its issues start: an open status's id, or a kind (todo). An action schedule's: the status it moves them to"},
-    move_from: {type: 'array', items: {type: 'string'}, description: 'The statuses (ids or kinds) an action schedule moves issues out of; none, any open one'},
+    column: {type: 'string', enum: STATUS_KINDS, description: "Where its issues start: an open kind (todo). An action schedule's: the kind it moves them to"},
+    move_from: {type: 'array', items: {type: 'string', enum: STATUS_KINDS}, description: 'The kinds an action schedule moves issues out of; none, any open one'},
     milestone: {type: ['string', 'null']},
     priority: {type: ['string', 'null'], enum: ['P0', 'P1', 'P2', 'P3', null]},
     labels: {type: 'array', items: {type: 'string'}},
@@ -245,10 +247,10 @@ const CHAT_TOOLS = [
     },
     {
         name: 'move_issues',
-        description: "Moves issues in this project to a status (an id or a kind: todo, done…), or assigns them (a name, owner, or null). At once if the owner named each in their last message or is on its page; else asks them. Not a proposal waiting on the owner.",
+        description: "Moves issues in this project to a status (a kind: todo, done…), or assigns them (a name, owner, or null). At once if the owner named each in their last message or is on its page; else asks them. Not a proposal waiting on the owner.",
         inputSchema: {type: 'object', required: ['ids'], properties: {
             ids: {type: 'array', items: {type: 'string'}, description: 'The issues, e.g. ["ORR-12", "ORR-14"]'},
-            status: {type: 'string'},
+            status: {type: 'string', enum: STATUS_KINDS},
             assignee: {type: ['string', 'null']},
             ...ON,
             why: WHY,
@@ -600,7 +602,9 @@ export function toolsFor(projects, {chat = false, untrusted = false, loaded = []
         ? {...tool, inputSchema: {...tool.inputSchema, required: [...home ? [] : ['project'], ...tool.inputSchema.required ?? []], properties: {project, ...tool.inputSchema.properties}}}
         : tool.name === 'egress'
             ? {...tool, inputSchema: {...tool.inputSchema, properties: {...tool.inputSchema.properties, project: {...project, description: `Which project it's for, when no issue says: ${projects.join(', ')}`}}}}
-            : tool)
+            : tool.inputSchema.properties?.project === ON.project
+                ? {...tool, inputSchema: {...tool.inputSchema, properties: {...tool.inputSchema.properties, project: {...ON.project, enum: projects}}}}
+                : tool)
 }
 
 /** The tools against an orrery's API, writing as `claude` from `session`, for `person` (`ORRERY_PERSON`): on one project's (`api`,

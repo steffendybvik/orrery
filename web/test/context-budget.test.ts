@@ -50,16 +50,16 @@ describe('the tool list a session carries on every turn', () => {
         // epic (ORR-895) about 155, its tools waiting behind more_tools, and about 80 on an untrusted run, which has none of them.
         // Asking for its next issue (`next`, ORR-521) about 140, on a work session only. Linking its folder (ORR-1071) about
         // 60, its tool waiting behind more_tools. Making and changing releases (ORR-2) about 40, the same way, and listing, making
-        // and changing milestones (ORR-1397) about 50.
-        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(6_930)
-        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(7_815)
-        expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(9_560)
-        expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(4_860)
+        // and changing milestones (ORR-1397) about 50. The status kinds on update_issue, create_issue and schedules (ORR-1450, ORR-1452) about 85.
+        expect(size(tools(['greenhouse']))).toBeLessThanOrEqual(7_020)
+        expect(size(tools(['greenhouse', 'pantry']))).toBeLessThanOrEqual(7_905)
+        expect(size(tools(['greenhouse'], {loaded: ['schedules', 'secrets', 'debug']}))).toBeLessThanOrEqual(9_645)
+        expect(size(tools(['greenhouse'], {untrusted: true}))).toBeLessThanOrEqual(4_895)
         // The chat's fell from about 20,100 when its requests went behind request (ORR-624), reading GitHub (ORR-748) added about 1,500, and its own docs, egress and event log (ORR-750) about 1,900,
         // reading the epics (ORR-895) about 290, writing epics and milestones itself instead of asking (ORR-988) about 1,700,
-        // moving issues on another project (ORR-1063) about 55, and the milestones' summary in its list (ORR-1397) about 30.
-        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(14_770)
-        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(16_545)
+        // moving issues on another project (ORR-1063) about 55, and the milestones' summary in its list (ORR-1397) about 30, and the status kinds and project lists (ORR-1452, ORR-1453) about 75, 100 with two projects.
+        expect(size(tools(['greenhouse'], {chat: true}))).toBeLessThanOrEqual(14_845)
+        expect(size(tools(['greenhouse', 'pantry'], {chat: true}))).toBeLessThanOrEqual(16_650)
     })
 
     it('has no description, of a tool or of its arguments, longer than a short paragraph', () => {

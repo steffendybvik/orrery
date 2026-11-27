@@ -82,7 +82,14 @@
      },
      "status": {
       "type": "string",
-      "description": "A status id (todo, in-progress, in-review, done…) or kind (started…)"
+      "enum": [
+       "backlog",
+       "todo",
+       "started",
+       "done",
+       "canceled"
+      ],
+      "description": "A kind; it lands in the first status of that kind"
      },
      "priority": {
       "type": [
@@ -192,7 +199,14 @@
       "type": "string"
      },
      "status": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+       "backlog",
+       "todo",
+       "started",
+       "done",
+       "canceled"
+      ]
      },
      "priority": {
       "type": [
@@ -522,8 +536,15 @@
     "type": "object",
     "properties": {
      "level": {
-      "type": "string",
-      "description": "error, warn or info; several comma-separated"
+      "type": "array",
+      "items": {
+       "type": "string",
+       "enum": [
+        "error",
+        "warn",
+        "info"
+       ]
+      }
      },
      "kind": {
       "type": "string",
@@ -891,7 +912,14 @@
      },
      "status": {
       "type": "string",
-      "description": "A status id (todo, in-progress, in-review, done…) or kind (started…)"
+      "enum": [
+       "backlog",
+       "todo",
+       "started",
+       "done",
+       "canceled"
+      ],
+      "description": "A kind; it lands in the first status of that kind"
      },
      "priority": {
       "type": [
@@ -1221,8 +1249,15 @@
     "type": "object",
     "properties": {
      "level": {
-      "type": "string",
-      "description": "error, warn or info; several comma-separated"
+      "type": "array",
+      "items": {
+       "type": "string",
+       "enum": [
+        "error",
+        "warn",
+        "info"
+       ]
+      }
      },
      "kind": {
       "type": "string",
@@ -1389,7 +1424,7 @@
   },
   {
    "name": "move_issues",
-   "description": "Moves issues in this project to a status (an id or a kind: todo, done…), or assigns them (a name, owner, or null). At once if the owner named each in their last message or is on its page; else asks them. Not a proposal waiting on the owner.",
+   "description": "Moves issues in this project to a status (a kind: todo, done…), or assigns them (a name, owner, or null). At once if the owner named each in their last message or is on its page; else asks them. Not a proposal waiting on the owner.",
    "inputSchema": {
     "type": "object",
     "required": [
@@ -1404,7 +1439,14 @@
       "description": "The issues, e.g. [\"ORR-12\", \"ORR-14\"]"
      },
      "status": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+       "backlog",
+       "todo",
+       "started",
+       "done",
+       "canceled"
+      ]
      },
      "assignee": {
       "type": [
@@ -1651,7 +1693,14 @@
      },
      "status": {
       "type": "string",
-      "description": "A status id (todo, in-progress, in-review, done…) or kind (started…)"
+      "enum": [
+       "backlog",
+       "todo",
+       "started",
+       "done",
+       "canceled"
+      ],
+      "description": "A kind; it lands in the first status of that kind"
      },
      "priority": {
       "type": [
@@ -2003,14 +2052,28 @@
      },
      "column": {
       "type": "string",
-      "description": "Where its issues start: an open status's id, or a kind (todo). An action schedule's: the status it moves them to"
+      "enum": [
+       "backlog",
+       "todo",
+       "started",
+       "done",
+       "canceled"
+      ],
+      "description": "Where its issues start: an open kind (todo). An action schedule's: the kind it moves them to"
      },
      "move_from": {
       "type": "array",
       "items": {
-       "type": "string"
+       "type": "string",
+       "enum": [
+        "backlog",
+        "todo",
+        "started",
+        "done",
+        "canceled"
+       ]
       },
-      "description": "The statuses (ids or kinds) an action schedule moves issues out of; none, any open one"
+      "description": "The kinds an action schedule moves issues out of; none, any open one"
      },
      "milestone": {
       "type": [
@@ -2155,14 +2218,28 @@
      },
      "column": {
       "type": "string",
-      "description": "Where its issues start: an open status's id, or a kind (todo). An action schedule's: the status it moves them to"
+      "enum": [
+       "backlog",
+       "todo",
+       "started",
+       "done",
+       "canceled"
+      ],
+      "description": "Where its issues start: an open kind (todo). An action schedule's: the kind it moves them to"
      },
      "move_from": {
       "type": "array",
       "items": {
-       "type": "string"
+       "type": "string",
+       "enum": [
+        "backlog",
+        "todo",
+        "started",
+        "done",
+        "canceled"
+       ]
       },
-      "description": "The statuses (ids or kinds) an action schedule moves issues out of; none, any open one"
+      "description": "The kinds an action schedule moves issues out of; none, any open one"
      },
      "milestone": {
       "type": [
