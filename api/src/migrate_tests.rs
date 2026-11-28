@@ -231,6 +231,66 @@ async fn step_101_takes_away_dependencies_on_another_workspaces_issues() {
 }
 
 #[tokio::test]
+async fn step_103_gives_another_workspaces_statuses_plain_ids_and_what_points_at_them() {
+    // Work's statuses as ORR-1107 made them, `work-` in front; `work-proposed` would become `proposed`, so it stays.
+    let (path, mut conn) = sqlite_at(102).await;
+    exec(
+        &mut conn,
+        r#"INSERT INTO workspaces (id, name, created_at) VALUES ('work', 'Work', '2026-01-01T00:00:00.000Z');
+         INSERT INTO statuses (id, name, kind, color, position, workspace) VALUES
+            ('work-todo', 'Todo', 'todo', 'blue', 0, 'work'), ('work-in-review', 'In review', 'started', 'violet', 1, 'work'),
+            ('work-qa', 'QA', 'started', 'teal', 2, 'work'), ('work-proposed', 'Proposed', 'backlog', 'slate', 3, 'work');
+         INSERT INTO projects (id, name, key, created_by, created_at, updated_at, workspace) VALUES
+            ('mail', 'Mail', 'MAI', 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'work'),
+            ('shop', 'Shop', 'SHO', 'ziggy', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'default');
+         INSERT INTO issues (project, id, title, status, position, created_by, created_at, updated_at) VALUES
+            ('mail', 'MAI-1', 'Send', 'work-in-review', 0, 'ziggy', 'x', 'x'), ('mail', 'MAI-2', 'Odd', 'work-proposed', 1, 'ziggy', 'x', 'x'),
+            ('shop', 'SHO-1', 'Sell', 'in-review', 0, 'ziggy', 'x', 'x');
+         INSERT INTO schedules (id, project, title, cron, timezone, place, move_from, created_by, created_at, updated_at) VALUES
+            (7, 'mail', 'Sweep', '0 9 * * *', 'UTC', 'work-todo', '["work-in-review","started","work-qa"]', 'ziggy', 'x', 'x'),
+            (9, 'shop', 'Tidy', '0 9 * * *', 'UTC', 'todo', '["in-review"]', 'ziggy', 'x', 'x');
+         DELETE FROM schedules WHERE id = 9;
+         INSERT INTO schedules_across (projects, body, created_by, created_at, updated_at, workspace) VALUES
+            ('"*"', '{"title":"Sweep","column":"work-todo","move_from":["work-qa","todo"]}', 'ziggy', 'x', 'x', 'work');
+         INSERT INTO signals (project, issue, kind, status, created_by, created_at) VALUES ('mail', 'MAI-1', 'focus', 'work-todo', 'ziggy', 'x');
+         INSERT INTO issue_events (project, issue, field, "before", "after", created_by, created_at) VALUES
+            ('mail', 'MAI-1', 'status', 'work-todo', 'work-in-review', 'ziggy', 'x'), ('mail', 'MAI-1', 'title', 'work-todo', 'Send', 'ziggy', 'x');"#,
+    )
+    .await
+    .unwrap();
+    conn.close().await.unwrap();
+
+    assert_eq!(migrate(&path, None).await.unwrap().from, 102);
+    let mut conn = AnyConnection::connect(&format!("sqlite://{path}")).await.unwrap();
+    let work = rows(&mut conn, "SELECT id FROM statuses WHERE workspace = 'work' ORDER BY position").await;
+    assert_eq!(work, vec![some(&["todo"]), some(&["in-review"]), some(&["qa"]), some(&["work-proposed"])]);
+    assert_eq!(rows(&mut conn, "SELECT CAST(count(*) AS TEXT) FROM statuses WHERE workspace = 'default' AND id = 'in-review'").await, vec![some(&["1"])]);
+    let issues = rows(&mut conn, "SELECT id, status FROM issues ORDER BY id").await;
+    assert_eq!(issues, vec![some(&["MAI-1", "in-review"]), some(&["MAI-2", "work-proposed"]), some(&["SHO-1", "in-review"])]);
+    let schedules = rows(&mut conn, "SELECT place, move_from FROM schedules").await;
+    assert_eq!(schedules, vec![some(&["todo", r#"["in-review","started","qa"]"#])]);
+    let across =
+        rows(&mut conn, "SELECT json_extract(body, '$.column'), json_extract(body, '$.move_from'), json_extract(body, '$.title') FROM schedules_across").await;
+    assert_eq!(across, vec![some(&["todo", r#"["qa","todo"]"#, "Sweep"])]);
+    assert_eq!(rows(&mut conn, "SELECT status FROM signals").await, vec![some(&["todo"])]);
+    let events = rows(&mut conn, r#"SELECT field, "before", "after" FROM issue_events ORDER BY id"#).await;
+    assert_eq!(events, vec![some(&["status", "todo", "in-review"]), some(&["title", "work-todo", "Send"])], "only status activity");
+    // A deleted schedule's id isn't handed out again, and the same id is free in two workspaces now.
+    assert_eq!(rows(&mut conn, "SELECT CAST(seq AS TEXT) FROM sqlite_sequence WHERE name = 'schedules'").await, vec![some(&["9"])]);
+    exec(
+        &mut conn,
+        "PRAGMA foreign_keys = ON; INSERT INTO statuses (id, name, kind, color, position, workspace) VALUES ('done', 'Done', 'done', 'green', 4, 'work')",
+    )
+    .await
+    .unwrap();
+    let again = exec(&mut conn, "INSERT INTO statuses (id, name, kind, color, position, workspace) VALUES ('done', 'Done', 'done', 'green', 5, 'work')").await;
+    assert!(again.is_err(), "unique within a workspace");
+    exec(&mut conn, "INSERT INTO issues (project, id, title, status, position, created_by, created_at, updated_at) VALUES ('mail', 'MAI-3', 'New', 'done', 2, 'z', 'x', 'x')")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn a_new_orrery_has_the_default_workspace_with_nobody_in_it_yet() {
     let (path, conn) = sqlite_at(0).await;
     conn.close().await.unwrap();

@@ -24,7 +24,7 @@ function wantedBy(id: string, owner: boolean): string {
     return `(c.asks IS NOT NULL OR lower(i.assignee) = ${quoted} OR lower(c.body) LIKE ${mention}
         OR EXISTS (SELECT 1 FROM comments o WHERE o.project = c.project AND o.issue = c.issue AND ${theirs('o')}
             AND o.id = (SELECT max(p.id) FROM comments p WHERE p.project = c.project AND p.issue = c.issue AND p.id < c.id))
-        OR (EXISTS (SELECT 1 FROM statuses s WHERE s.id = i.status AND s.kind = 'done')
+        OR (EXISTS (SELECT 1 FROM statuses s WHERE s.id = i.status AND s.workspace = (SELECT workspace FROM projects WHERE id = i.project) AND s.kind = 'done')
             AND NOT EXISTS (SELECT 1 FROM comments l WHERE l.project = c.project AND l.issue = c.issue AND l.id > c.id AND NOT ${PERSONS_WORDS('l')})))`
 }
 
@@ -178,7 +178,7 @@ export abstract class OwnerStore extends StatusStore {
         const rows = await this.all<EventRow>(`
             SELECT e.* FROM issue_events e
             WHERE e.field = 'status' AND e.created_at >= ?
-                AND EXISTS (SELECT 1 FROM statuses s WHERE s.id = e."after" AND s.kind = 'done')
+                AND EXISTS (SELECT 1 FROM statuses s WHERE s.id = e."after" AND s.workspace = (SELECT workspace FROM projects WHERE id = e.project) AND s.kind = 'done')
                 AND EXISTS (SELECT 1 FROM comments c JOIN issues i ON i.project = c.project AND i.id = c.issue WHERE c.project = e.project AND c.issue = e.issue AND ${mine})
             ORDER BY e.created_at DESC, e.id DESC LIMIT 2000`, new Date(since).toISOString())
         return rows.reverse().map(row => {

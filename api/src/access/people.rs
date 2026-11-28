@@ -458,7 +458,7 @@ impl<'c> People<'c> {
     /// name stays on history.
     pub(crate) async fn retire(&mut self, id: &str, heir: Option<&str>, actor: &Actor) -> Result<()> {
         let open = sqlx::query(sql(
-            "SELECT project, id, assignee FROM issues WHERE lower(assignee) = ? AND status NOT IN (SELECT id FROM statuses WHERE kind IN ('done', 'canceled'))",
+            "SELECT project, id, assignee FROM issues WHERE lower(assignee) = ? AND status NOT IN (SELECT id FROM statuses WHERE kind IN ('done', 'canceled') AND workspace = (SELECT workspace FROM projects WHERE id = issues.project))",
         ))
         .bind(id)
         .fetch_all(&mut *self.conn)

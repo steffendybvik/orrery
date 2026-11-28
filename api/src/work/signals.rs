@@ -132,7 +132,7 @@ impl<'c> Signals<'c> {
                     "SELECT {COLUMNS} FROM signals s WHERE s.project = ? AND (s.owned = 1 OR s.person IS NOT NULL) AND s.delivered_to = '[]' \
                      AND s.target IS NULL AND s.created_at >= ? \
                      AND NOT (s.kind = 'focus' AND EXISTS (SELECT 1 FROM issues i WHERE i.project = s.project AND i.id = s.issue \
-                       AND i.status IN (SELECT id FROM statuses WHERE kind IN ('done', 'canceled')))) ORDER BY s.id"
+                       AND i.status IN (SELECT id FROM statuses WHERE kind IN ('done', 'canceled') AND workspace = (SELECT workspace FROM projects WHERE id = i.project)))) ORDER BY s.id"
                 )))
                 .bind(project)
                 .bind(a_day_ago())
@@ -143,7 +143,7 @@ impl<'c> Signals<'c> {
                 sqlx::query(sql(&format!(
                     "SELECT {COLUMNS} FROM signals WHERE id IN (SELECT s.id FROM signals s LEFT JOIN issues i ON i.project = s.project AND i.id = s.issue \
                      WHERE s.project = ? AND s.owned = 1 AND s.delivered_to = '[]' AND s.created_at >= ? \
-                       AND ((s.kind = 'focus' AND i.schedule IS NOT NULL AND i.status NOT IN (SELECT id FROM statuses WHERE kind IN ('done', 'canceled'))) OR s.kind = 'message')) \
+                       AND ((s.kind = 'focus' AND i.schedule IS NOT NULL AND i.status NOT IN (SELECT id FROM statuses WHERE kind IN ('done', 'canceled') AND workspace = (SELECT workspace FROM projects WHERE id = i.project))) OR s.kind = 'message')) \
                      ORDER BY id"
                 )))
                 .bind(project)

@@ -131,54 +131,79 @@ async fn a_status_in_use_moves_its_issues_where_into_says() {
     assert_eq!(read.body["status"], "in-progress", "{}", read.body);
 }
 
-/// Statuses are their workspace's (ORR-1107): a new workspace starts with its own copy of the set orrery ships, its
-/// ids its own, and an issue there takes its workspace's statuses alone, by id or by kind.
+/// Statuses are their workspace's (ORR-1107): a new workspace starts with its own copy of the set orrery ships, with
+/// the same ids (ORR-1442), and an issue there takes its workspace's statuses alone, by id or by kind.
 #[tokio::test]
 async fn each_workspace_has_its_own_statuses() {
     let api = TestApi::new().await;
     api.team().await;
     let rockets = api.acme(&["sam"]).await;
-    let ids = |list: &serde_json::Value| list.as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap().to_string()).collect::<Vec<_>>();
     let acme = api.get("/api/statuses").header("orrery-workspace", "acme").send().await;
-    assert_eq!(ids(&acme.body), ["acme-backlog", "acme-todo", "acme-in-progress", "acme-in-review", "acme-done", "acme-canceled"], "{}", acme.body);
-    assert_eq!(ids(&api.get("/api/statuses").send().await.body), ["backlog", "todo", "in-progress", "in-review", "done", "canceled"]);
+    assert_eq!(ids(&acme.body), ["backlog", "todo", "in-progress", "in-review", "done", "canceled"], "{}", acme.body);
+    assert_eq!(api.count("SELECT count(*) FROM statuses WHERE workspace = 'acme'").await, 6, "its own rows");
 
-    let made = api.post("/api/statuses", serde_json::json!({"name": "Testing", "kind": "started"})).header("orrery-workspace", "acme").send().await;
-    assert_eq!((made.status.as_u16(), made.body["id"].as_str()), (201, Some("acme-testing")), "{}", made.body);
-    assert!(!ids(&api.get("/api/statuses").send().await.body).contains(&"acme-testing".to_string()), "default's list doesn't have it");
+    let made = api.post("/api/statuses", json!({"name": "Testing", "kind": "started"})).header("orrery-workspace", "acme").send().await;
+    assert_eq!((made.status.as_u16(), made.body["id"].as_str()), (201, Some("testing")), "{}", made.body);
+    assert!(!ids(&api.get("/api/statuses").send().await.body).contains(&"testing".to_string()), "default's list doesn't have it");
 
-    let by_kind = api.post(&format!("/api/projects/{rockets}/issues"), serde_json::json!({"title": "Fuel", "status": "todo"})).send().await;
-    assert_eq!((by_kind.status.as_u16(), by_kind.body["status"].as_str()), (201, Some("acme-todo")), "{}", by_kind.body);
-    let theirs = api.post(&format!("/api/projects/{rockets}/issues"), serde_json::json!({"title": "Stray", "status": "in-progress"})).send().await;
-    assert_eq!(theirs.status, 400, "default's status isn't one for Acme's issues: {}", theirs.body);
+    let by_kind = api.post(&format!("/api/projects/{rockets}/issues"), json!({"title": "Fuel", "status": "todo"})).send().await;
+    assert_eq!((by_kind.status.as_u16(), by_kind.body["status"].as_str()), (201, Some("todo")), "{}", by_kind.body);
+    let ours = api.post("/api/statuses", json!({"name": "QA", "kind": "started"})).send().await;
+    assert_eq!(ours.body["id"], "qa", "{}", ours.body);
+    let theirs = api.post(&format!("/api/projects/{rockets}/issues"), json!({"title": "Stray", "status": "qa"})).send().await;
+    assert_eq!(theirs.status, 400, "default's own status isn't one for Acme's issues: {}", theirs.body);
     let ana = api.signed(api.get("/api/statuses").header("orrery-workspace", "acme"), "ana").await.send().await;
     assert_eq!(ana.status, 404, "{}", ana.body);
 }
 
-/// A status id one workspace has never blocks another's (ORR-1350): `default` naming one `Acme review` takes
-/// `acme-review`, and Acme's own Review then gets `acme-review-2`, as default's Acme testing does after Acme's Testing.
+/// An issue outside `default` moves by the plain id (ORR-1442), and the id its status had before, with the workspace's
+/// id in front, still finds it, as stored scripts send it; the issue reads back the plain one.
 #[tokio::test]
-async fn a_status_id_another_workspace_has_is_given_a_suffix_both_ways() {
+async fn an_issue_in_another_workspace_moves_by_the_plain_id_or_the_old_one() {
     let api = TestApi::new().await;
-    api.owner().await;
-    api.acme(&["sam"]).await;
-    let ours = api.post("/api/statuses", serde_json::json!({"name": "Acme review", "kind": "started"})).send().await;
-    assert_eq!((ours.status.as_u16(), ours.body["id"].as_str()), (201, Some("acme-review")), "{}", ours.body);
-    let theirs = api.post("/api/statuses", serde_json::json!({"name": "Review", "kind": "started"})).header("orrery-workspace", "acme").send().await;
-    assert_eq!((theirs.status.as_u16(), theirs.body["id"].as_str()), (201, Some("acme-review-2")), "{}", theirs.body);
-
-    let theirs = api.post("/api/statuses", serde_json::json!({"name": "Testing", "kind": "started"})).header("orrery-workspace", "acme").send().await;
-    assert_eq!(theirs.body["id"], "acme-testing", "{}", theirs.body);
-    let ours = api.post("/api/statuses", serde_json::json!({"name": "Acme testing", "kind": "started"})).send().await;
-    assert_eq!((ours.status.as_u16(), ours.body["id"].as_str()), (201, Some("acme-testing-2")), "{}", ours.body);
-
-    let again = api.post("/api/statuses", serde_json::json!({"name": "Testing", "kind": "started"})).header("orrery-workspace", "acme").send().await;
-    assert_eq!(again.status, 409, "{}", again.body);
-    assert!(ids(&api.get("/api/statuses").send().await.body).iter().all(|id| id != "acme-review-2" && id != "acme-testing"));
+    api.team().await;
+    let rockets = api.acme(&["sam"]).await;
+    let issue = api.issue(&rockets, json!({"title": "Fuel"})).await;
+    let path = format!("/api/projects/{rockets}/issues/{issue}");
+    let moved = api.patch(&path, json!({"status": "in-progress"})).send().await;
+    assert_eq!((moved.status.as_u16(), moved.body["status"].as_str()), (200, Some("in-progress")), "{}", moved.body);
+    let old = api.patch(&path, json!({"status": "acme-in-review"})).send().await;
+    assert_eq!((old.status.as_u16(), old.body["status"].as_str()), (200, Some("in-review")), "{}", old.body);
+    let listed = api.get(&format!("/api/projects/{rockets}/issues?status=acme-in-review")).send().await;
+    assert_eq!(listed.body.as_array().map(Vec::len), Some(1), "{}", listed.body);
+    let elsewhere = api.patch(&path, json!({"status": "other-in-review"})).send().await;
+    assert_eq!(elsewhere.status, 400, "only its own workspace's id in front: {}", elsewhere.body);
+    // The old id finds the status on its own routes too.
+    let renamed = api.patch("/api/statuses/acme-in-review", json!({"name": "Review"})).header("orrery-workspace", "acme").send().await;
+    assert_eq!((renamed.status.as_u16(), renamed.body["id"].as_str()), (200, Some("in-review")), "{}", renamed.body);
+    assert_eq!(api.get("/api/statuses").send().await.body[3]["name"], "In review", "default's own is untouched");
 }
 
-/// A workspace whose id starts one of `default`'s still gets every status of its own (ORR-1350): `in` asks for
-/// `in-progress`, which is default's, and is given `in-progress-2` rather than going without.
+/// The same id in two workspaces is no clash (ORR-1442): each makes `review`, a second in one is a 409, and removing
+/// one moves only its own workspace's issues.
+#[tokio::test]
+async fn a_status_id_another_workspace_has_is_no_clash() {
+    let api = TestApi::new().await;
+    api.team().await;
+    let rockets = api.acme(&["sam"]).await;
+    let primes = api.project("Primes").await;
+    let ours = api.post("/api/statuses", json!({"name": "Review", "kind": "started"})).send().await;
+    assert_eq!((ours.status.as_u16(), ours.body["id"].as_str()), (201, Some("review")), "{}", ours.body);
+    let theirs = api.post("/api/statuses", json!({"name": "Review", "kind": "started"})).header("orrery-workspace", "acme").send().await;
+    assert_eq!((theirs.status.as_u16(), theirs.body["id"].as_str()), (201, Some("review")), "{}", theirs.body);
+    let again = api.post("/api/statuses", json!({"name": "Review", "kind": "started"})).header("orrery-workspace", "acme").send().await;
+    assert_eq!(again.status, 409, "{}", again.body);
+
+    let mine = api.issue(&primes, json!({"title": "Sieve", "status": "review"})).await;
+    let acmes = api.issue(&rockets, json!({"title": "Fuel", "status": "review"})).await;
+    let gone = api.delete("/api/statuses/review?into=todo").header("orrery-workspace", "acme").send().await;
+    assert_eq!(gone.status, 204, "{}", gone.body);
+    assert_eq!(api.get(&format!("/api/projects/{rockets}/issues/{acmes}")).send().await.body["status"], "todo");
+    assert_eq!(api.get(&format!("/api/projects/{primes}/issues/{mine}")).send().await.body["status"], "review", "default's stays");
+    assert!(ids(&api.get("/api/statuses").send().await.body).contains(&"review".to_string()));
+}
+
+/// A workspace whose id starts one of `default`'s gets the same ids as any other (ORR-1442): `in`'s are plain too.
 #[tokio::test]
 async fn a_workspace_named_like_a_default_status_still_gets_its_own() {
     let api = TestApi::new().await;
@@ -187,6 +212,6 @@ async fn a_workspace_named_like_a_default_status_still_gets_its_own() {
     api.run("INSERT INTO workspace_members (workspace, person, role, created_at) VALUES ('in', 'sam', 'owner', '2026-11-01T00:00:00.000Z')", &[]).await;
     let listed = api.get("/api/statuses").header("orrery-workspace", "in").send().await;
     assert_eq!(listed.status, 200, "{}", listed.body);
-    assert_eq!(ids(&listed.body), ["in-backlog", "in-todo", "in-progress-2", "in-review-2", "in-done", "in-canceled"], "{}", listed.body);
-    assert_eq!(api.count("SELECT count(*) FROM statuses WHERE id = 'in-progress' AND workspace = 'default'").await, 1);
+    assert_eq!(ids(&listed.body), ["backlog", "todo", "in-progress", "in-review", "done", "canceled"], "{}", listed.body);
+    assert_eq!(api.count("SELECT count(*) FROM statuses WHERE id = 'in-progress'").await, 2);
 }

@@ -1356,8 +1356,8 @@ pub(crate) fn resolve_status(statuses: &[crate::board::issues::Status], status: 
         }
     }
     let Some(text) = status else { return first("backlog") };
-    if statuses.iter().any(|s| s.id == text) {
-        return Ok(text.to_string());
+    if let Some(status) = statuses.iter().find(|s| s.is(text)) {
+        return Ok(status.id.clone());
     }
     if KINDS.contains(&text) {
         return first(text);

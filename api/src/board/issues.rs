@@ -4,7 +4,7 @@
 // counts rolled up from its sub-issues. Writing issues stays the Nuxt server's for now, as a change wakes sessions
 // (ORR-929); the router sends only these reads here.
 use crate::access::scope::Workspace;
-use crate::board::statuses::Statuses;
+use crate::board::statuses::{self, Statuses};
 use crate::db::sql;
 use crate::error::{ApiError, Result};
 use crate::text::match_of;
@@ -73,10 +73,19 @@ fn shown_number(id: &str) -> Option<String> {
     Some(number.to_string())
 }
 
-/// A status as the board needs it: its id and kind, in board order.
+/// A status as the board needs it: its id and kind, in board order, and the id it had outside `default` before ids
+/// were the workspace's own (`work-todo`, ORR-1442), which still finds it.
 pub(crate) struct Status {
     pub id: String,
     pub kind: String,
+    pub alias: Option<String>,
+}
+
+impl Status {
+    /// Whether `sent` names this status: its id, or the id it had.
+    pub fn is(&self, sent: &str) -> bool {
+        self.id == sent || self.alias.as_deref() == Some(sent)
+    }
 }
 
 /// How many of an issue's leaves are in each kind (`Kinds`), in `KINDS` order.
@@ -317,12 +326,15 @@ impl<'c> Issues<'c> {
 
     /// The statuses of `workspace`.
     pub(crate) async fn statuses_of(&mut self, workspace: Workspace) -> Result<Vec<Status>> {
-        let listed = Statuses::of(&mut *self.conn, workspace).list().await?;
+        let listed = Statuses::of(&mut *self.conn, workspace.clone()).list().await?;
         Ok(listed
             .as_array()
             .into_iter()
             .flatten()
-            .map(|s| Status { id: s["id"].as_str().unwrap_or_default().into(), kind: s["kind"].as_str().unwrap_or_default().into() })
+            .map(|s| {
+                let id: String = s["id"].as_str().unwrap_or_default().into();
+                Status { alias: statuses::alias(&workspace, &id), id, kind: s["kind"].as_str().unwrap_or_default().into() }
+            })
             .collect())
     }
 
@@ -1010,8 +1022,8 @@ fn id_or_title(record: &Map<String, Value>) -> (String, String) {
 fn status_ids(statuses: &[Status], sent: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for one in sent.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-        let found: Vec<String> = if statuses.iter().any(|s| s.id == one) {
-            vec![one.to_string()]
+        let found: Vec<String> = if let Some(status) = statuses.iter().find(|s| s.is(one)) {
+            vec![status.id.clone()]
         } else {
             let kind = KINDS[1..].iter().find(|k| **k == one).copied().or_else(|| LEGACY_KINDS.iter().find(|(old, _)| *old == one).map(|(_, kind)| *kind));
             kind.map(|kind| statuses.iter().filter(|s| s.kind == kind).map(|s| s.id.clone()).collect()).unwrap_or_default()

@@ -5,6 +5,7 @@ import {CLOSED, heaviest, modelFor} from '#shared/roadmap'
 import {badRequest, checkInput, conflict, notFound} from '../utils/input'
 import type {Actor, IssueRecord} from './schema'
 import {AGENT, SIGNAL_FIELDS, MILESTONE_SIGNAL_FIELDS, LEGACY_KINDS, UPLOAD_FIELDS, UPLOAD_LIMIT, IMAGE_TYPES, nullable, stamp} from './schema'
+import {statusNamed} from './statuses'
 import {IssueStore} from './issues'
 import {sessionWork} from './session-work'
 import {EVERY} from '../utils/pool'
@@ -196,18 +197,19 @@ export abstract class SignalStore extends IssueStore {
         const input = checkInput(body ?? {}, MILESTONE_SIGNAL_FIELDS)
         let status: string | null = null
         if (input.status) {
-            // The project's workspace's (ORR-1254): a second workspace's ids start with its own (`work-todo`).
+            // The project's workspace's (ORR-1254), an id it had (`work-todo`) as the id it has now (ORR-1442).
             const all = await this.statusesOf(project)
+            const workspace = (await this.projectRow(project)).workspace
             const words = String(input.status).split(',').map(s => s.trim())
             for (const one of words) {
-                const ids = await this.statusIds(one, all)
+                const ids = await this.statusIds(one, all, workspace)
                 const statuses = all.filter(s => ids.includes(s.id))
                 if (!statuses.length || statuses.some(s => CLOSED.includes(s.kind))) {
                     throw badRequest(`"status" has "${one}", not an open status (${all.filter(s => !CLOSED.includes(s.kind)).map(s => s.id).join(', ')}) or kind (backlog, todo, started)`)
                 }
             }
             // An old word (`doing`) is kept as the kind it means now, which is what the scope matches.
-            status = words.map(one => all.some(s => s.id === one) ? one : LEGACY_KINDS[one] ?? one).join(',')
+            status = words.map(one => statusNamed(all, one, workspace)?.id ?? LEGACY_KINDS[one] ?? one).join(',')
         }
         const release = input.release ? (await this.releaseRow(project, String(input.release))).version : null
         const epic = input.epic === undefined || input.epic === null ? null : (await this.epicRow(input.epic as string)).id

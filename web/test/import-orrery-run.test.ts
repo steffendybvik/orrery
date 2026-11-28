@@ -103,10 +103,10 @@ describe('importOrrery, into a new workspace', () => {
         expect(body(to.writes, 'PATCH /settings')).toEqual({tint: '#00ff00', focus_prompt: 'Focus'})
         expect(report.settings).toEqual(['tint', 'focus_prompt'])
 
-        // Statuses: Todo matched and recoloured, Review made with an id free across the server, Doing moved into it and
-        // dropped, and Done left as nothing takes its kind.
-        expect(body(to.writes, 'POST /statuses')).toEqual({id: 'work-review-2', name: 'Review', kind: 'started', color: 'violet', position: 1})
-        expect(lines).toContain('DELETE /statuses/w-doing?into=work-review-2')
+        // Statuses: Todo matched and recoloured, Review made with its own id, as another workspace's is no clash (ORR-1442),
+        // Doing moved into it and dropped, and Done left as nothing takes its kind.
+        expect(body(to.writes, 'POST /statuses')).toEqual({id: 'review', name: 'Review', kind: 'started', color: 'violet', position: 1})
+        expect(lines).toContain('DELETE /statuses/w-doing?into=review')
         expect(lines).not.toContain('DELETE /statuses/w-done?into=undefined')
         expect(body(to.writes, 'PATCH /statuses/w-todo')).toEqual({color: 'blue', position: 0})
         expect(report.statuses).toEqual({matched: 1, made: ['Review'], dropped: ['Doing']})

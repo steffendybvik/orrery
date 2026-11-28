@@ -76,11 +76,11 @@ describe('links', () => {
 describe('planStatuses', () => {
     it('matches by name and kind, makes the rest with a free id, and drops the workspace\'s own the source lacks', () => {
         const source = [{id: 'todo', name: 'Todo', kind: 'todo'}, {id: 'qa', name: 'QA', kind: 'started'}]
-        const target = [{id: 'work-todo', name: 'todo', kind: 'todo'}, {id: 'work-doing', name: 'Doing', kind: 'started'}]
-        const plan = planStatuses(source, target, ['work-todo', 'work-doing', 'work-qa'], 'work')
-        expect(plan.map.get('todo')).toBe('work-todo')
-        expect(plan.make).toEqual([{id: 'work-qa-2', name: 'QA', kind: 'started'}])
-        expect(plan.drop).toEqual([{id: 'work-doing', name: 'Doing', into: 'work-qa-2'}])
+        const target = [{id: 'todo', name: 'todo', kind: 'todo'}, {id: 'doing', name: 'Doing', kind: 'started'}]
+        const plan = planStatuses(source, target, ['todo', 'doing', 'qa'])
+        expect(plan.map.get('todo')).toBe('todo')
+        expect(plan.make).toEqual([{id: 'qa-2', name: 'QA', kind: 'started'}])
+        expect(plan.drop).toEqual([{id: 'doing', name: 'Doing', into: 'qa-2'}])
     })
 })
 

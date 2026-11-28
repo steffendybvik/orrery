@@ -316,7 +316,7 @@ impl IssueWrites<'_> {
             Some(Value::Bool(true)) => true,
             Some(other) => return Err(ApiError::bad_request(format!("\"wakes\" should be true or false, not {}", js(other)))),
         };
-        let kind: Option<String> = sqlx::query(sql("SELECT s.kind FROM issues i JOIN statuses s ON s.id = i.status WHERE i.project = ? AND i.id = ?"))
+        let kind: Option<String> = sqlx::query(sql("SELECT s.kind FROM issues i JOIN statuses s ON s.id = i.status AND s.workspace = (SELECT workspace FROM projects WHERE id = i.project) WHERE i.project = ? AND i.id = ?"))
             .bind(project)
             .bind(&issue)
             .fetch_optional(&mut *self.conn)
